@@ -103,6 +103,15 @@ export function adminHasPermission(permission) {
     return true
   }
   const permissions = new Set(normalizePermissions(admin))
+  // Backward compatibility:
+  // old operator accounts may only have config permissions.
+  if (permissions.has("configs:manage")) {
+    permissions.add("configs:view")
+    permissions.add("algo:view")
+    permissions.add("algo:manage")
+  } else if (permissions.has("configs:view")) {
+    permissions.add("algo:view")
+  }
   if (permissions.has("*") || permissions.has(permission)) {
     return true
   }

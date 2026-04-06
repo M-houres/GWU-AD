@@ -1,0 +1,20 @@
+<view class="container">
+  <view class="card">
+    <view class="title" style="font-size: 30rpx;">账号信息</view>
+    <view class="gap-16">
+      <view class="row"><view class="muted">昵称</view><view>{{ user.nickname || "-" }}</view></view>
+      <view class="row"><view class="muted">手机号</view><view>{{ user.phone || "-" }}</view></view>
+      <view class="row"><view class="muted">积分</view><view>{{ user.credits || 0 }}</view></view>
+      <view class="row"><view class="muted">来源</view><view>{{ user.source || "-" }}</view></view>
+    </view>
+  </view>
+
+  <view class="card gap-16">
+    <view class="title" style="font-size: 30rpx;">操作</view>
+    <view class="row gap-16">
+      <button class="btn-secondary" bindtap="onGoPay">积分充值</button>
+      <button class="btn-secondary" bindtap="onReload">刷新资料</button>
+      <button class="btn-primary" bindtap="onLogout">退出登录</button>
+    </view>
+  </view>
+</view>

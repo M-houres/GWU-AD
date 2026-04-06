@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <AdminShell title="配置中心" subtitle="运营填写后即可生效，支持审计与就绪检查">
     <div class="grid gap-4 xl:grid-cols-[220px_minmax(0,1fr)_300px]">
       <section class="rounded-2xl border border-[#d9dee4] bg-white p-4">
@@ -8,7 +8,7 @@
             v-for="tab in tabs"
             :key="tab.key"
             class="w-full rounded-2xl border px-3 py-3 text-left transition"
-            :class="activeTab === tab.key ? 'border-[#0f7a5f] bg-[linear-gradient(150deg,#edf7f3,#f8fcfb)]' : 'border-[#d6dee6] bg-white hover:border-[#9ab8ac]'"
+            :class="[activeTab === tab.key ? 'border-[#0f7a5f] bg-[linear-gradient(150deg,#edf7f3,#f8fcfb)]' : 'border-[#d6dee6] bg-white hover:border-[#9ab8ac]', { 'is-active': activeTab === tab.key }]"
             @click="activeTab = tab.key"
           >
             <div class="flex items-start justify-between gap-2">
@@ -31,7 +31,7 @@
           <p class="mt-2 text-sm leading-6 text-[#5b6771]">{{ currentGuide.lead }}</p>
           <p
             v-if="readinessMap[activeTab]?.message"
-            class="mt-3 rounded-xl border border-[#dce4eb] bg-[#f8fbff] px-3 py-2 text-sm text-[#415160]"
+            class="mt-3 rounded-xl border border-[#dce4eb] bg-white px-3 py-2 text-sm text-[#415160]"
           >
             当前状态：{{ readinessMap[activeTab]?.message }}
           </p>
@@ -52,7 +52,7 @@
                 :key="item.value"
                 type="button"
                 class="rounded-2xl border px-3 py-3 text-left text-sm transition"
-                :class="forms.llm.provider === item.value ? 'border-[#0f7a5f] bg-[linear-gradient(150deg,#edf7f3,#f8fcfb)]' : 'border-[#d6dee6] bg-white hover:border-[#9ab8ac]'"
+                :class="[forms.llm.provider === item.value ? 'border-[#0f7a5f] bg-[linear-gradient(150deg,#edf7f3,#f8fcfb)]' : 'border-[#d6dee6] bg-white hover:border-[#9ab8ac]', { 'is-active': forms.llm.provider === item.value }]"
                 @click="pickLlm(item.value)"
               >
                 <div class="font-semibold text-[#21303a]">{{ item.label }}</div>
@@ -77,7 +77,7 @@
                 :key="item.value"
                 type="button"
                 class="rounded-2xl border px-3 py-3 text-left text-sm transition"
-                :class="forms.payment.provider === item.value ? 'border-[#0f7a5f] bg-[linear-gradient(150deg,#edf7f3,#f8fcfb)]' : 'border-[#d6dee6] bg-white hover:border-[#9ab8ac]'"
+                :class="[forms.payment.provider === item.value ? 'border-[#0f7a5f] bg-[linear-gradient(150deg,#edf7f3,#f8fcfb)]' : 'border-[#d6dee6] bg-white hover:border-[#9ab8ac]', { 'is-active': forms.payment.provider === item.value }]"
                 @click="forms.payment.provider = item.value"
               >
                 <div class="font-semibold text-[#21303a]">{{ item.label }}</div>
@@ -96,7 +96,7 @@
               <label class="space-y-1 text-sm"><span>商户证书序列号</span><input v-model="forms.payment.merchant_serial_no" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" /></label>
               <label class="space-y-1 text-sm"><span>APIv3 Key</span><input v-model="forms.payment.api_v3_key" type="password" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" /></label>
               <label class="space-y-1 text-sm md:col-span-2"><span>公网回调地址或域名</span><input v-model="forms.payment.notify_url" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" placeholder="https://your.domain" /></label>
-              <div class="rounded-xl border border-[#dce4eb] bg-[#f8fbff] px-3 py-2 text-xs leading-5 text-[#4f5d69] md:col-span-2">
+              <div class="rounded-xl border border-[#dce4eb] bg-white px-3 py-2 text-xs leading-5 text-[#4f5d69] md:col-span-2">
                 实际微信回调地址：{{ paymentNotifyPreview }}
               </div>
               <label class="space-y-1 text-sm md:col-span-2"><span>商户私钥 PEM</span><textarea v-model="forms.payment.merchant_private_key_pem" rows="4" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2"></textarea></label>
@@ -107,7 +107,7 @@
               <label class="space-y-1 text-sm"><span>支付宝 AppID</span><input v-model="forms.payment.app_id" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" /></label>
               <label class="space-y-1 text-sm"><span>支付宝网关</span><input v-model="forms.payment.gateway_url" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" placeholder="https://openapi.alipay.com/gateway.do" /></label>
               <label class="space-y-1 text-sm md:col-span-2"><span>公网回调地址或域名</span><input v-model="forms.payment.notify_url" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" placeholder="https://your.domain" /></label>
-              <div class="rounded-xl border border-[#dce4eb] bg-[#f8fbff] px-3 py-2 text-xs leading-5 text-[#4f5d69] md:col-span-2">
+              <div class="rounded-xl border border-[#dce4eb] bg-white px-3 py-2 text-xs leading-5 text-[#4f5d69] md:col-span-2">
                 实际支付宝回调地址：{{ paymentNotifyPreview }}
               </div>
               <label class="space-y-1 text-sm md:col-span-2"><span>应用私钥 PEM</span><textarea v-model="forms.payment.app_private_key_pem" rows="4" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2"></textarea></label>
@@ -116,17 +116,17 @@
           </template>
 
           <template v-else-if="activeTab === 'billing'">
-            <section class="rounded-2xl border border-[#dce4eb] bg-[#f8fbff] p-4">
+            <section class="rounded-2xl border border-[#dce4eb] bg-white p-4">
               <div class="text-sm font-semibold text-[#1f2c35]">任务计费（按字符）</div>
               <div class="mt-1 text-xs leading-5 text-[#5f6d79]">计费口径：任务实际扣费 = 字符数 × 单价。建议按典型字数（1k/5k/8k）先做换算。</div>
               <div class="mt-3 grid gap-3 md:grid-cols-3">
                 <label class="space-y-1 text-sm"><span>AIGC 单价</span><input v-model.number="forms.billing.aigc_rate" type="number" min="1" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" /></label>
                 <label class="space-y-1 text-sm"><span>降重单价</span><input v-model.number="forms.billing.dedup_rate" type="number" min="1" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" /></label>
-                <label class="space-y-1 text-sm"><span>降AIGC率单价</span><input v-model.number="forms.billing.rewrite_rate" type="number" min="1" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" /></label>
+                <label class="space-y-1 text-sm"><span>学术润色单价</span><input v-model.number="forms.billing.rewrite_rate" type="number" min="1" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" /></label>
               </div>
             </section>
 
-            <section class="rounded-2xl border border-[#dce4eb] bg-[#f8fbff] p-4">
+            <section class="rounded-2xl border border-[#dce4eb] bg-white p-4">
               <div class="flex flex-wrap items-center justify-between gap-2">
                 <div>
                   <div class="text-sm font-semibold text-[#1f2c35]">充值套餐（前台展示）</div>
@@ -189,7 +189,7 @@
                 :key="item.value"
                 type="button"
                 class="rounded-2xl border px-3 py-3 text-left text-sm transition"
-                :class="forms.login.sms_provider === item.value ? 'border-[#0f7a5f] bg-[linear-gradient(150deg,#edf7f3,#f8fcfb)]' : 'border-[#d6dee6] bg-white hover:border-[#9ab8ac]'"
+                :class="[forms.login.sms_provider === item.value ? 'border-[#0f7a5f] bg-[linear-gradient(150deg,#edf7f3,#f8fcfb)]' : 'border-[#d6dee6] bg-white hover:border-[#9ab8ac]', { 'is-active': forms.login.sms_provider === item.value }]"
                 @click="forms.login.sms_provider = item.value"
               >
                 <div class="font-semibold text-[#21303a]">{{ item.label }}</div>
@@ -218,7 +218,7 @@
               <label class="space-y-1 text-sm"><span>AccessKeyId</span><input v-model="forms.login.sms_access_key_id" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" /></label>
               <label class="space-y-1 text-sm md:col-span-2"><span>AccessKeySecret</span><input v-model="forms.login.sms_access_key_secret" type="password" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" /></label>
             </div>
-            <div v-else class="rounded-xl border border-[#dce4eb] bg-[#f8fbff] px-3 py-3 text-sm text-[#4f5d69]">
+            <div v-else class="rounded-xl border border-[#dce4eb] bg-white px-3 py-3 text-sm text-[#4f5d69]">
               SMS login is disabled. Enable WeChat login or debug_code to keep at least one login path.
             </div>
             <label class="inline-flex items-center gap-2 text-sm"><input v-model="forms.login.wechat_login_enabled" type="checkbox" /> 启用微信扫码登录</label>
@@ -227,22 +227,7 @@
               <label class="space-y-1 text-sm"><span>微信 AppSecret</span><input v-model="forms.login.wechat_app_secret" type="password" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" /></label>
               <label class="space-y-1 text-sm md:col-span-2"><span>微信回调地址</span><input v-model="forms.login.wechat_redirect_uri" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" /></label>
             </div>
-            <section class="rounded-2xl border border-[#dce4eb] bg-[#f8fbff] p-4">
-              <div class="text-sm font-semibold text-[#1f2c35]">顶部公告文案</div>
-              <div class="mt-1 text-xs leading-5 text-[#5f6d79]">前台最上方横幅右侧公告会实时读取这里的内容。</div>
-              <label class="mt-3 block space-y-1 text-sm">
-                <span>公告内容（最多 140 字）</span>
-                <textarea
-                  v-model.trim="forms.login.header_notice_text"
-                  rows="3"
-                  maxlength="140"
-                  class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2"
-                  placeholder="例如：平台系统持续优化中，任务提交后请在个人中心查看处理进度。"
-                ></textarea>
-              </label>
-              <div class="mt-1 text-right text-xs text-[#6a7681]">{{ String(forms.login.header_notice_text || "").length }}/140</div>
-            </section>
-            <section class="rounded-2xl border border-[#dce4eb] bg-[#f8fbff] p-4">
+            <section class="rounded-2xl border border-[#dce4eb] bg-white p-4">
               <div class="text-sm font-semibold text-[#1f2c35]">新用户与风控参数</div>
               <div class="mt-1 text-xs leading-5 text-[#5f6d79]">保存后立即生效，用于控制注册赠送积分和登录风控阈值。</div>
               <div class="mt-3 grid gap-3 md:grid-cols-2">
@@ -265,6 +250,133 @@
                 <label class="space-y-1 text-sm md:col-span-2">
                   <span>登录请求 IP 限流（10分钟）</span>
                   <input v-model.number="forms.login.login_ip_10m_limit" type="number" min="1" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" />
+                </label>
+              </div>
+            </section>
+          </template>
+
+          <template v-else-if="activeTab === 'miniapp'">
+            <section class="rounded-2xl border border-[#dce4eb] bg-white p-4">
+              <div class="text-sm font-semibold text-[#1f2c35]">基础配置</div>
+              <div class="mt-3 grid gap-3 md:grid-cols-2">
+                <label class="inline-flex items-center gap-2 text-sm md:col-span-2">
+                  <input v-model="forms.miniapp.enabled" type="checkbox" />
+                  启用小程序配置
+                </label>
+                <label class="space-y-1 text-sm">
+                  <span>小程序 AppID</span>
+                  <input v-model.trim="forms.miniapp.app_id" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" />
+                </label>
+                <label class="space-y-1 text-sm">
+                  <span>小程序 AppSecret</span>
+                  <input v-model.trim="forms.miniapp.app_secret" type="password" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" />
+                </label>
+                <label class="space-y-1 text-sm">
+                  <span>原始 ID</span>
+                  <input v-model.trim="forms.miniapp.original_id" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" />
+                </label>
+                <label class="space-y-1 text-sm">
+                  <span>环境版本</span>
+                  <select v-model="forms.miniapp.env_version" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2">
+                    <option value="develop">develop</option>
+                    <option value="trial">trial</option>
+                    <option value="release">release</option>
+                  </select>
+                </label>
+              </div>
+            </section>
+
+            <section class="rounded-2xl border border-[#dce4eb] bg-white p-4">
+              <div class="text-sm font-semibold text-[#1f2c35]">登录与支付</div>
+              <div class="mt-3 grid gap-3 md:grid-cols-2">
+                <label class="inline-flex items-center gap-2 text-sm md:col-span-2">
+                  <input v-model="forms.miniapp.wechat_miniprogram_login_enabled" type="checkbox" />
+                  启用小程序登录
+                </label>
+                <label class="space-y-1 text-sm">
+                  <span>登录 AppID</span>
+                  <input
+                    v-model.trim="forms.miniapp.wechat_miniprogram_app_id"
+                    class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2"
+                    placeholder="留空默认复用小程序 AppID"
+                  />
+                </label>
+                <label class="space-y-1 text-sm">
+                  <span>登录 AppSecret</span>
+                  <input
+                    v-model.trim="forms.miniapp.wechat_miniprogram_app_secret"
+                    type="password"
+                    class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2"
+                    placeholder="留空默认复用小程序 AppSecret"
+                  />
+                </label>
+                <label class="inline-flex items-center gap-2 text-sm md:col-span-2">
+                  <input v-model="forms.miniapp.wechat_miniprogram_payment_enabled" type="checkbox" />
+                  启用小程序支付
+                </label>
+                <label class="space-y-1 text-sm md:col-span-2">
+                  <span>支付回调地址</span>
+                  <input
+                    v-model.trim="forms.miniapp.payment_notify_url"
+                    class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2"
+                    placeholder="https://your-domain.example.com/api/v1/billing/notify/wechatpay"
+                  />
+                </label>
+              </div>
+            </section>
+
+            <section class="rounded-2xl border border-[#dce4eb] bg-white p-4">
+              <div class="text-sm font-semibold text-[#1f2c35]">域名与后端</div>
+              <div class="mt-3 grid gap-3 md:grid-cols-2">
+                <label class="space-y-1 text-sm md:col-span-2">
+                  <span>后端 API 地址</span>
+                  <input v-model.trim="forms.miniapp.api_base_url" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" placeholder="https://api.example.com/api/v1" />
+                </label>
+                <label class="space-y-1 text-sm md:col-span-2">
+                  <span>官网地址（可选）</span>
+                  <input v-model.trim="forms.miniapp.web_base_url" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" placeholder="https://www.example.com" />
+                </label>
+                <label class="space-y-1 text-sm">
+                  <span>request 域名</span>
+                  <input v-model.trim="forms.miniapp.request_domain" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" placeholder="https://api.example.com" />
+                </label>
+                <label class="space-y-1 text-sm">
+                  <span>uploadFile 域名</span>
+                  <input v-model.trim="forms.miniapp.upload_domain" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" />
+                </label>
+                <label class="space-y-1 text-sm">
+                  <span>downloadFile 域名</span>
+                  <input v-model.trim="forms.miniapp.download_domain" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" />
+                </label>
+                <label class="space-y-1 text-sm">
+                  <span>WebSocket 域名</span>
+                  <input v-model.trim="forms.miniapp.ws_domain" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" />
+                </label>
+                <label class="space-y-1 text-sm md:col-span-2">
+                  <span>业务域名</span>
+                  <input v-model.trim="forms.miniapp.business_domain" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" placeholder="https://www.example.com" />
+                </label>
+              </div>
+            </section>
+
+            <section class="rounded-2xl border border-[#dce4eb] bg-white p-4">
+              <div class="text-sm font-semibold text-[#1f2c35]">合规与发布信息</div>
+              <div class="mt-3 grid gap-3 md:grid-cols-2">
+                <label class="space-y-1 text-sm">
+                  <span>备案号</span>
+                  <input v-model.trim="forms.miniapp.icp_filing_no" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" />
+                </label>
+                <label class="space-y-1 text-sm">
+                  <span>客服电话</span>
+                  <input v-model.trim="forms.miniapp.contact_phone" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" />
+                </label>
+                <label class="space-y-1 text-sm md:col-span-2">
+                  <span>联系邮箱</span>
+                  <input v-model.trim="forms.miniapp.contact_email" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" />
+                </label>
+                <label class="space-y-1 text-sm md:col-span-2">
+                  <span>上线备注</span>
+                  <textarea v-model.trim="forms.miniapp.publish_note" rows="3" maxlength="500" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2"></textarea>
                 </label>
               </div>
             </section>
@@ -316,7 +428,8 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from "vue"
+import { computed, onMounted, ref, watch } from "vue"
+import { useRoute, useRouter } from "vue-router"
 import AdminShell from "../../components/AdminShell.vue"
 import { adminHttp } from "../../lib/http"
 import { adminHasPermission } from "../../lib/session"
@@ -327,6 +440,7 @@ const tabs = [
   { key: "billing", label: "计费规则", desc: "按字符扣费" },
   { key: "referral", label: "推广规则", desc: "奖励与返佣" },
   { key: "llm", label: "大模型配置", desc: "国内外主流模型" },
+  { key: "miniapp", label: "小程序配置", desc: "参数与域名" },
 ]
 
 const llmProviders = [
@@ -401,6 +515,30 @@ const defaultBillingPackages = [
   },
 ]
 
+const defaultMiniappConfig = {
+  enabled: false,
+  app_id: "",
+  app_secret: "",
+  original_id: "",
+  env_version: "release",
+  api_base_url: "",
+  web_base_url: "",
+  request_domain: "",
+  upload_domain: "",
+  download_domain: "",
+  ws_domain: "",
+  business_domain: "",
+  icp_filing_no: "",
+  contact_phone: "",
+  contact_email: "",
+  publish_note: "",
+  wechat_miniprogram_login_enabled: false,
+  wechat_miniprogram_app_id: "",
+  wechat_miniprogram_app_secret: "",
+  wechat_miniprogram_payment_enabled: false,
+  payment_notify_url: "",
+}
+
 const guideMap = {
   login: {
     code: "Access Setup",
@@ -413,6 +551,7 @@ const guideMap = {
     ],
     docs: [
       { label: "微信开放平台 网站应用登录", href: "https://developers.weixin.qq.com/doc/oplatform/Website_App/WeChat_Login/Wechat_Login.html" },
+      { label: "微信小程序 wx.login", href: "https://developers.weixin.qq.com/miniprogram/dev/api/open-api/login/wx.login.html" },
       { label: "腾讯云短信 SendSms", href: "https://cloud.tencent.com/document/product/382/55981" },
       { label: "阿里云短信 SendSms", href: "https://help.aliyun.com/zh/sms/developer-reference/api-dysmsapi-2017-05-25-sendsms" },
     ],
@@ -478,9 +617,27 @@ const guideMap = {
       { label: "Moonshot API", href: "https://platform.moonshot.cn/docs/api-reference" },
     ],
   },
+  miniapp: {
+    code: "Mini Program Setup",
+    lead: "在配置中心统一维护小程序 AppID、域名白名单和登录支付开关。",
+    title: "小程序参数集中配置",
+    desc: "保存后后端会直接使用该配置，便于 Web 与小程序共用同一套服务。",
+    checklist: [
+      "至少填写小程序 AppID 与 AppSecret。",
+      "request/upload/download/ws 域名需与微信后台一致。",
+      "启用小程序支付时需配置支付回调地址。",
+    ],
+    docs: [
+      { label: "微信小程序 开发文档", href: "https://developers.weixin.qq.com/miniprogram/dev/framework/" },
+      { label: "微信小程序 合法域名配置", href: "https://developers.weixin.qq.com/miniprogram/dev/devtools/projectconfig.html" },
+      { label: "微信小程序 登录时序", href: "https://developers.weixin.qq.com/miniprogram/dev/framework/open-ability/login.html" },
+    ],
+  },
 }
 
 const activeTab = ref("login")
+const route = useRoute()
+const router = useRouter()
 const forms = ref({
   llm: { enabled: false, provider: "openai", base_url: "", model: "", api_key: "" },
   payment: { provider: "wechatpay_v3", test_mode: true, notify_url: "" },
@@ -501,7 +658,6 @@ const forms = ref({
     wechat_app_id: "",
     wechat_app_secret: "",
     wechat_redirect_uri: "",
-    header_notice_text: "平台系统持续优化中，任务提交后请在个人中心查看处理进度。",
     new_user_initial_credits: 2000,
     max_code_retry: 3,
     phone_lock_minutes: 5,
@@ -515,6 +671,7 @@ const forms = ref({
     recurring_ratio: 0.05,
     ip_limit_24h: 3,
   },
+  miniapp: normalizeMiniappConfig(defaultMiniappConfig),
 })
 
 const readinessMap = ref({})
@@ -536,7 +693,28 @@ const paymentProviderUnsupported = computed(() => {
 const paymentNotifyPreview = computed(() => resolvePaymentNotifyPreview())
 
 onMounted(async () => {
+  const tabFromQuery = String(route.query.tab || "").trim()
+  if (tabFromQuery && tabs.some((tab) => tab.key === tabFromQuery)) {
+    activeTab.value = tabFromQuery
+  }
   await Promise.all([loadAll(), loadReadiness()])
+})
+
+watch(
+  () => route.query.tab,
+  (value) => {
+    const tab = String(value || "").trim()
+    if (tab && tabs.some((item) => item.key === tab)) {
+      activeTab.value = tab
+    }
+  }
+)
+
+watch(activeTab, async (tab) => {
+  const current = String(route.query.tab || "")
+  if (tab === current) return
+  const query = tab === "login" ? { ...route.query, tab: undefined } : { ...route.query, tab }
+  await router.replace({ path: "/admin/configs", query })
 })
 
 function chipClass(status) {
@@ -564,7 +742,6 @@ async function loadTab(category) {
   if (category === "login") {
     forms.value.login.sms_region = forms.value.login.sms_region || "ap-guangzhou"
     forms.value.login.sms_aliyun_region_id = forms.value.login.sms_aliyun_region_id || "cn-hangzhou"
-    forms.value.login.header_notice_text = String(forms.value.login.header_notice_text || "平台系统持续优化中，任务提交后请在个人中心查看处理进度。").slice(0, 140)
     forms.value.login.new_user_initial_credits = Number(forms.value.login.new_user_initial_credits ?? 2000)
     forms.value.login.max_code_retry = Number(forms.value.login.max_code_retry ?? 3)
     forms.value.login.phone_lock_minutes = Number(forms.value.login.phone_lock_minutes ?? 5)
@@ -574,6 +751,9 @@ async function loadTab(category) {
   if (category === "referral") {
     referralFirstPayPct.value = Number(((forms.value.referral.first_pay_ratio || 0) * 100).toFixed(2))
     referralRecurringPct.value = Number(((forms.value.referral.recurring_ratio || 0) * 100).toFixed(2))
+  }
+  if (category === "miniapp") {
+    forms.value.miniapp = normalizeMiniappConfig(forms.value.miniapp)
   }
 }
 
@@ -659,8 +839,21 @@ function validateCurrent() {
     if (Number(cfg.login_ip_10m_limit) < 1) {
       return "登录请求 IP 限流不能小于 1"
     }
-    if (String(cfg.header_notice_text || "").length > 140) {
-      return "顶部公告文案不能超过 140 字"
+  }
+  if (activeTab.value === "miniapp") {
+    const cfg = normalizeMiniappConfig(forms.value.miniapp)
+    if (cfg.enabled && (!cfg.app_id || !cfg.app_secret)) {
+      return "启用小程序配置时必须填写 AppID 与 AppSecret"
+    }
+    if (cfg.wechat_miniprogram_login_enabled) {
+      const loginAppId = cfg.wechat_miniprogram_app_id || cfg.app_id
+      const loginSecret = cfg.wechat_miniprogram_app_secret || cfg.app_secret
+      if (!loginAppId || !loginSecret) {
+        return "启用小程序登录时，需填写登录 AppID/AppSecret（可复用基础配置）"
+      }
+    }
+    if (cfg.wechat_miniprogram_payment_enabled && !cfg.payment_notify_url) {
+      return "启用小程序支付时，请填写支付回调地址"
     }
   }
   return ""
@@ -686,6 +879,30 @@ function payloadFor(category) {
   if (category === "payment" && payload.provider === "alipay" && payload.app_private_key_pem) {
     payload.api_key = payload.app_private_key_pem
   }
+  if (category === "miniapp") {
+    const normalized = normalizeMiniappConfig(payload)
+    payload.enabled = normalized.enabled
+    payload.wechat_miniprogram_login_enabled = normalized.wechat_miniprogram_login_enabled
+    payload.wechat_miniprogram_payment_enabled = normalized.wechat_miniprogram_payment_enabled
+    payload.env_version = normalized.env_version
+    payload.app_id = normalized.app_id.slice(0, 128)
+    payload.app_secret = normalized.app_secret.slice(0, 256)
+    payload.original_id = normalized.original_id.slice(0, 128)
+    payload.api_base_url = normalized.api_base_url.slice(0, 256)
+    payload.web_base_url = normalized.web_base_url.slice(0, 256)
+    payload.request_domain = normalized.request_domain.slice(0, 256)
+    payload.upload_domain = normalized.upload_domain.slice(0, 256)
+    payload.download_domain = normalized.download_domain.slice(0, 256)
+    payload.ws_domain = normalized.ws_domain.slice(0, 256)
+    payload.business_domain = normalized.business_domain.slice(0, 256)
+    payload.payment_notify_url = normalized.payment_notify_url.slice(0, 256)
+    payload.icp_filing_no = normalized.icp_filing_no.slice(0, 128)
+    payload.contact_phone = normalized.contact_phone.slice(0, 32)
+    payload.contact_email = normalized.contact_email.slice(0, 128)
+    payload.publish_note = normalized.publish_note.slice(0, 500)
+    payload.wechat_miniprogram_app_id = normalized.wechat_miniprogram_app_id.slice(0, 128)
+    payload.wechat_miniprogram_app_secret = normalized.wechat_miniprogram_app_secret.slice(0, 256)
+  }
   return payload
 }
 
@@ -707,6 +924,34 @@ function normalizeBillingForm(raw) {
     dedup_rate: Number(source.dedup_rate) || 2,
     rewrite_rate: Number(source.rewrite_rate) || 2,
     packages: cloneBillingPackages(source.packages),
+  }
+}
+
+function normalizeMiniappConfig(raw) {
+  const source = { ...defaultMiniappConfig, ...(raw || {}) }
+  const envVersion = String(source.env_version || "release").toLowerCase()
+  return {
+    enabled: source.enabled === true,
+    app_id: String(source.app_id || "").trim(),
+    app_secret: String(source.app_secret || "").trim(),
+    original_id: String(source.original_id || "").trim(),
+    env_version: ["develop", "trial", "release"].includes(envVersion) ? envVersion : "release",
+    api_base_url: String(source.api_base_url || "").trim(),
+    web_base_url: String(source.web_base_url || "").trim(),
+    request_domain: String(source.request_domain || "").trim(),
+    upload_domain: String(source.upload_domain || "").trim(),
+    download_domain: String(source.download_domain || "").trim(),
+    ws_domain: String(source.ws_domain || "").trim(),
+    business_domain: String(source.business_domain || "").trim(),
+    icp_filing_no: String(source.icp_filing_no || "").trim(),
+    contact_phone: String(source.contact_phone || "").trim(),
+    contact_email: String(source.contact_email || "").trim(),
+    publish_note: String(source.publish_note || "").trim(),
+    wechat_miniprogram_login_enabled: source.wechat_miniprogram_login_enabled === true,
+    wechat_miniprogram_app_id: String(source.wechat_miniprogram_app_id || "").trim(),
+    wechat_miniprogram_app_secret: String(source.wechat_miniprogram_app_secret || "").trim(),
+    wechat_miniprogram_payment_enabled: source.wechat_miniprogram_payment_enabled === true,
+    payment_notify_url: String(source.payment_notify_url || "").trim(),
   }
 }
 

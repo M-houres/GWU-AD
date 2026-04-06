@@ -1,4 +1,4 @@
-import base64
+﻿import base64
 import hmac
 import hashlib
 import json
@@ -20,7 +20,7 @@ from app.deps import db_dep, get_redis
 from app.exceptions import BizError
 from app.models import CreditType, RegistrationRiskLog, SystemConfig, User, UserInviteCode
 from app.responses import ok
-from app.schemas import APIResp, LoginReq, SendCodeReq
+from app.schemas import APIResp, LoginReq, MiniProgramLoginReq, SendCodeReq
 from app.security import create_token
 from app.services.credit_service import change_credits
 from app.services.referral_service import bind_referral_relation
@@ -31,6 +31,7 @@ router = APIRouter()
 settings = get_settings()
 logger = logging.getLogger("app.api.auth")
 WX_LOGIN_TTL_SECONDS = 120
+DEFAULT_NOTICE_TITLE = "系统公告"
 DEFAULT_HEADER_NOTICE_TEXT = "平台系统持续优化中，任务提交后请在个人中心查看处理进度。"
 _LOGIN_CONFIG_DEFAULTS = {
     "sms_provider": "custom_webhook",
@@ -48,7 +49,16 @@ _LOGIN_CONFIG_DEFAULTS = {
     "wechat_app_id": "",
     "wechat_app_secret": "",
     "wechat_redirect_uri": "",
+    "wechat_miniprogram_login_enabled": False,
+    "wechat_miniprogram_app_id": "",
+    "wechat_miniprogram_app_secret": "",
     "header_notice_text": DEFAULT_HEADER_NOTICE_TEXT,
+    "notice_enabled": True,
+    "notice_title": DEFAULT_NOTICE_TITLE,
+    "notice_content": DEFAULT_HEADER_NOTICE_TEXT,
+    "notice_level": "info",
+    "notice_version": 1,
+    "notice_updated_at": "",
     "new_user_initial_credits": 2000,
     "max_code_retry": 3,
     "phone_lock_minutes": 5,
@@ -79,7 +89,7 @@ def _get_ua(request: Request) -> str:
 
 
 def _get_device_fingerprint(request: Request, payload_fp: str | None) -> str:
-    # 以 IP+UA 作为主指纹，前端 UUID 仅在极端场景作为兜底
+    # 浠?IP+UA 浣滀负涓绘寚绾癸紝鍓嶇 UUID 浠呭湪鏋佺鍦烘櫙浣滀负鍏滃簳
     primary = f"{_get_ip(request)}|{_get_ua(request)}".strip("|")[:128]
     if primary:
         return primary
@@ -123,13 +133,21 @@ def _user_payload(user: User) -> dict:
     }
 
 
-def _get_login_config(db: Session) -> dict:
+def _read_system_config_raw(db: Session, key: str) -> dict:
     row = (
         db.query(SystemConfig)
-        .filter(SystemConfig.category == "system", SystemConfig.config_key == "login")
+        .filter(SystemConfig.category == "system", SystemConfig.config_key == key)
         .first()
     )
-    value = row.config_value if row and isinstance(row.config_value, dict) else {}
+    if row is None or not isinstance(row.config_value, dict):
+        return {}
+    return row.config_value
+
+
+def _get_login_config(db: Session) -> dict:
+    login_value = _read_system_config_raw(db, "login")
+    notice_value = _read_system_config_raw(db, "notice")
+    miniapp_value = _read_system_config_raw(db, "miniapp")
     merged = dict(_LOGIN_CONFIG_DEFAULTS)
     merged["debug_code_enabled"] = _default_debug_code_enabled()
     merged["new_user_initial_credits"] = int(settings.initial_credits)
@@ -137,8 +155,74 @@ def _get_login_config(db: Session) -> dict:
     merged["phone_lock_minutes"] = int(settings.phone_lock_minutes)
     merged["send_code_ip_1h_limit"] = int(settings.auth_send_code_ip_1h_limit)
     merged["login_ip_10m_limit"] = int(settings.auth_login_ip_10m_limit)
-    merged.update(value)
+    merged.update(login_value)
+
+    if notice_value:
+        content = str(notice_value.get("content") or notice_value.get("header_text") or DEFAULT_HEADER_NOTICE_TEXT).strip() or DEFAULT_HEADER_NOTICE_TEXT
+        header_text = str(notice_value.get("header_text") or content).strip() or DEFAULT_HEADER_NOTICE_TEXT
+        title = str(notice_value.get("title") or DEFAULT_NOTICE_TITLE).strip()[:32] or DEFAULT_NOTICE_TITLE
+        try:
+            version = int(notice_value.get("version") or 1)
+        except Exception:
+            version = 1
+        if version < 1:
+            version = 1
+        merged.update(
+            {
+                "notice_enabled": bool(notice_value.get("enabled", True)),
+                "notice_title": title,
+                "notice_content": content[:2000],
+                "notice_level": str(notice_value.get("level", "info")).strip().lower() or "info",
+                "notice_version": version,
+                "notice_updated_at": str(notice_value.get("updated_at", "") or "").strip(),
+                "header_notice_text": header_text[:140],
+            }
+        )
+
+    if miniapp_value:
+        mini_enabled = bool(miniapp_value.get("wechat_miniprogram_login_enabled", miniapp_value.get("enabled", False)))
+        mini_app_id = str(miniapp_value.get("wechat_miniprogram_app_id") or miniapp_value.get("app_id") or "").strip()
+        mini_app_secret = str(miniapp_value.get("wechat_miniprogram_app_secret") or miniapp_value.get("app_secret") or "").strip()
+        merged["wechat_miniprogram_login_enabled"] = mini_enabled
+        if mini_app_id:
+            merged["wechat_miniprogram_app_id"] = mini_app_id[:128]
+        if mini_app_secret:
+            merged["wechat_miniprogram_app_secret"] = mini_app_secret[:256]
     return merged
+
+
+def _normalize_notice_level(value) -> str:
+    level = str(value or "info").strip().lower()
+    if level not in {"info", "important", "success", "warning"}:
+        return "info"
+    return level
+
+
+def _build_notice_payload(login_cfg: dict) -> dict:
+    content = str(login_cfg.get("notice_content") or login_cfg.get("header_notice_text") or DEFAULT_HEADER_NOTICE_TEXT).strip()
+    if not content:
+        content = DEFAULT_HEADER_NOTICE_TEXT
+    header_text = str(login_cfg.get("header_notice_text") or content).strip()
+    if not header_text:
+        header_text = DEFAULT_HEADER_NOTICE_TEXT
+    title = str(login_cfg.get("notice_title") or DEFAULT_NOTICE_TITLE).strip()[:32]
+    if not title:
+        title = DEFAULT_NOTICE_TITLE
+    try:
+        version = int(login_cfg.get("notice_version") or 1)
+    except Exception:
+        version = 1
+    if version < 1:
+        version = 1
+    return {
+        "enabled": bool(login_cfg.get("notice_enabled", True)),
+        "title": title,
+        "content": content[:2000],
+        "header_text": header_text[:140],
+        "level": _normalize_notice_level(login_cfg.get("notice_level", "info")),
+        "version": version,
+        "updated_at": str(login_cfg.get("notice_updated_at", "") or "").strip(),
+    }
 
 
 def _int_from_login_cfg(
@@ -362,7 +446,7 @@ def _make_virtual_phone(db: Session, openid: str) -> str:
         exists = db.query(User.id).filter(User.phone == phone).first()
         if exists is None:
             return phone
-    raise BizError(code=4015, message="无法为微信用户分配手机号")
+    raise BizError(code=4015, message="鏃犳硶涓哄井淇＄敤鎴峰垎閰嶆墜鏈哄彿")
 
 
 def _wx_key(key: str) -> str:
@@ -385,6 +469,23 @@ def _wechat_mock_enabled() -> bool:
 
 def _wechat_login_enabled(login_cfg: dict) -> bool:
     return _wechat_real_login_enabled(login_cfg) or _wechat_mock_enabled()
+
+
+def _resolve_wechat_miniprogram_credentials(login_cfg: dict) -> tuple[str, str]:
+    app_id = str(login_cfg.get("wechat_miniprogram_app_id") or login_cfg.get("wechat_app_id") or "").strip()
+    app_secret = str(login_cfg.get("wechat_miniprogram_app_secret") or login_cfg.get("wechat_app_secret") or "").strip()
+    return app_id, app_secret
+
+
+def _wechat_miniprogram_real_login_enabled(login_cfg: dict) -> bool:
+    if not bool(login_cfg.get("wechat_miniprogram_login_enabled")):
+        return False
+    app_id, app_secret = _resolve_wechat_miniprogram_credentials(login_cfg)
+    return bool(app_id and app_secret)
+
+
+def _wechat_miniprogram_login_enabled(login_cfg: dict) -> bool:
+    return _wechat_miniprogram_real_login_enabled(login_cfg) or _wechat_mock_enabled()
 
 
 def _wechat_authorize_url(login_cfg: dict, state: str) -> str:
@@ -428,7 +529,7 @@ def _upsert_wechat_user(
         phone = _make_virtual_phone(db, openid)
         user = User(
             phone=phone,
-            nickname=f"微信用户{phone[-4:]}",
+            nickname=f"寰俊鐢ㄦ埛{phone[-4:]}",
             openid=openid if not is_miniprogram else None,
             wechat_unionid=unionid,
             wechat_openid_web=openid if not is_miniprogram else None,
@@ -467,21 +568,27 @@ def auth_options(db: Session = Depends(db_dep)) -> APIResp:
     login_cfg = _get_login_config(db)
     debug_enabled = bool(login_cfg.get("debug_code_enabled"))
     phone_login_enabled = _sms_provider_ready(login_cfg) or (settings.app_env != "prod" and debug_enabled)
-    header_notice_text = str(login_cfg.get("header_notice_text", DEFAULT_HEADER_NOTICE_TEXT) or "").strip()
-    if not header_notice_text:
-        header_notice_text = DEFAULT_HEADER_NOTICE_TEXT
+    notice = _build_notice_payload(login_cfg)
     return ok(
         data={
             "wechat_login_enabled": _wechat_login_enabled(login_cfg),
+            "wechat_miniprogram_login_enabled": _wechat_miniprogram_login_enabled(login_cfg),
             "wechat_auth_scenes": ["web", "miniprogram"],
             "debug_code_enabled": debug_enabled,
             "sms_provider": str(login_cfg.get("sms_provider", "custom_webhook")).strip().lower() or "custom_webhook",
             "wx_mock_enabled": _wechat_mock_enabled(),
             "phone_login_enabled": phone_login_enabled,
             "new_user_initial_credits": _int_from_login_cfg(login_cfg, "new_user_initial_credits", settings.initial_credits, min_value=0, max_value=1_000_000),
-            "header_notice_text": header_notice_text,
+            "header_notice_text": notice["header_text"],
+            "notice": notice,
         }
     )
+
+
+@router.get("/announcement", response_model=APIResp)
+def auth_announcement(db: Session = Depends(db_dep)) -> APIResp:
+    login_cfg = _get_login_config(db)
+    return ok(data=_build_notice_payload(login_cfg))
 
 
 @router.post("/send-code", response_model=APIResp)
@@ -502,7 +609,7 @@ def send_code(
         limit=_int_from_login_cfg(login_cfg, "send_code_ip_1h_limit", settings.auth_send_code_ip_1h_limit, min_value=1, max_value=10_000),
         window_seconds=3600,
         error_code=4019,
-        error_message="当前IP请求验证码过于频繁，请稍后重试",
+        error_message="当前 IP 请求验证码过于频繁，请稍后重试",
     )
 
     lock_key = _redis_key(req.phone, "lock")
@@ -511,31 +618,36 @@ def send_code(
     attempt_key = _redis_key(req.phone, "attempt")
 
     if redis_client.ttl(lock_key) > 0:
-        raise BizError(code=4004, message=f"手机号已锁定，请稍后再试({redis_client.ttl(lock_key)}s)")
+        raise BizError(code=4004, message=f"鎵嬫満鍙峰凡閿佸畾锛岃绋嶅悗鍐嶈瘯({redis_client.ttl(lock_key)}s)")
     if redis_client.ttl(cooldown_key) > 0:
-        raise BizError(code=4003, message=f"验证码发送过于频繁，请{redis_client.ttl(cooldown_key)}秒后重试")
+        raise BizError(code=4003, message=f"验证码发送过于频繁，请 {redis_client.ttl(cooldown_key)} 秒后重试")
 
     debug_switch = bool(login_cfg.get("debug_code_enabled"))
     sms_ready = _sms_provider_ready(login_cfg)
     if settings.app_env == "prod" and (not sms_ready):
         logger.warning("auth_send_code_sms_not_configured", extra={"ip": ip, "phone_tail": req.phone[-4:]})
-        raise BizError(code=4021, message="短信服务未配置或未就绪，当前环境不可发送验证码")
+        raise BizError(code=4021, message="短信服务未配置或不可用，当前环境不可发送验证码")
 
     code = gen_code()
     sms_sent = _send_sms_code(req.phone, code, login_cfg)
-    allow_debug_fallback = settings.app_env != "prod" and debug_switch
+    allow_debug_fallback = settings.app_env != "prod"
     if (not sms_sent) and (not allow_debug_fallback):
         logger.warning(
             "auth_send_code_gateway_failed",
             extra={"ip": ip, "phone_tail": req.phone[-4:]},
         )
         raise BizError(code=4022, message="短信发送失败，请检查短信配置")
+    if (not sms_sent) and allow_debug_fallback:
+        logger.warning(
+            "auth_send_code_dev_fallback",
+            extra={"ip": ip, "phone_tail": req.phone[-4:]},
+        )
 
     redis_client.setex(code_key, 300, code)
     redis_client.setex(attempt_key, 300, 0)
     redis_client.setex(cooldown_key, 60, 1)
     payload = {"phone": req.phone, "expire_seconds": 300}
-    if settings.app_env != "prod" and debug_switch:
+    if settings.app_env != "prod" and (debug_switch or (not sms_sent)):
         payload["debug_code"] = code
     logger.info(
         "auth_send_code_success",
@@ -556,7 +668,7 @@ def login(req: LoginReq, request: Request, db: Session = Depends(db_dep), redis_
         limit=_int_from_login_cfg(login_cfg, "login_ip_10m_limit", settings.auth_login_ip_10m_limit, min_value=1, max_value=10_000),
         window_seconds=10 * 60,
         error_code=4020,
-        error_message="当前IP登录请求过于频繁，请稍后再试",
+        error_message="当前 IP 登录请求过于频繁，请稍后重试",
     )
 
     lock_key = _redis_key(req.phone, "lock")
@@ -566,7 +678,7 @@ def login(req: LoginReq, request: Request, db: Session = Depends(db_dep), redis_
 
     lock_ttl = redis_client.ttl(lock_key)
     if lock_ttl > 0:
-        raise BizError(code=4004, message=f"验证码错误次数过多，请{lock_ttl}秒后再试")
+        raise BizError(code=4004, message=f"验证码错误次数过多，请 {lock_ttl} 秒后重试")
 
     real_code = redis_client.get(code_key)
     if not real_code:
@@ -607,7 +719,7 @@ def login(req: LoginReq, request: Request, db: Session = Depends(db_dep), redis_
 
         if user is None:
             is_new_user = True
-            user = User(phone=req.phone, nickname=f"用户{req.phone[-4:]}", source=client_source, credits=0)
+            user = User(phone=req.phone, nickname=f"鐢ㄦ埛{req.phone[-4:]}", source=client_source, credits=0)
             db.add(user)
             db.flush()
             initial_credits = _int_from_login_cfg(
@@ -713,6 +825,110 @@ def login(req: LoginReq, request: Request, db: Session = Depends(db_dep), redis_
     )
 
 
+@router.post("/wx/mini-login", response_model=APIResp)
+def wx_mini_login(
+    req: MiniProgramLoginReq,
+    request: Request,
+    db: Session = Depends(db_dep),
+    redis_client=Depends(get_redis),
+) -> APIResp:
+    login_cfg = _get_login_config(db)
+    if not _wechat_miniprogram_login_enabled(login_cfg):
+        raise BizError(code=4016, message="wechat_miniprogram_login_not_enabled")
+
+    js_code = str(req.code or "").strip()
+    if not js_code:
+        raise BizError(code=4017, message="empty_js_code")
+
+    _enforce_ip_limit(
+        redis_client,
+        ip=_get_ip(request),
+        action="wx_mini_login",
+        limit=_int_from_login_cfg(login_cfg, "login_ip_10m_limit", settings.auth_login_ip_10m_limit, min_value=1, max_value=10_000),
+        window_seconds=10 * 60,
+        error_code=4020,
+        error_message="ip_rate_limit_reached",
+    )
+
+    if settings.app_env != "prod" and js_code.startswith("mock_"):
+        openid = f"mp_{hashlib.sha256(js_code.encode('utf-8')).hexdigest()[:20]}"
+        unionid = f"union_{hashlib.sha256((js_code + settings.jwt_secret).encode('utf-8')).hexdigest()[:20]}"
+    else:
+        if not _wechat_miniprogram_real_login_enabled(login_cfg):
+            raise BizError(code=4016, message="miniprogram_credentials_not_ready")
+        app_id, app_secret = _resolve_wechat_miniprogram_credentials(login_cfg)
+        try:
+            session_resp = httpx.get(
+                "https://api.weixin.qq.com/sns/jscode2session",
+                params={
+                    "appid": app_id,
+                    "secret": app_secret,
+                    "js_code": js_code,
+                    "grant_type": "authorization_code",
+                },
+                timeout=8,
+            )
+        except Exception as exc:
+            raise BizError(code=4016, message="wechat_jscode2session_request_failed") from exc
+        if not (200 <= session_resp.status_code < 300):
+            raise BizError(code=4016, message="wechat_jscode2session_http_error")
+        payload = session_resp.json()
+        openid = str(payload.get("openid", "")).strip()
+        unionid = str(payload.get("unionid", "")).strip() or None
+        if not openid:
+            errmsg = str(payload.get("errmsg") or "openid_missing")
+            raise BizError(code=4016, message=f"wechat_jscode2session_failed:{errmsg}")
+
+    is_new_user = False
+    fp = _get_device_fingerprint(request, req.device_fingerprint)
+    client_source = get_client_source(request)
+    register_relation_id: int | None = None
+    try:
+        user, is_new_user = _upsert_wechat_user(
+            db,
+            openid=openid,
+            source=client_source,
+            scene="miniprogram",
+            unionid=unionid,
+            initial_credits=_int_from_login_cfg(
+                login_cfg,
+                "new_user_initial_credits",
+                settings.initial_credits,
+                min_value=0,
+                max_value=1_000_000,
+            ),
+        )
+        if is_new_user and req.referrer_code:
+            relation = bind_referral_relation(
+                db,
+                invitee=user,
+                referrer_code=str(req.referrer_code).strip().upper(),
+                source=client_source,
+            )
+            if relation:
+                register_relation_id = relation.id
+        token = create_token(subject=str(user.id), scope="user")
+        redis_client.setex(f"user:fp:{user.id}", 30 * 24 * 3600, fp)
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+
+    if register_relation_id:
+        from app.worker_tasks import dispatch_background_task, grant_register_rewards_async
+
+        dispatch_background_task(grant_register_rewards_async, register_relation_id)
+
+    return ok(
+        data={
+            "token": token,
+            "is_new_user": is_new_user,
+            "scene": "miniprogram",
+            "user": _user_payload(user),
+        }
+    )
+
+
 @router.get("/wx/qrcode", response_model=APIResp)
 def wx_qrcode(db: Session = Depends(db_dep), redis_client=Depends(get_redis)) -> APIResp:
     login_cfg = _get_login_config(db)
@@ -752,17 +968,17 @@ def wx_callback(
     redis_client=Depends(get_redis),
 ):
     if not code or not state:
-        raise BizError(code=4017, message="微信授权参数缺失")
+        raise BizError(code=4017, message="寰俊鎺堟潈鍙傛暟缂哄け")
     if "." not in state:
         raise BizError(code=4017, message="无效的微信授权状态")
     key = state.split(".", 1)[0]
     raw = redis_client.get(_wx_key(key))
     if not raw:
-        raise BizError(code=4018, message="二维码已过期，请刷新")
+        raise BizError(code=4018, message="浜岀淮鐮佸凡杩囨湡锛岃鍒锋柊")
     try:
         pending = json.loads(raw)
     except Exception as exc:
-        raise BizError(code=4018, message="微信登录会话已失效，请刷新二维码") from exc
+        raise BizError(code=4018, message="寰俊鐧诲綍浼氳瘽宸插け鏁堬紝璇峰埛鏂颁簩缁寸爜") from exc
     if str(pending.get("state", "")) != state:
         raise BizError(code=4017, message="微信授权状态校验失败")
 
@@ -783,13 +999,13 @@ def wx_callback(
         timeout=8,
     )
     if not (200 <= token_resp.status_code < 300):
-        raise BizError(code=4016, message="微信授权换取令牌失败")
+        raise BizError(code=4016, message="寰俊鎺堟潈鎹㈠彇浠ょ墝澶辫触")
     token_data = token_resp.json()
     openid = str(token_data.get("openid", "")).strip()
     unionid = str(token_data.get("unionid", "")).strip() or None
     if not openid:
-        err_msg = token_data.get("errmsg") or "微信返回openid为空"
-        raise BizError(code=4016, message=f"微信授权失败: {err_msg}")
+        err_msg = token_data.get("errmsg") or "寰俊杩斿洖openid涓虹┖"
+        raise BizError(code=4016, message=f"寰俊鎺堟潈澶辫触: {err_msg}")
 
     try:
         user, is_new_user = _upsert_wechat_user(
@@ -823,7 +1039,7 @@ def wx_callback(
         content=(
             "<html><head><meta charset='utf-8'></head><body>"
             "<div style='font-family: sans-serif;padding:24px;'>"
-            "<h3>微信授权成功</h3><p>可返回原页面，系统将自动完成登录。</p>"
+            "<h3>寰俊鎺堟潈鎴愬姛</h3><p>鍙繑鍥炲師椤甸潰锛岀郴缁熷皢鑷姩瀹屾垚鐧诲綍銆?/p>"
             "</div></body></html>"
         )
     )
@@ -858,13 +1074,13 @@ def wx_mock_authorize(
     redis_client=Depends(get_redis),
 ) -> APIResp:
     if settings.app_env == "prod":
-        raise BizError(code=4016, message="生产环境禁止 mock 微信授权")
+        raise BizError(code=4016, message="鐢熶骇鐜绂佹 mock 寰俊鎺堟潈")
     key = str(payload.get("key", "")).strip()
     if not key:
-        raise BizError(code=4017, message="缺少微信登录 key")
+        raise BizError(code=4017, message="缂哄皯寰俊鐧诲綍 key")
     raw = redis_client.get(_wx_key(key))
     if not raw:
-        raise BizError(code=4018, message="二维码已过期，请刷新")
+        raise BizError(code=4018, message="浜岀淮鐮佸凡杩囨湡锛岃鍒锋柊")
 
     openid = str(payload.get("openid", "")).strip()
     if not openid:
@@ -904,3 +1120,4 @@ def wx_mock_authorize(
     }
     redis_client.setex(_wx_key(key), WX_LOGIN_TTL_SECONDS, json.dumps(wx_payload, ensure_ascii=False, default=str))
     return ok(data={"status": "authorized"})
+

@@ -32,13 +32,13 @@
             <option value="referral_bonus">邀请福利</option>
             <option value="referral_first_pay">首充奖励</option>
             <option value="referral_recurring">持续返利</option>
-            <option value="admin_adjust">管理员调整</option>
+            <option value="admin_adjust">系统调整</option>
           </select>
           <button class="rounded-lg bg-[#edf2f6] px-3 py-1.5 text-sm text-[#32414f]" @click="loadPage(1)">刷新</button>
         </div>
       </div>
 
-      <div class="mb-3 grid gap-3 rounded-xl border border-[#e1e8ee] bg-[#f8fbff] p-3 text-sm md:grid-cols-4">
+      <div class="mb-3 grid gap-3 rounded-xl border border-[#e1e8ee] bg-white p-3 text-sm md:grid-cols-4">
         <div>
           <div class="text-xs text-[#6b7782]">本页记录数</div>
           <div class="mt-1 text-lg font-semibold">{{ rows.length }}</div>
@@ -208,7 +208,7 @@ function mapType(type) {
     referral_bonus: "邀请福利",
     referral_first_pay: "首充奖励",
     referral_recurring: "持续返利",
-    admin_adjust: "管理员调整",
+    admin_adjust: "系统调整",
   }
   return map[type] || type
 }

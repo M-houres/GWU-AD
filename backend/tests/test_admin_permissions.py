@@ -160,3 +160,45 @@ def test_super_admin_cannot_disable_self(
     )
     assert resp.status_code == 400
     assert resp.json()["code"] == 4314
+
+
+def test_admins_view_permission_can_list_admin_users(client: TestClient) -> None:
+    app.dependency_overrides[current_admin] = lambda: SimpleNamespace(
+        id=2,
+        username="permission_viewer",
+        role="operator",
+        is_active=True,
+        permissions_json=["admins:view"],
+    )
+    try:
+        resp = client.get("/api/v1/admin/admin-users")
+        assert resp.status_code == 200
+        data = resp.json()["data"]
+        assert "permission_catalog" in data
+        assert "permission_templates" in data
+    finally:
+        app.dependency_overrides.pop(current_admin, None)
+
+
+def test_admins_manage_cannot_assign_permissions_outside_self_scope(client: TestClient) -> None:
+    app.dependency_overrides[current_admin] = lambda: SimpleNamespace(
+        id=2,
+        username="permission_manager",
+        role="operator",
+        is_active=True,
+        permissions_json=["admins:manage", "admins:view", "users:view"],
+    )
+    try:
+        resp = client.post(
+            "/api/v1/admin/admin-users",
+            json={
+                "username": "ops_out_of_scope",
+                "password": "Passw0rd!123",
+                "permissions": ["tasks:view"],
+                "is_active": True,
+            },
+        )
+        assert resp.status_code == 400
+        assert resp.json()["code"] == 4315
+    finally:
+        app.dependency_overrides.pop(current_admin, None)

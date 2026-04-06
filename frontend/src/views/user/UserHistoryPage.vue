@@ -307,7 +307,7 @@ const taskTypeOptions = [
   { value: "", label: "全部" },
   { value: "aigc_detect", label: "AIGC 检测" },
   { value: "dedup", label: "降重复率" },
-  { value: "rewrite", label: "降 AIGC 率" },
+  { value: "rewrite", label: "学术润色" },
 ]
 const platformOptions = [
   { value: "", label: "全部" },
@@ -456,7 +456,7 @@ function mapTaskType(type) {
   const mapping = {
     aigc_detect: "AIGC 检测",
     dedup: "降重复率",
-    rewrite: "降 AIGC 率",
+    rewrite: "学术润色",
   }
   return mapping[type] || type
 }

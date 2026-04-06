@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import base64
 from datetime import datetime, timedelta, timezone
@@ -70,16 +70,66 @@ def load_payment_config(db) -> dict:
     return merged
 
 
+def _payment_private_key(cfg: Mapping[str, Any]) -> str:
+    return str(cfg.get("app_private_key_pem") or cfg.get("api_key") or "").strip()
+
+
+def is_payment_provider_ready(cfg: Mapping[str, Any], provider: str | None = None) -> bool:
+    normalized_provider = normalize_payment_provider(provider or cfg.get("provider"))
+    if normalized_provider == "mock":
+        return True
+    if normalized_provider == "wechatpay_v3":
+        required_fields = (
+            "app_id",
+            "merchant_id",
+            "merchant_serial_no",
+            "merchant_private_key_pem",
+            "api_v3_key",
+            "notify_url",
+        )
+        if not all(bool(str(cfg.get(field, "")).strip()) for field in required_fields):
+            return False
+        if len(str(cfg.get("api_v3_key", "")).strip()) != 32:
+            return False
+        if "BEGIN PRIVATE KEY" not in str(cfg.get("merchant_private_key_pem", "")):
+            return False
+        wechat_public_key_id = str(cfg.get("wechatpay_public_key_id", "")).strip()
+        wechat_public_key = str(cfg.get("wechatpay_public_key", "")).strip()
+        if bool(wechat_public_key_id) ^ bool(wechat_public_key):
+            return False
+        if wechat_public_key and "BEGIN PUBLIC KEY" not in wechat_public_key:
+            return False
+        return True
+    if normalized_provider == "alipay":
+        private_key = _payment_private_key(cfg)
+        if not (
+            bool(str(cfg.get("app_id", "")).strip())
+            and bool(private_key)
+            and bool(str(cfg.get("alipay_public_key", "")).strip())
+            and bool(str(cfg.get("notify_url", "")).strip())
+        ):
+            return False
+        if "PRIVATE KEY" not in private_key:
+            return False
+        if "PUBLIC KEY" not in str(cfg.get("alipay_public_key", "")):
+            return False
+        return True
+    return False
+
+
 def enabled_payment_providers(db) -> list[str]:
     cfg = load_payment_config(db)
     if bool(cfg.get("test_mode", settings.payment_test_mode)):
         return ["mock"]
-    provider = cfg.get("provider", "wechatpay_v3")
-    if provider == "wechatpay_v3":
+    provider = normalize_payment_provider(cfg.get("provider", "wechatpay_v3"))
+    if provider == "wechatpay_v3" and is_payment_provider_ready(cfg, provider):
         return ["wechat"]
-    if provider == "alipay":
+    if provider == "alipay" and is_payment_provider_ready(cfg, provider):
         return ["alipay"]
     if provider == "mock":
+        return ["mock"] if settings.app_env != "prod" else []
+    if settings.app_env != "prod":
+        # Keep payment flow testable in non-prod when real channel isn't ready.
         return ["mock"]
     return []
 
@@ -96,15 +146,45 @@ def build_provider_notify_url(cfg: Mapping[str, Any], provider: str) -> str:
     return raw.rstrip("/") + suffix
 
 
-def create_payment_session(db, *, order: Order, package_name: str) -> dict:
+def create_payment_session(
+    db,
+    *,
+    order: Order,
+    package_name: str,
+    scene: str = "web",
+    wechat_openid: str | None = None,
+) -> dict:
     cfg = load_payment_config(db)
     provider = normalize_payment_provider(order.provider)
+    normalized_scene = str(scene or "web").strip().lower() or "web"
+
     if provider == "wechatpay_v3":
+        if not is_payment_provider_ready(cfg, provider):
+            raise BizError(code=4214, message="微信支付配置未就绪")
+        if normalized_scene == "miniprogram":
+            openid = str(wechat_openid or "").strip()
+            if not openid:
+                raise BizError(code=4216, message="小程序支付缺少用户openid")
+            payment_params = _create_wechat_jsapi_order(
+                cfg,
+                order=order,
+                package_name=package_name,
+                payer_openid=openid,
+            )
+            return {
+                "provider": "wechat",
+                "scene": "miniprogram",
+                "payment_params": payment_params,
+            }
         pay_url = _create_wechat_native_order(cfg, order=order, package_name=package_name)
-        return {"provider": "wechat", "pay_url": pay_url}
+        return {"provider": "wechat", "scene": normalized_scene, "pay_url": pay_url}
+
     if provider == "alipay":
+        if not is_payment_provider_ready(cfg, provider):
+            raise BizError(code=4214, message="支付宝配置未就绪")
         pay_url = _create_alipay_precreate(cfg, order=order, package_name=package_name)
-        return {"provider": "alipay", "pay_url": pay_url}
+        return {"provider": "alipay", "scene": normalized_scene, "pay_url": pay_url}
+
     raise BizError(code=4211, message="当前支付通道不支持直连下单")
 
 
@@ -143,12 +223,12 @@ def parse_wechatpay_notify(
     message = f"{timestamp}\n{nonce}\n{body.decode('utf-8')}\n"
     public_key_pem = _resolve_wechat_public_key(cfg, serial=serial)
     if not _verify_rsa_sha256(public_key_pem, message.encode("utf-8"), signature):
-        raise BizError(code=4204, message="微信支付回调验签失败")
+        raise BizError(code=4204, message="寰俊鏀粯鍥炶皟楠岀澶辫触")
 
     payload = json.loads(body.decode("utf-8"))
     resource = payload.get("resource")
     if not isinstance(resource, dict):
-        raise BizError(code=4206, message="微信支付回调缺少 resource")
+        raise BizError(code=4206, message="寰俊鏀粯鍥炶皟缂哄皯 resource")
     resource_json = _decrypt_wechat_resource(cfg, resource)
     trade = json.loads(resource_json)
     trade_state = str(trade.get("trade_state", "")).upper()
@@ -176,7 +256,7 @@ def parse_alipay_notify(form_data: Mapping[str, Any], db) -> dict:
     sign = params.pop("sign", "")
     params.pop("sign_type", None)
     if not sign:
-        raise BizError(code=4204, message="支付宝回调缺少 sign")
+        raise BizError(code=4204, message="鏀粯瀹濆洖璋冪己灏?sign")
     if not _verify_alipay_signature(cfg, params, sign):
         raise BizError(code=4204, message="支付宝回调验签失败")
     trade_status = str(params.get("trade_status", "")).upper()
@@ -270,6 +350,67 @@ def _create_wechat_native_order(cfg: Mapping[str, Any], *, order: Order, package
     return code_url
 
 
+def _create_wechat_jsapi_order(
+    cfg: Mapping[str, Any],
+    *,
+    order: Order,
+    package_name: str,
+    payer_openid: str,
+) -> dict[str, str]:
+    notify_url = build_provider_notify_url(cfg, "wechatpay_v3")
+    app_id = str(cfg.get("app_id", "")).strip()
+    body_dict = {
+        "appid": app_id,
+        "mchid": str(cfg.get("merchant_id", "")).strip(),
+        "description": f"格物学术 {package_name}",
+        "out_trade_no": order.order_no,
+        "notify_url": notify_url,
+        "amount": {
+            "total": int(round(float(order.amount_cny) * 100)),
+            "currency": "CNY",
+        },
+        "payer": {"openid": payer_openid},
+        "time_expire": (datetime.now(timezone.utc) + timedelta(minutes=5)).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+    }
+    body = json.dumps(body_dict, ensure_ascii=False, separators=(",", ":"))
+    path = "/v3/pay/transactions/jsapi"
+    headers = _wechat_headers(cfg, method="POST", canonical_url=path, body=body)
+    headers["Accept"] = "application/json"
+    try:
+        response = httpx.post(
+            f"https://api.mch.weixin.qq.com{path}",
+            content=body.encode("utf-8"),
+            headers=headers,
+            timeout=15,
+        )
+        response.raise_for_status()
+        payload = response.json()
+    except httpx.TimeoutException as exc:
+        raise BizError(code=4214, message="微信小程序支付下单超时") from exc
+    except httpx.HTTPStatusError as exc:
+        raise BizError(code=4214, message=f"微信小程序支付下单失败: {exc.response.text[:300]}") from exc
+    except httpx.HTTPError as exc:
+        raise BizError(code=4214, message=f"微信小程序支付下单失败: {exc}") from exc
+
+    prepay_id = str(payload.get("prepay_id", "")).strip()
+    if not prepay_id:
+        raise BizError(code=4214, message="微信小程序支付未返回 prepay_id")
+
+    time_stamp = str(int(time.time()))
+    nonce_str = secrets.token_hex(16)
+    package_value = f"prepay_id={prepay_id}"
+    sign_type = "RSA"
+    sign_message = f"{app_id}\n{time_stamp}\n{nonce_str}\n{package_value}\n".encode("utf-8")
+    pay_sign = _sign_rsa_sha256_base64(str(cfg.get("merchant_private_key_pem", "")).strip(), sign_message)
+    return {
+        "timeStamp": time_stamp,
+        "nonceStr": nonce_str,
+        "package": package_value,
+        "signType": sign_type,
+        "paySign": pay_sign,
+    }
+
+
 def _query_wechat_order(cfg: Mapping[str, Any], *, order: Order) -> dict:
     path = f"/v3/pay/transactions/out-trade-no/{quote(order.order_no, safe='')}?mchid={quote(str(cfg.get('merchant_id', '')).strip(), safe='')}"
     headers = _wechat_headers(cfg, method="GET", canonical_url=path, body="")
@@ -306,7 +447,7 @@ def _create_alipay_precreate(cfg: Mapping[str, Any], *, order: Order, package_na
     biz_content = {
         "out_trade_no": order.order_no,
         "total_amount": f"{float(order.amount_cny):.2f}",
-        "subject": f"格物学术 {package_name}",
+        "subject": f"鏍肩墿瀛︽湳 {package_name}",
         "timeout_express": "5m",
         "product_code": "FACE_TO_FACE_PAYMENT",
     }
@@ -379,7 +520,7 @@ def _resolve_wechat_public_key(cfg: Mapping[str, Any], *, serial: str) -> str:
         return configured_key
     if certs:
         return next(iter(certs.values()))
-    raise BizError(code=4204, message="无法获取微信支付平台公钥")
+    raise BizError(code=4204, message="鏃犳硶鑾峰彇寰俊鏀粯骞冲彴鍏挜")
 
 
 def _fetch_wechat_platform_certificates(cfg: Mapping[str, Any]) -> dict[str, str]:
@@ -395,7 +536,7 @@ def _fetch_wechat_platform_certificates(cfg: Mapping[str, Any]) -> dict[str, str
         response.raise_for_status()
         payload = response.json()
     except httpx.HTTPError as exc:
-        raise BizError(code=4214, message=f"获取微信支付平台证书失败: {exc}") from exc
+        raise BizError(code=4214, message=f"鑾峰彇寰俊鏀粯骞冲彴璇佷功澶辫触: {exc}") from exc
 
     certificates: dict[str, str] = {}
     for item in payload.get("data", []):
@@ -412,14 +553,14 @@ def _fetch_wechat_platform_certificates(cfg: Mapping[str, Any]) -> dict[str, str
 def _decrypt_wechat_resource(cfg: Mapping[str, Any], resource: Mapping[str, Any]) -> str:
     key = str(cfg.get("api_v3_key", "") or "").encode("utf-8")
     if len(key) != 32:
-        raise BizError(code=4204, message="微信支付 APIv3 Key 无效")
+        raise BizError(code=4204, message="寰俊鏀粯 APIv3 Key 鏃犳晥")
     nonce = str(resource.get("nonce", "") or "").encode("utf-8")
     ciphertext = base64.b64decode(str(resource.get("ciphertext", "") or ""))
     associated_data = str(resource.get("associated_data", "") or "").encode("utf-8")
     try:
         plain = AESGCM(key).decrypt(nonce, ciphertext, associated_data)
     except Exception as exc:
-        raise BizError(code=4204, message="微信支付回调解密失败") from exc
+        raise BizError(code=4204, message="寰俊鏀粯鍥炶皟瑙ｅ瘑澶辫触") from exc
     return plain.decode("utf-8")
 
 
@@ -451,9 +592,9 @@ def _alipay_request(
     except httpx.TimeoutException as exc:
         raise BizError(code=4214, message="支付宝请求超时") from exc
     except httpx.HTTPStatusError as exc:
-        raise BizError(code=4214, message=f"支付宝请求失败: {exc.response.text[:300]}") from exc
+        raise BizError(code=4214, message=f"鏀粯瀹濊姹傚け璐? {exc.response.text[:300]}") from exc
     except httpx.HTTPError as exc:
-        raise BizError(code=4214, message=f"支付宝请求失败: {exc}") from exc
+        raise BizError(code=4214, message=f"鏀粯瀹濊姹傚け璐? {exc}") from exc
 
     root_key = method_name.replace(".", "_") + "_response"
     payload = body.get(root_key) if isinstance(body, dict) else None
@@ -496,7 +637,7 @@ def _sign_rsa_sha256_base64(private_key_pem: str, payload: bytes) -> str:
     try:
         private_key = serialization.load_pem_private_key(private_key_pem.encode("utf-8"), password=None)
     except Exception as exc:
-        raise BizError(code=4214, message="支付私钥格式无效") from exc
+        raise BizError(code=4214, message="鏀粯绉侀挜鏍煎紡鏃犳晥") from exc
     signature = private_key.sign(payload, padding.PKCS1v15(), hashes.SHA256())
     return base64.b64encode(signature).decode("ascii")
 
@@ -529,3 +670,5 @@ def _map_alipay_trade_status(trade_status: str) -> str:
     if trade_status == "TRADE_CLOSED":
         return "closed"
     return "created"
+
+

@@ -3,9 +3,11 @@
     <header class="header-wrap">
       <div class="header-left">
         <div class="brand-block">
-          <span class="brand-mark">格</span>
-          <div class="brand-copy">
-            <strong>格物学术</strong>
+          <div class="brand-home" role="img" aria-label="格物学术">
+            <span class="brand-mark">GW</span>
+            <div class="brand-copy">
+              <strong>格物学术</strong>
+            </div>
           </div>
         </div>
       </div>
@@ -13,12 +15,8 @@
       <div class="header-title" :class="{ 'header-title--hidden': shouldHideHeaderTitle }">{{ activeMenu?.label || "工作台" }}</div>
 
       <div class="header-right">
-        <div class="header-notice">
-          <span class="header-notice__tag">公告</span>
-          <span class="header-notice__text">{{ headerNoticeText }}</span>
-        </div>
+        <button type="button" class="header-notice-btn" @click="isNoticeDialogOpen = true">公告</button>
         <button type="button" class="header-topup" @click="hasUserToken ? goBuy() : goLogin()">充值</button>
-        <span class="header-live-credits">实时积分 {{ remainingCreditsNumber }}</span>
         <button type="button" class="header-link" @click="hasUserToken ? goProfile() : goLogin()">
           {{ hasUserToken ? "个人中心" : "登录" }}
         </button>
@@ -91,12 +89,23 @@
         </div>
       </div>
     </div>
+
+    <div v-if="isNoticeDialogOpen" class="notice-dialog-mask" @click.self="isNoticeDialogOpen = false">
+      <div class="notice-dialog" role="dialog" aria-modal="true" aria-label="公告">
+        <div class="notice-dialog__head">
+          <h3>{{ noticeTitle }}</h3>
+          <button type="button" @click="isNoticeDialogOpen = false">关闭</button>
+        </div>
+        <p v-if="noticeUpdatedLabel" class="notice-dialog__meta">最近更新：{{ noticeUpdatedLabel }}</p>
+        <p class="notice-dialog__body">{{ noticeBodyText }}</p>
+      </div>
+    </div>
   </div>
 </template>
 
 <script setup>
 import { Bot, FilePenLine, FileSearch2, Gift, ScanSearch, ShieldCheck, UserRound } from "lucide-vue-next"
-import { computed, onMounted, ref, watch } from "vue"
+import { computed, onMounted, onUnmounted, ref, watch } from "vue"
 import { RouterLink, useRoute, useRouter } from "vue-router"
 
 import { userHttp } from "../lib/http"
@@ -130,11 +139,21 @@ const emit = defineEmits(["buy"])
 const router = useRouter()
 const route = useRoute()
 const hasUserToken = ref(false)
+const isNoticeDialogOpen = ref(false)
 const DEFAULT_HEADER_NOTICE_TEXT = "平台系统持续优化中，任务提交后请在个人中心查看处理进度。"
-const headerNoticeText = ref(DEFAULT_HEADER_NOTICE_TEXT)
+const noticeState = ref({
+  enabled: true,
+  title: "系统公告",
+  content: DEFAULT_HEADER_NOTICE_TEXT,
+  header_text: DEFAULT_HEADER_NOTICE_TEXT,
+  level: "info",
+  version: 1,
+  updated_at: "",
+})
+let noticePollTimer = null
 
 const coreMenus = [
-  { path: "/app/rewrite", label: "降AIGC率", icon: FilePenLine },
+  { path: "/app/rewrite", label: "学术润色", icon: FilePenLine },
   { path: "/app/dedup", label: "降重复率", icon: FileSearch2 },
   { path: "/app/detect", label: "AIGC检测", icon: ScanSearch },
 ]
@@ -160,28 +179,88 @@ const shouldHideTopbar = computed(() => {
   if (props.hideTopbar) return true
   return isRouteMatch(route.path, "/app/profile") || isRouteMatch(route.path, "/app/referral")
 })
-const remainingCreditsNumber = computed(() => {
-  if (typeof props.credits !== "number") return "--"
-  return props.credits.toLocaleString()
+const noticeTitle = computed(() => String(noticeState.value.title || "公告"))
+const noticeBodyText = computed(() => {
+  if (!noticeState.value.enabled) {
+    return "当前暂无公告内容。"
+  }
+  return String(noticeState.value.content || DEFAULT_HEADER_NOTICE_TEXT)
 })
+const noticeUpdatedLabel = computed(() => formatNoticeTime(noticeState.value.updated_at))
 
 onMounted(() => {
   syncTokenState()
-  loadHeaderNotice()
+  startNoticeSync()
+})
+onUnmounted(() => {
+  stopNoticeSync()
 })
 watch(
   () => route.fullPath,
   () => syncTokenState()
 )
 
-async function loadHeaderNotice() {
+async function loadAnnouncement() {
   try {
-    const data = await userHttp.get("/auth/options")
-    const text = String(data?.header_notice_text || "").trim()
-    headerNoticeText.value = text || DEFAULT_HEADER_NOTICE_TEXT
+    const data = await userHttp.get("/auth/announcement")
+    applyNotice(data)
   } catch {
-    headerNoticeText.value = DEFAULT_HEADER_NOTICE_TEXT
+    try {
+      const data = await userHttp.get("/auth/options")
+      applyNotice(data?.notice || { header_text: data?.header_notice_text })
+    } catch {
+      applyNotice({})
+    }
   }
+}
+
+function applyNotice(raw) {
+  const levelRaw = String(raw?.level || "").trim().toLowerCase()
+  const level = ["info", "important", "warning", "success"].includes(levelRaw) ? levelRaw : "info"
+  const content = String(raw?.content || raw?.header_text || DEFAULT_HEADER_NOTICE_TEXT).trim() || DEFAULT_HEADER_NOTICE_TEXT
+  const headerText = String(raw?.header_text || content).trim() || DEFAULT_HEADER_NOTICE_TEXT
+  let version = Number(raw?.version || 1)
+  if (!Number.isFinite(version) || version < 1) version = 1
+  noticeState.value = {
+    enabled: raw?.enabled !== false,
+    title: String(raw?.title || "系统公告").trim() || "系统公告",
+    content,
+    header_text: headerText,
+    level,
+    version: Math.floor(version),
+    updated_at: String(raw?.updated_at || "").trim(),
+  }
+}
+
+function startNoticeSync() {
+  stopNoticeSync()
+  loadAnnouncement()
+  noticePollTimer = window.setInterval(loadAnnouncement, 45000)
+  document.addEventListener("visibilitychange", handleVisibilityChange)
+}
+
+function stopNoticeSync() {
+  if (noticePollTimer) {
+    window.clearInterval(noticePollTimer)
+    noticePollTimer = null
+  }
+  document.removeEventListener("visibilitychange", handleVisibilityChange)
+}
+
+function handleVisibilityChange() {
+  if (!document.hidden) {
+    loadAnnouncement()
+  }
+}
+
+function formatNoticeTime(value) {
+  if (!value) return ""
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) {
+    return ""
+  }
+  const pad = (num) => String(num).padStart(2, "0")
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`
 }
 
 function syncTokenState() {
@@ -622,6 +701,135 @@ function isRouteMatch(currentPath, targetPath) {
   min-width: 0;
 }
 
+/* Monochrome shell overrides */
+.app-wrapper {
+  background: linear-gradient(180deg, #ffffff 0%, #f9f9f9 100%);
+}
+
+.header-wrap {
+  height: 62px;
+  padding: 0 20px;
+  border-bottom-color: rgba(255, 255, 255, 0.16);
+  box-shadow: 0 12px 24px rgba(0, 0, 0, 0.2);
+  backdrop-filter: saturate(140%) blur(8px);
+}
+
+.brand-mark {
+  border-color: rgba(0, 0, 0, 0.28);
+  color: #111111;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.14);
+}
+
+.brand-copy strong {
+  letter-spacing: 0.01em;
+}
+
+.header-title {
+  letter-spacing: 0.08em;
+}
+
+.header-notice {
+  border-color: rgba(255, 255, 255, 0.48);
+  background: rgba(255, 255, 255, 0.18);
+}
+
+.header-notice__tag {
+  background: rgba(255, 255, 255, 0.22);
+  color: #f2f2f2;
+}
+
+.header-notice__text {
+  color: #f2f2f2;
+}
+
+.header-topup,
+.header-link,
+.header-live-credits {
+  border-color: #d0d0d0;
+  color: #1f1f1f;
+}
+
+.header-topup,
+.header-link {
+  transition:
+    background-color var(--motion-fast, 180ms) var(--ease-standard, ease),
+    border-color var(--motion-fast, 180ms) var(--ease-standard, ease),
+    transform var(--motion-fast, 180ms) var(--ease-standard, ease),
+    box-shadow var(--motion-fast, 180ms) var(--ease-standard, ease);
+}
+
+.header-topup:hover,
+.header-link:hover,
+.header-link--muted:hover {
+  background: #f2f2f2;
+  color: #111111;
+  border-color: #a9a9a9;
+}
+
+.header-live-credits {
+  background: linear-gradient(180deg, #ffffff, #f3f3f3);
+}
+
+.content-wrap {
+  background: linear-gradient(180deg, #fafafa 0%, #ffffff 100%);
+}
+
+.sider-wrap {
+  box-shadow:
+    inset -1px 0 0 rgba(255, 255, 255, 0.2),
+    8px 0 24px rgba(0, 0, 0, 0.08);
+}
+
+.el-menu-item {
+  border-radius: 12px;
+  line-height: 1.5;
+}
+
+.el-menu-item:hover {
+  background: rgba(255, 255, 255, 0.24);
+}
+
+.el-menu-item.is-active {
+  color: #111111;
+  box-shadow: 0 10px 20px rgba(0, 0, 0, 0.16);
+}
+
+.main-wrap {
+  padding: 26px;
+}
+
+.main-content {
+  gap: 14px;
+}
+
+.navbarCon {
+  min-height: 52px;
+  border-color: rgba(0, 0, 0, 0.18);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.97), rgba(247, 247, 247, 0.95)),
+    linear-gradient(135deg, rgba(0, 0, 0, 0.03), transparent 46%);
+  box-shadow: 0 10px 22px rgba(0, 0, 0, 0.07);
+}
+
+.navbarCon_right button {
+  border-color: #c5c5c5;
+  color: #222222;
+}
+
+.navbarCon_right button:hover {
+  background: #f1f1f1;
+  border-color: #9e9e9e;
+  color: #111111;
+}
+
+.header-topup:focus-visible,
+.header-link:focus-visible,
+.navbarCon_right button:focus-visible,
+.menu-link:focus-visible .el-menu-item {
+  outline: 2px solid rgba(0, 0, 0, 0.55);
+  outline-offset: 2px;
+}
+
 @media (max-width: 980px) {
   .header-wrap {
     grid-template-columns: minmax(0, 1fr);
@@ -699,6 +907,225 @@ function isRouteMatch(currentPath, targetPath) {
 
   .main-wrap {
     padding: 16px;
+  }
+}
+
+.header-notice-btn,
+.header-topup,
+.header-link {
+  height: 31px;
+  padding: 0 12px;
+  border-radius: 10px;
+  border: 1px solid #111111;
+  background: #111111;
+  color: #ffffff;
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1;
+  cursor: pointer;
+  transition:
+    background-color 0.16s ease,
+    color 0.16s ease,
+    border-color 0.16s ease,
+    transform 0.16s ease;
+}
+
+.header-notice-btn:hover,
+.header-topup:hover,
+.header-link:hover,
+.header-link--muted:hover {
+  background: #ffffff;
+  color: #111111;
+  border-color: #111111;
+  transform: translateY(-1px);
+}
+
+.header-notice-btn:active,
+.header-topup:active,
+.header-link:active,
+.header-link--muted:active {
+  background: #111111;
+  color: #ffffff;
+  transform: translateY(0);
+}
+
+.sider-wrap .menu-link,
+.sider-wrap .menu-link:visited,
+.sider-wrap .menu-link:hover,
+.sider-wrap .menu-link:active {
+  color: #111111;
+}
+
+.sider-wrap .el-menu-item {
+  background: #ffffff;
+  color: #111111;
+  border: 1px solid #d0d0d0;
+}
+
+.sider-wrap .el-menu-item:hover {
+  background: #f7f7f7;
+  color: #111111;
+  border-color: #b7b7b7;
+}
+
+.sider-wrap .el-menu-item.is-active {
+  background: #111111;
+  color: #ffffff;
+  border-color: #111111;
+}
+
+.sider-wrap .el-menu-item *,
+.sider-wrap .el-menu-item:hover * {
+  color: currentColor;
+  fill: currentColor;
+  stroke: currentColor;
+}
+
+.sider-wrap .el-menu-item.is-active * {
+  color: #ffffff;
+  fill: #ffffff;
+  stroke: #ffffff;
+}
+
+.brand-block {
+  background: transparent;
+}
+
+.brand-home {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  text-decoration: none;
+}
+
+.brand-mark {
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  background: #111111;
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  box-shadow: none;
+}
+
+.brand-copy {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.brand-copy strong {
+  margin: 0;
+  font-size: 18px;
+  min-height: auto;
+  padding: 0;
+  border-radius: 0;
+  border: 0;
+  background: transparent;
+  color: #111111;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  display: block;
+}
+
+.brand-home:hover .brand-copy strong,
+.brand-home:focus .brand-copy strong,
+.brand-home:active .brand-copy strong,
+.brand-home:visited .brand-copy strong {
+  background: transparent;
+  color: #111111;
+}
+
+.notice-dialog-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 999;
+  background: rgba(0, 0, 0, 0.45);
+  display: grid;
+  place-items: center;
+  padding: 16px;
+}
+
+.notice-dialog {
+  width: min(560px, 100%);
+  border-radius: 12px;
+  border: 1px solid #d9d9d9;
+  background: #ffffff;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.16);
+  overflow: hidden;
+}
+
+.notice-dialog__head {
+  min-height: 52px;
+  padding: 0 14px;
+  border-bottom: 1px solid #e5e5e5;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.notice-dialog__head h3 {
+  margin: 0;
+  font-size: 18px;
+  color: #000000;
+}
+
+.notice-dialog__head button {
+  min-height: 32px;
+  padding: 0 10px;
+  border-radius: 8px;
+  border: 1px solid #000000;
+  background: #000000;
+  color: #ffffff;
+  cursor: pointer;
+}
+
+.notice-dialog__meta {
+  margin: 0;
+  padding: 10px 14px 0;
+  font-size: 12px;
+  color: #6b6b6b;
+}
+
+.notice-dialog__body {
+  margin: 0;
+  padding: 16px 14px 18px;
+  color: #111111;
+  line-height: 1.8;
+  white-space: pre-wrap;
+}
+
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .header-wrap {
+    backdrop-filter: none;
+  }
+}
+
+@media (max-width: 768px) {
+  .header-right {
+    gap: 6px;
+  }
+
+  .header-notice-btn,
+  .header-topup,
+  .header-link {
+    min-height: 32px;
+    padding: 0 10px;
+    font-size: 12px;
+  }
+
+  .main-wrap {
+    padding: 12px;
+  }
+
+  .navbarCon {
+    padding: 8px 10px;
   }
 }
 </style>

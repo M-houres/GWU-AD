@@ -1,4 +1,4 @@
-from datetime import date, datetime, timedelta
+﻿from datetime import date, datetime, timedelta
 from copy import deepcopy
 import ipaddress
 import re
@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 from app.config import get_settings
 from app.constants import DEFAULT_BILLING_PACKAGES
 from app.deps import (
-    current_super_admin,
+    admin_has_permission,
     db_dep,
     normalize_admin_permissions,
     require_admin_permission,
@@ -77,12 +77,20 @@ from app.services.referral_service import get_referral_rules, update_referral_ru
 router = APIRouter()
 settings = get_settings()
 
-CONFIG_CATEGORIES = {"llm", "payment", "billing", "login", "referral"}
+DEFAULT_NOTICE_TITLE = "系统公告"
+DEFAULT_NOTICE_TEXT = "平台系统持续优化中，任务提交后请在个人中心查看处理进度。"
+SOURCE_BUCKETS = ("web", "miniapp", "other")
+_SOURCE_WEB_ALIASES = {"web", "h5", "site"}
+_SOURCE_MINIAPP_ALIASES = {"miniapp", "miniprogram", "mini_program", "wxapp", "wechat_miniprogram", "wechat_mini_program"}
+
+CONFIG_CATEGORIES = {"llm", "payment", "billing", "login", "notice", "miniapp", "referral"}
 CONFIG_LABELS = {
     "llm": "大模型配置",
     "payment": "支付配置",
     "billing": "计费规则",
     "login": "登录配置",
+    "notice": "公告配置",
+    "miniapp": "小程序配置",
     "referral": "推广规则",
 }
 CONFIG_FIELD_LABELS = {
@@ -115,7 +123,7 @@ CONFIG_FIELD_LABELS = {
     "billing": {
         "aigc_rate": "AIGC单价",
         "dedup_rate": "降重单价",
-        "rewrite_rate": "降AIGC率单价",
+        "rewrite_rate": "学术润色单价",
         "packages": "套餐配置",
     },
     "login": {
@@ -135,11 +143,52 @@ CONFIG_FIELD_LABELS = {
         "wechat_app_secret": "微信AppSecret",
         "wechat_redirect_uri": "微信回调地址",
         "header_notice_text": "顶部公告文案",
+        "wechat_miniprogram_login_enabled": "小程序登录开关",
+        "wechat_miniprogram_app_id": "小程序AppID",
+        "wechat_miniprogram_app_secret": "小程序AppSecret",
+        "notice_enabled": "公告开关",
+        "notice_title": "公告标题",
+        "notice_content": "公告内容",
+        "notice_level": "公告级别",
+        "notice_version": "公告版本",
+        "notice_updated_at": "公告更新时间",
         "new_user_initial_credits": "新用户初始积分",
         "max_code_retry": "验证码最大重试次数",
         "phone_lock_minutes": "验证码错误锁定分钟数",
         "send_code_ip_1h_limit": "发送验证码IP限流",
         "login_ip_10m_limit": "登录请求IP限流",
+    },
+    "notice": {
+        "enabled": "公告开关",
+        "title": "公告标题",
+        "content": "公告内容",
+        "header_text": "顶部公告文案",
+        "level": "公告级别",
+        "version": "公告版本",
+        "updated_at": "公告更新时间",
+    },
+    "miniapp": {
+        "enabled": "小程序开关",
+        "app_id": "小程序AppID",
+        "app_secret": "小程序AppSecret",
+        "original_id": "小程序原始ID",
+        "env_version": "版本环境",
+        "api_base_url": "后端API地址",
+        "web_base_url": "官网地址",
+        "request_domain": "request合法域名",
+        "upload_domain": "uploadFile合法域名",
+        "download_domain": "downloadFile合法域名",
+        "ws_domain": "WebSocket合法域名",
+        "business_domain": "业务域名",
+        "icp_filing_no": "备案号",
+        "contact_phone": "客服电话",
+        "contact_email": "联系邮箱",
+        "publish_note": "上线备注",
+        "wechat_miniprogram_login_enabled": "小程序登录开关",
+        "wechat_miniprogram_app_id": "小程序登录AppID",
+        "wechat_miniprogram_app_secret": "小程序登录AppSecret",
+        "wechat_miniprogram_payment_enabled": "小程序支付开关",
+        "payment_notify_url": "支付回调地址",
     },
     "referral": {
         "register_inviter_credits": "邀请人注册奖励",
@@ -183,12 +232,53 @@ CONFIG_DEFAULTS = {
         "wechat_app_id": "",
         "wechat_app_secret": "",
         "wechat_redirect_uri": "",
-        "header_notice_text": "平台系统持续优化中，任务提交后请在个人中心查看处理进度。",
+        "wechat_miniprogram_login_enabled": False,
+        "wechat_miniprogram_app_id": "",
+        "wechat_miniprogram_app_secret": "",
+        "header_notice_text": DEFAULT_NOTICE_TEXT,
+        "notice_enabled": True,
+        "notice_title": DEFAULT_NOTICE_TITLE,
+        "notice_content": DEFAULT_NOTICE_TEXT,
+        "notice_level": "info",
+        "notice_version": 1,
+        "notice_updated_at": "",
         "new_user_initial_credits": settings.initial_credits,
         "max_code_retry": settings.max_code_retry,
         "phone_lock_minutes": settings.phone_lock_minutes,
         "send_code_ip_1h_limit": settings.auth_send_code_ip_1h_limit,
         "login_ip_10m_limit": settings.auth_login_ip_10m_limit,
+    },
+    "notice": {
+        "enabled": True,
+        "title": DEFAULT_NOTICE_TITLE,
+        "content": DEFAULT_NOTICE_TEXT,
+        "header_text": DEFAULT_NOTICE_TEXT,
+        "level": "info",
+        "version": 1,
+        "updated_at": "",
+    },
+    "miniapp": {
+        "enabled": False,
+        "app_id": "",
+        "app_secret": "",
+        "original_id": "",
+        "env_version": "release",
+        "api_base_url": "",
+        "web_base_url": "",
+        "request_domain": "",
+        "upload_domain": "",
+        "download_domain": "",
+        "ws_domain": "",
+        "business_domain": "",
+        "icp_filing_no": "",
+        "contact_phone": "",
+        "contact_email": "",
+        "publish_note": "",
+        "wechat_miniprogram_login_enabled": False,
+        "wechat_miniprogram_app_id": "",
+        "wechat_miniprogram_app_secret": "",
+        "wechat_miniprogram_payment_enabled": False,
+        "payment_notify_url": "",
     },
     "referral": {
         "register_inviter_credits": 500,
@@ -218,6 +308,8 @@ ADMIN_PERMISSION_CATALOG = [
     {"key": "configs:view", "label": "查看系统配置", "group": "系统配置"},
     {"key": "configs:manage", "label": "修改系统配置", "group": "系统配置"},
     {"key": "system:manage", "label": "切换系统运行模式", "group": "系统模式"},
+    {"key": "admins:view", "label": "查看管理员与权限", "group": "权限管理"},
+    {"key": "admins:manage", "label": "创建管理员与修改权限", "group": "权限管理"},
 ]
 ADMIN_PERMISSION_KEYS = {item["key"] for item in ADMIN_PERMISSION_CATALOG}
 DEFAULT_OPERATOR_PERMISSIONS = {
@@ -232,6 +324,80 @@ DEFAULT_OPERATOR_PERMISSIONS = {
     "credits:view",
     "algo:view",
 }
+ADMIN_PERMISSION_TEMPLATES = [
+    {
+        "key": "ops_basic",
+        "label": "运营基础",
+        "description": "适合日常运营，覆盖用户、任务、订单与推广查看。",
+        "permissions": [
+            "dashboard:view",
+            "users:view",
+            "users:manage",
+            "tasks:view",
+            "orders:view",
+            "orders:refund",
+            "referrals:view",
+            "logs:view",
+            "credits:view",
+        ],
+    },
+    {
+        "key": "service_support",
+        "label": "客服支持",
+        "description": "聚焦用户处理与订单售后，不涉及系统配置。",
+        "permissions": [
+            "users:view",
+            "users:manage",
+            "tasks:view",
+            "orders:view",
+            "orders:refund",
+            "credits:view",
+        ],
+    },
+    {
+        "key": "read_only_audit",
+        "label": "只读审计",
+        "description": "只读查看业务与日志，不允许变更。",
+        "permissions": [
+            "dashboard:view",
+            "users:view",
+            "tasks:view",
+            "orders:view",
+            "referrals:view",
+            "logs:view",
+            "credits:view",
+            "algo:view",
+            "configs:view",
+            "admins:view",
+        ],
+    },
+    {
+        "key": "config_operator",
+        "label": "配置运营",
+        "description": "负责算法与系统配置维护，不含管理员权限。",
+        "permissions": [
+            "dashboard:view",
+            "tasks:view",
+            "algo:view",
+            "algo:manage",
+            "configs:view",
+            "configs:manage",
+            "system:manage",
+            "logs:view",
+        ],
+    },
+    {
+        "key": "permission_admin",
+        "label": "权限管理员",
+        "description": "负责管理员账号、授权、启停和密码重置。",
+        "permissions": [
+            "dashboard:view",
+            "admins:view",
+            "admins:manage",
+            "logs:view",
+        ],
+    },
+]
 ADMIN_USERNAME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_.-]{2,31}$")
 
 
@@ -259,10 +425,44 @@ def _admin_payload(admin: AdminUser) -> dict:
 
 def _normalize_permission_list(raw) -> list[str]:
     values = normalize_admin_permissions(raw)
+    expanded = set(values)
+    for item in list(values):
+        if ":" not in item:
+            continue
+        scope, action = item.split(":", 1)
+        if action != "manage":
+            continue
+        implied_view = f"{scope}:view"
+        if implied_view in ADMIN_PERMISSION_KEYS:
+            expanded.add(implied_view)
+    values = expanded
     unsupported = sorted(values - ADMIN_PERMISSION_KEYS)
     if unsupported:
         raise BizError(code=4308, message=f"存在不支持的权限: {','.join(unsupported)}")
     return sorted(values)
+
+
+def _permission_templates_payload() -> list[dict]:
+    result = []
+    for item in ADMIN_PERMISSION_TEMPLATES:
+        permissions = _normalize_permission_list(item.get("permissions", []))
+        result.append(
+            {
+                "key": item.get("key"),
+                "label": item.get("label"),
+                "description": item.get("description", ""),
+                "permissions": permissions,
+            }
+        )
+    return result
+
+
+def _assert_actor_can_assign_permissions(actor: AdminUser, permissions: list[str]) -> None:
+    if actor.role == "super_admin":
+        return
+    denied = [perm for perm in permissions if not admin_has_permission(actor, perm)]
+    if denied:
+        raise BizError(code=4315, message=f"不可分配超出自身范围的权限: {','.join(denied)}")
 
 
 def _generate_admin_password(length: int = 14) -> str:
@@ -347,6 +547,237 @@ def _has_query_or_fragment(value: str) -> bool:
 
 def _default_debug_code_enabled() -> bool:
     return bool(settings.auth_return_debug_code or settings.app_env != "prod")
+
+
+def _normalize_notice_level(value) -> str:
+    level = _as_text(value, default="info", max_len=32).lower()
+    if level not in {"info", "important", "warning", "success"}:
+        return "info"
+    return level
+
+
+def _normalize_source_bucket(value) -> str:
+    raw = _as_text(value, default="", max_len=64).lower().replace("-", "_")
+    if raw in _SOURCE_WEB_ALIASES:
+        return "web"
+    if raw in _SOURCE_MINIAPP_ALIASES:
+        return "miniapp"
+    return "other"
+
+
+def _normalize_source_filter(value) -> str:
+    raw = _as_text(value, default="", max_len=64).lower().replace("-", "_")
+    if not raw or raw in {"all", "*"}:
+        return ""
+    if raw in _SOURCE_WEB_ALIASES:
+        return "web"
+    if raw in _SOURCE_MINIAPP_ALIASES:
+        return "miniapp"
+    if raw == "other":
+        return "other"
+    raise BizError(code=4348, message="source 不支持，仅允许 web / miniapp / other")
+
+
+def _apply_source_filter(query, source_column, source_filter: str):
+    if not source_filter:
+        return query
+    source_expr = func.lower(func.coalesce(source_column, ""))
+    if source_filter == "web":
+        return query.filter(source_expr.in_(tuple(sorted(_SOURCE_WEB_ALIASES))))
+    if source_filter == "miniapp":
+        return query.filter(source_expr.in_(tuple(sorted(_SOURCE_MINIAPP_ALIASES))))
+    known = tuple(sorted(_SOURCE_WEB_ALIASES | _SOURCE_MINIAPP_ALIASES))
+    return query.filter(~source_expr.in_(known))
+
+
+def _build_source_stats(rows, *, as_float: bool = False) -> dict:
+    stats: dict[str, int | float] = {bucket: 0.0 if as_float else 0 for bucket in SOURCE_BUCKETS}
+    stats["total"] = 0.0 if as_float else 0
+    for source, amount in rows:
+        bucket = _normalize_source_bucket(source)
+        if as_float:
+            value = float(amount or 0)
+            stats[bucket] = float(stats[bucket]) + value
+            stats["total"] = float(stats["total"]) + value
+        else:
+            value = int(amount or 0)
+            stats[bucket] = int(stats[bucket]) + value
+            stats["total"] = int(stats["total"]) + value
+    if as_float:
+        return {key: round(float(val), 2) for key, val in stats.items()}
+    return {key: int(val) for key, val in stats.items()}
+
+
+def _read_system_config_raw(db: Session, key: str) -> dict:
+    row = (
+        db.query(SystemConfig)
+        .filter(SystemConfig.category == "system", SystemConfig.config_key == key)
+        .first()
+    )
+    if row is None or not isinstance(row.config_value, dict):
+        return {}
+    return row.config_value
+
+
+def _upsert_system_config_raw(db: Session, *, key: str, value: dict, updated_by: int | None) -> None:
+    row = (
+        db.query(SystemConfig)
+        .filter(SystemConfig.category == "system", SystemConfig.config_key == key)
+        .first()
+    )
+    if row is None:
+        db.add(
+            SystemConfig(
+                category="system",
+                config_key=key,
+                config_value=value,
+                updated_by=updated_by,
+            )
+        )
+        return
+    row.config_value = value
+    row.updated_by = updated_by
+
+
+def _extract_notice_payload(raw: dict | None) -> dict:
+    src = raw if isinstance(raw, dict) else {}
+    content = _as_text(
+        src.get("content", src.get("notice_content", src.get("header_notice_text", DEFAULT_NOTICE_TEXT))),
+        default=DEFAULT_NOTICE_TEXT,
+        max_len=2000,
+    )
+    if not content:
+        content = DEFAULT_NOTICE_TEXT
+    header_text = _as_text(
+        src.get("header_text", src.get("header_notice_text", content)),
+        default=content[:140],
+        max_len=140,
+    )
+    if not header_text:
+        header_text = content[:140]
+    title = _as_text(src.get("title", src.get("notice_title", DEFAULT_NOTICE_TITLE)), default=DEFAULT_NOTICE_TITLE, max_len=32)
+    if not title:
+        title = DEFAULT_NOTICE_TITLE
+    try:
+        version = int(src.get("version", src.get("notice_version", 1)) or 1)
+    except Exception:
+        version = 1
+    if version < 1:
+        version = 1
+    return {
+        "enabled": _as_bool(src.get("enabled", src.get("notice_enabled", True)), default=True),
+        "title": title,
+        "content": content,
+        "header_text": header_text,
+        "level": _normalize_notice_level(src.get("level", src.get("notice_level", "info"))),
+        "version": version,
+        "updated_at": _as_text(src.get("updated_at", src.get("notice_updated_at", "")), default="", max_len=64),
+    }
+
+
+def _notice_to_login_fields(notice_payload: dict) -> dict:
+    notice = _extract_notice_payload(notice_payload)
+    return {
+        "header_notice_text": notice["header_text"],
+        "notice_enabled": notice["enabled"],
+        "notice_title": notice["title"],
+        "notice_content": notice["content"],
+        "notice_level": notice["level"],
+        "notice_version": notice["version"],
+        "notice_updated_at": notice["updated_at"],
+    }
+
+
+def _notice_to_notice_fields(notice_payload: dict) -> dict:
+    notice = _extract_notice_payload(notice_payload)
+    return {
+        "enabled": notice["enabled"],
+        "title": notice["title"],
+        "content": notice["content"],
+        "header_text": notice["header_text"],
+        "level": notice["level"],
+        "version": notice["version"],
+        "updated_at": notice["updated_at"],
+    }
+
+
+def _extract_miniapp_payload(raw: dict | None) -> dict:
+    src = raw if isinstance(raw, dict) else {}
+    payload = deepcopy(CONFIG_DEFAULTS["miniapp"])
+    payload["enabled"] = _as_bool(src.get("enabled", src.get("wechat_miniprogram_login_enabled", payload["enabled"])), default=payload["enabled"])
+    payload["app_id"] = _as_text(src.get("app_id", src.get("wechat_miniprogram_app_id", src.get("wechat_app_id", payload["app_id"]))), default="", max_len=128)
+    payload["app_secret"] = _as_text(src.get("app_secret", src.get("wechat_miniprogram_app_secret", src.get("wechat_app_secret", payload["app_secret"]))), default="", max_len=256)
+    payload["original_id"] = _as_text(src.get("original_id", payload["original_id"]), default="", max_len=128)
+    payload["env_version"] = _as_text(src.get("env_version", payload["env_version"]), default="release", max_len=32).lower()
+    if payload["env_version"] not in {"develop", "trial", "release"}:
+        payload["env_version"] = "release"
+    payload["api_base_url"] = _as_text(src.get("api_base_url", payload["api_base_url"]), default="", max_len=256)
+    payload["web_base_url"] = _as_text(src.get("web_base_url", payload["web_base_url"]), default="", max_len=256)
+    payload["request_domain"] = _as_text(src.get("request_domain", payload["request_domain"]), default="", max_len=256)
+    payload["upload_domain"] = _as_text(src.get("upload_domain", payload["upload_domain"]), default="", max_len=256)
+    payload["download_domain"] = _as_text(src.get("download_domain", payload["download_domain"]), default="", max_len=256)
+    payload["ws_domain"] = _as_text(src.get("ws_domain", payload["ws_domain"]), default="", max_len=256)
+    payload["business_domain"] = _as_text(src.get("business_domain", payload["business_domain"]), default="", max_len=256)
+    payload["icp_filing_no"] = _as_text(src.get("icp_filing_no", payload["icp_filing_no"]), default="", max_len=128)
+    payload["contact_phone"] = _as_text(src.get("contact_phone", payload["contact_phone"]), default="", max_len=32)
+    payload["contact_email"] = _as_text(src.get("contact_email", payload["contact_email"]), default="", max_len=128)
+    payload["publish_note"] = _as_text(src.get("publish_note", payload["publish_note"]), default="", max_len=500)
+    payload["wechat_miniprogram_login_enabled"] = _as_bool(
+        src.get("wechat_miniprogram_login_enabled", payload["enabled"]),
+        default=payload["enabled"],
+    )
+    payload["wechat_miniprogram_app_id"] = _as_text(
+        src.get("wechat_miniprogram_app_id", payload["app_id"]),
+        default=payload["app_id"],
+        max_len=128,
+    )
+    payload["wechat_miniprogram_app_secret"] = _as_text(
+        src.get("wechat_miniprogram_app_secret", payload["app_secret"]),
+        default=payload["app_secret"],
+        max_len=256,
+    )
+    payload["wechat_miniprogram_payment_enabled"] = _as_bool(
+        src.get("wechat_miniprogram_payment_enabled", payload["wechat_miniprogram_payment_enabled"]),
+        default=payload["wechat_miniprogram_payment_enabled"],
+    )
+    payload["payment_notify_url"] = _as_text(src.get("payment_notify_url", payload["payment_notify_url"]), default="", max_len=256)
+    return payload
+
+
+def _miniapp_to_login_fields(miniapp_payload: dict) -> dict:
+    mini = _extract_miniapp_payload(miniapp_payload)
+    return {
+        "wechat_miniprogram_login_enabled": mini["wechat_miniprogram_login_enabled"],
+        "wechat_miniprogram_app_id": mini["wechat_miniprogram_app_id"],
+        "wechat_miniprogram_app_secret": mini["wechat_miniprogram_app_secret"],
+    }
+
+
+def _apply_notice_versioning(before_payload: dict, after_payload: dict) -> dict:
+    before_notice = _extract_notice_payload(before_payload)
+    after_notice = _extract_notice_payload(after_payload)
+    changed = (
+        before_notice["enabled"] != after_notice["enabled"]
+        or before_notice["title"] != after_notice["title"]
+        or before_notice["content"] != after_notice["content"]
+        or before_notice["header_text"] != after_notice["header_text"]
+        or before_notice["level"] != after_notice["level"]
+    )
+    prev_version = int(before_notice.get("version") or 1)
+    if prev_version < 1:
+        prev_version = 1
+    if changed:
+        after_notice["version"] = prev_version + 1
+        after_notice["updated_at"] = datetime.utcnow().isoformat(timespec="seconds")
+        return after_notice
+
+    current_version = int(after_notice.get("version") or prev_version)
+    if current_version < prev_version:
+        current_version = prev_version
+    after_notice["version"] = current_version
+    if not after_notice.get("updated_at"):
+        after_notice["updated_at"] = before_notice.get("updated_at", "")
+    return after_notice
 
 
 def _is_private_or_loopback_host(host: str) -> bool:
@@ -504,7 +935,8 @@ def _normalize_category_payload(category: str, payload: dict) -> dict:
                 raise BizError(code=4341, message="LLM base_url 必须以 http:// 或 https:// 开头")
             if not base["model"]:
                 raise BizError(code=4341, message="启用 LLM 时必须填写 model")
-            if not base["api_key"]:
+            api_key_required = base["provider"] != "local_mock"
+            if api_key_required and (not base["api_key"]):
                 raise BizError(code=4341, message="启用 LLM 时必须填写 api_key")
         return base
 
@@ -582,6 +1014,23 @@ def _normalize_category_payload(category: str, payload: dict) -> dict:
             raise BizError(code=4341, message="正式支付宝要求 payment.notify_url 为公网 HTTPS 地址")
         return base
 
+    if category == "notice":
+        notice = _extract_notice_payload(raw)
+        return _notice_to_notice_fields(notice)
+
+    if category == "miniapp":
+        miniapp = _extract_miniapp_payload(raw)
+        if miniapp["api_base_url"] and (not _is_http_url(miniapp["api_base_url"])):
+            raise BizError(code=4341, message="miniapp.api_base_url 必须以 http:// 或 https:// 开头")
+        if miniapp["web_base_url"] and (not _is_http_url(miniapp["web_base_url"])):
+            raise BizError(code=4341, message="miniapp.web_base_url 必须以 http:// 或 https:// 开头")
+        if miniapp["payment_notify_url"] and (not _is_http_url(miniapp["payment_notify_url"])):
+            raise BizError(code=4341, message="miniapp.payment_notify_url 必须以 http:// 或 https:// 开头")
+        if miniapp["enabled"] and miniapp["wechat_miniprogram_login_enabled"]:
+            if (not miniapp["wechat_miniprogram_app_id"]) or (not miniapp["wechat_miniprogram_app_secret"]):
+                raise BizError(code=4341, message="启用小程序登录时必须填写小程序 AppID 与 AppSecret")
+        return miniapp
+
     if category == "login":
         sms_provider = _as_text(raw.get("sms_provider", base["sms_provider"]), default="custom_webhook", max_len=64).lower()
         if sms_provider not in _SMS_PROVIDERS:
@@ -604,11 +1053,22 @@ def _normalize_category_payload(category: str, payload: dict) -> dict:
         base["wechat_app_id"] = _as_text(raw.get("wechat_app_id", base["wechat_app_id"]), default="", max_len=128)
         base["wechat_app_secret"] = _as_text(raw.get("wechat_app_secret", base["wechat_app_secret"]), default="", max_len=256)
         base["wechat_redirect_uri"] = _as_text(raw.get("wechat_redirect_uri", base["wechat_redirect_uri"]), default="", max_len=256)
-        base["header_notice_text"] = _as_text(
-            raw.get("header_notice_text", base.get("header_notice_text", "平台系统持续优化中，任务提交后请在个人中心查看处理进度。")),
-            default="平台系统持续优化中，任务提交后请在个人中心查看处理进度。",
-            max_len=140,
+        base["wechat_miniprogram_login_enabled"] = _as_bool(
+            raw.get("wechat_miniprogram_login_enabled", base.get("wechat_miniprogram_login_enabled", False)),
+            default=False,
         )
+        base["wechat_miniprogram_app_id"] = _as_text(
+            raw.get("wechat_miniprogram_app_id", base.get("wechat_miniprogram_app_id", "")),
+            default="",
+            max_len=128,
+        )
+        base["wechat_miniprogram_app_secret"] = _as_text(
+            raw.get("wechat_miniprogram_app_secret", base.get("wechat_miniprogram_app_secret", "")),
+            default="",
+            max_len=256,
+        )
+        notice = _extract_notice_payload(raw)
+        base.update(_notice_to_login_fields(notice))
         base["new_user_initial_credits"] = _as_int(
             raw.get("new_user_initial_credits", base["new_user_initial_credits"]),
             default=settings.initial_credits,
@@ -654,6 +1114,11 @@ def _normalize_category_payload(category: str, payload: dict) -> dict:
             (not base["wechat_app_id"]) or (not base["wechat_app_secret"]) or (not base["wechat_redirect_uri"])
         ):
             raise BizError(code=4341, message="启用微信登录时必须填写 app_id、app_secret、redirect_uri")
+        if base["wechat_miniprogram_login_enabled"] and (
+            (not (base["wechat_miniprogram_app_id"] or base["wechat_app_id"]))
+            or (not (base["wechat_miniprogram_app_secret"] or base["wechat_app_secret"]))
+        ):
+            raise BizError(code=4341, message="启用小程序登录时必须填写小程序 AppID 与 AppSecret（可复用微信登录配置）")
 
         if base["sms_provider"] == "custom_webhook":
             if (not base["debug_code_enabled"]) and (not base["sms_gateway_url"]) and (not base["wechat_login_enabled"]):
@@ -701,7 +1166,9 @@ def _category_readiness(category: str, value: dict) -> dict:
         enabled = bool(value.get("enabled"))
         if not enabled:
             return {"category": category, "status": "warning", "message": "LLM 未启用（系统会走算法模式）"}
-        fields_ok = bool(value.get("base_url")) and bool(value.get("model")) and bool(value.get("api_key"))
+        provider = normalize_llm_provider(_as_text(value.get("provider"), default="openai", max_len=64))
+        api_key_ok = bool(value.get("api_key")) or provider == "local_mock"
+        fields_ok = bool(value.get("base_url")) and bool(value.get("model")) and api_key_ok
         return {"category": category, "status": "ready" if fields_ok else "error", "message": "LLM 已就绪" if fields_ok else "LLM 关键字段未填全"}
     if category == "payment":
         provider = normalize_payment_provider(str(value.get("provider", "wechatpay_v3")).lower())
@@ -749,6 +1216,27 @@ def _category_readiness(category: str, value: dict) -> dict:
                 return {"category": category, "status": "ready", "message": "支付宝配置已就绪"}
             return {"category": category, "status": "error", "message": "支付宝缺少 app_id / app_private_key_pem / alipay_public_key / notify_url"}
         return {"category": category, "status": "warning", "message": "支付配置待确认"}
+    if category == "notice":
+        notice = _extract_notice_payload(value)
+        if not notice["enabled"]:
+            return {"category": category, "status": "warning", "message": "公告已关闭"}
+        if not notice["title"] or not notice["content"]:
+            return {"category": category, "status": "error", "message": "公告标题或内容为空"}
+        return {"category": category, "status": "ready", "message": f"公告已发布（v{notice['version']}）"}
+    if category == "miniapp":
+        miniapp = _extract_miniapp_payload(value)
+        if not miniapp["enabled"]:
+            return {"category": category, "status": "warning", "message": "小程序配置未启用"}
+        login_enabled = bool(miniapp.get("wechat_miniprogram_login_enabled"))
+        app_id = str(miniapp.get("wechat_miniprogram_app_id") or miniapp.get("app_id") or "")
+        app_secret = str(miniapp.get("wechat_miniprogram_app_secret") or miniapp.get("app_secret") or "")
+        if login_enabled and (not app_id or not app_secret):
+            return {"category": category, "status": "error", "message": "小程序登录已启用但 AppID/AppSecret 未填写完整"}
+        if miniapp.get("api_base_url") and not _is_http_url(str(miniapp.get("api_base_url", ""))):
+            return {"category": category, "status": "error", "message": "小程序 API 地址格式错误"}
+        if miniapp.get("request_domain") and (not _is_https_url(str(miniapp.get("request_domain", "")))):
+            return {"category": category, "status": "warning", "message": "request 域名建议使用 HTTPS"}
+        return {"category": category, "status": "ready", "message": "小程序配置已就绪"}
     if category == "login":
         debug_enabled = bool(value.get("debug_code_enabled"))
         debug_runtime_enabled = debug_enabled and settings.app_env != "prod"
@@ -787,7 +1275,15 @@ def _category_readiness(category: str, value: dict) -> dict:
             elif not _is_public_https_url(str(value.get("wechat_redirect_uri", ""))):
                 warnings.append("微信回调地址需为公网 HTTPS")
 
-        any_login_path = debug_runtime_enabled or sms_ok or wechat_ok
+        miniapp_enabled = bool(value.get("wechat_miniprogram_login_enabled"))
+        if miniapp_enabled:
+            miniapp_ok = bool(value.get("wechat_miniprogram_app_id") or value.get("wechat_app_id")) and bool(
+                value.get("wechat_miniprogram_app_secret") or value.get("wechat_app_secret")
+            )
+            if not miniapp_ok:
+                warnings.append("小程序登录字段不完整")
+
+        any_login_path = debug_runtime_enabled or sms_ok or wechat_ok or miniapp_enabled
         if not any_login_path:
             return {"category": category, "status": "error", "message": "登录配置不可用：请至少启用一种登录路径"}
         if warnings:
@@ -799,12 +1295,11 @@ def _category_readiness(category: str, value: dict) -> dict:
 def _get_category_config(db: Session, category: str) -> dict:
     if category == "referral":
         return get_referral_rules(db)
-    row = (
-        db.query(SystemConfig)
-        .filter(SystemConfig.category == "system", SystemConfig.config_key == category)
-        .first()
-    )
-    source = row.config_value if (row and isinstance(row.config_value, dict)) else {}
+    source = _read_system_config_raw(db, category)
+    if category == "notice" and (not source):
+        source = _notice_to_notice_fields(_extract_notice_payload(_read_system_config_raw(db, "login")))
+    if category == "miniapp" and (not source):
+        source = _extract_miniapp_payload(_read_system_config_raw(db, "login"))
     merged = deepcopy(CONFIG_DEFAULTS[category])
     if category == "login" and "debug_code_enabled" not in source:
         merged["debug_code_enabled"] = _default_debug_code_enabled()
@@ -833,8 +1328,31 @@ def _get_category_config(db: Session, category: str) -> dict:
             merged["packages"] = _normalize_billing_packages(merged.get("packages"))
         except BizError:
             merged["packages"] = deepcopy(DEFAULT_BILLING_PACKAGES)
+    if category == "notice":
+        return _notice_to_notice_fields(_extract_notice_payload(merged))
+    if category == "miniapp":
+        return _extract_miniapp_payload(merged)
     if category == "login":
+        notice_cfg = _read_system_config_raw(db, "notice")
+        if notice_cfg:
+            merged.update(_notice_to_login_fields(notice_cfg))
+        miniapp_cfg = _read_system_config_raw(db, "miniapp")
+        if miniapp_cfg:
+            mini_login_fields = _miniapp_to_login_fields(miniapp_cfg)
+            merged.update(mini_login_fields)
+            if not merged.get("wechat_miniprogram_app_id"):
+                merged["wechat_miniprogram_app_id"] = _as_text(miniapp_cfg.get("app_id"), default="", max_len=128)
+            if not merged.get("wechat_miniprogram_app_secret"):
+                merged["wechat_miniprogram_app_secret"] = _as_text(miniapp_cfg.get("app_secret"), default="", max_len=256)
+
         merged["sms_provider"] = _as_text(merged.get("sms_provider", "custom_webhook"), default="custom_webhook", max_len=64).lower()
+        merged["wechat_miniprogram_login_enabled"] = _as_bool(
+            merged.get("wechat_miniprogram_login_enabled", False),
+            default=False,
+        )
+        merged["wechat_miniprogram_app_id"] = _as_text(merged.get("wechat_miniprogram_app_id", ""), default="", max_len=128)
+        merged["wechat_miniprogram_app_secret"] = _as_text(merged.get("wechat_miniprogram_app_secret", ""), default="", max_len=256)
+        merged.update(_notice_to_login_fields(merged))
         merged["new_user_initial_credits"] = _as_int(
             merged.get("new_user_initial_credits", settings.initial_credits),
             default=settings.initial_credits,
@@ -924,6 +1442,25 @@ def _save_category_config(db: Session, category: str, value: dict, admin: AdminU
     before = deepcopy(CONFIG_DEFAULTS[category])
     if row is not None and isinstance(row.config_value, dict):
         before = row.config_value
+
+    notice_sync_payload: dict | None = None
+    miniapp_sync_payload: dict | None = None
+    if category == "notice":
+        next_notice = _apply_notice_versioning(before, value)
+        value = _notice_to_notice_fields(next_notice)
+        notice_sync_payload = value
+    elif category == "miniapp":
+        value = _extract_miniapp_payload(value)
+        miniapp_sync_payload = value
+    elif category == "login":
+        notice_before = _read_system_config_raw(db, "notice")
+        if not notice_before:
+            notice_before = _extract_notice_payload(before)
+        notice_after = _apply_notice_versioning(notice_before, value)
+        notice_sync_payload = _notice_to_notice_fields(notice_after)
+        value.update(_notice_to_login_fields(notice_after))
+        miniapp_sync_payload = _extract_miniapp_payload(value)
+
     if row is None:
         row = SystemConfig(
             category="system",
@@ -946,6 +1483,27 @@ def _save_category_config(db: Session, category: str, value: dict, admin: AdminU
             after_json=value,
         )
     )
+
+    if category == "notice" and notice_sync_payload is not None:
+        login_existing = _read_system_config_raw(db, "login")
+        login_value = deepcopy(CONFIG_DEFAULTS["login"])
+        login_value.update(login_existing)
+        login_value.update(_notice_to_login_fields(notice_sync_payload))
+        _upsert_system_config_raw(db, key="login", value=login_value, updated_by=admin.id)
+
+    if category == "miniapp" and miniapp_sync_payload is not None:
+        login_existing = _read_system_config_raw(db, "login")
+        login_value = deepcopy(CONFIG_DEFAULTS["login"])
+        login_value.update(login_existing)
+        login_value.update(_miniapp_to_login_fields(miniapp_sync_payload))
+        _upsert_system_config_raw(db, key="login", value=login_value, updated_by=admin.id)
+
+    if category == "login":
+        if notice_sync_payload is not None:
+            _upsert_system_config_raw(db, key="notice", value=notice_sync_payload, updated_by=admin.id)
+        if miniapp_sync_payload is not None:
+            _upsert_system_config_raw(db, key="miniapp", value=miniapp_sync_payload, updated_by=admin.id)
+
     db.flush()
     return value
 
@@ -962,7 +1520,7 @@ def _platform_label(platform: str) -> str:
 def _task_type_label(task_type: str) -> str:
     mapping = {
         "aigc_detect": "AIGC检测",
-        "rewrite": "降AIGC率",
+        "rewrite": "学术润色",
         "dedup": "降重复率",
     }
     return mapping.get(task_type, task_type)
@@ -978,7 +1536,14 @@ def admin_login(req: AdminLoginReq, db: Session = Depends(db_dep)) -> APIResp:
     admin.last_login = datetime.utcnow()
     db.commit()
     token = create_token(subject=str(admin.id), scope="admin")
-    return ok(data={"token": token, "admin": _admin_payload(admin), "permission_catalog": ADMIN_PERMISSION_CATALOG})
+    return ok(
+        data={
+            "token": token,
+            "admin": _admin_payload(admin),
+            "permission_catalog": ADMIN_PERMISSION_CATALOG,
+            "permission_templates": _permission_templates_payload(),
+        }
+    )
 
 
 @router.get("/admin-users", response_model=APIResp)
@@ -986,7 +1551,7 @@ def list_admin_users(
     keyword: str | None = Query(default=None),
     role: str | None = Query(default=None),
     is_active: bool | None = Query(default=None),
-    _: AdminUser = Depends(current_super_admin),
+    _: AdminUser = Depends(require_admin_permission("admins:view")),
     db: Session = Depends(db_dep),
 ) -> APIResp:
     query = db.query(AdminUser)
@@ -1009,6 +1574,7 @@ def list_admin_users(
         data={
             "items": [_admin_payload(row) for row in rows],
             "permission_catalog": ADMIN_PERMISSION_CATALOG,
+            "permission_templates": _permission_templates_payload(),
             "summary": {
                 "total": int(total_count),
                 "active": int(active_count),
@@ -1021,7 +1587,7 @@ def list_admin_users(
 @router.post("/admin-users", response_model=APIResp)
 def create_admin_user(
     payload: dict,
-    admin: AdminUser = Depends(current_super_admin),
+    actor: AdminUser = Depends(require_admin_permission("admins:manage")),
     db: Session = Depends(db_dep),
 ) -> APIResp:
     if not isinstance(payload, dict):
@@ -1048,6 +1614,7 @@ def create_admin_user(
         normalized_permissions = _normalize_permission_list(permissions)
         if not normalized_permissions:
             raise BizError(code=4313, message="至少需要分配 1 项权限")
+    _assert_actor_can_assign_permissions(actor, normalized_permissions)
 
     row = AdminUser(
         username=username,
@@ -1060,7 +1627,7 @@ def create_admin_user(
     db.flush()
     db.add(
         AdminAuditLog(
-            admin_id=admin.id,
+            admin_id=actor.id,
             action="admin_create",
             target_type="admin_user",
             target_id=str(row.id),
@@ -1082,7 +1649,7 @@ def create_admin_user(
 def update_admin_permissions(
     admin_id: int,
     payload: dict,
-    actor: AdminUser = Depends(current_super_admin),
+    actor: AdminUser = Depends(require_admin_permission("admins:manage")),
     db: Session = Depends(db_dep),
 ) -> APIResp:
     if not isinstance(payload, dict):
@@ -1090,11 +1657,14 @@ def update_admin_permissions(
     target = db.get(AdminUser, admin_id)
     if target is None:
         raise BizError(code=4307, message="管理员不存在", http_status=404)
+    if actor.role != "super_admin" and target.role == "super_admin":
+        raise BizError(code=4316, message="仅超级管理员可修改超级管理员账号")
     if target.role == "super_admin":
         raise BizError(code=4310, message="超级管理员权限固定为全量权限")
     permissions = _normalize_permission_list(payload.get("permissions", []))
     if not permissions:
         raise BizError(code=4313, message="至少需要分配 1 项权限")
+    _assert_actor_can_assign_permissions(actor, permissions)
     before = _effective_admin_permissions(target)
     target.permissions_json = permissions
     db.add(
@@ -1116,7 +1686,7 @@ def update_admin_permissions(
 def reset_admin_password(
     admin_id: int,
     payload: dict,
-    actor: AdminUser = Depends(current_super_admin),
+    actor: AdminUser = Depends(require_admin_permission("admins:manage")),
     db: Session = Depends(db_dep),
 ) -> APIResp:
     if not isinstance(payload, dict):
@@ -1130,6 +1700,8 @@ def reset_admin_password(
     target = db.get(AdminUser, admin_id)
     if target is None:
         raise BizError(code=4307, message="管理员不存在", http_status=404)
+    if actor.role != "super_admin" and target.role == "super_admin":
+        raise BizError(code=4316, message="仅超级管理员可修改超级管理员账号")
     target.password_hash = hash_password(password)
     db.add(
         AdminAuditLog(
@@ -1155,7 +1727,7 @@ def reset_admin_password(
 def update_admin_status(
     admin_id: int,
     payload: dict,
-    actor: AdminUser = Depends(current_super_admin),
+    actor: AdminUser = Depends(require_admin_permission("admins:manage")),
     db: Session = Depends(db_dep),
 ) -> APIResp:
     if not isinstance(payload, dict):
@@ -1163,6 +1735,8 @@ def update_admin_status(
     target = db.get(AdminUser, admin_id)
     if target is None:
         raise BizError(code=4307, message="管理员不存在", http_status=404)
+    if actor.role != "super_admin" and target.role == "super_admin":
+        raise BizError(code=4316, message="仅超级管理员可修改超级管理员账号")
     next_status = bool(payload.get("is_active", True))
     if actor.id == target.id and not next_status:
         raise BizError(code=4314, message="当前登录管理员账号不可自行停用")
@@ -1191,6 +1765,20 @@ def dashboard(_: AdminUser = Depends(require_admin_permission("dashboard:view"))
     total_tasks = db.query(Task).count()
     total_orders = db.query(Order).filter(Order.status == "paid").count()
     total_revenue = db.query(func.coalesce(func.sum(Order.amount_cny), 0.0)).filter(Order.status == "paid").scalar() or 0
+    users_by_source = db.query(User.source, func.count(User.id)).group_by(User.source).all()
+    tasks_by_source = db.query(Task.source, func.count(Task.id)).group_by(Task.source).all()
+    paid_orders_by_source = (
+        db.query(Order.source, func.count(Order.id))
+        .filter(Order.status == "paid")
+        .group_by(Order.source)
+        .all()
+    )
+    paid_revenue_by_source = (
+        db.query(Order.source, func.coalesce(func.sum(Order.amount_cny), 0.0))
+        .filter(Order.status == "paid")
+        .group_by(Order.source)
+        .all()
+    )
 
     start_date = date.today() - timedelta(days=29)
     task_rows = (
@@ -1245,6 +1833,12 @@ def dashboard(_: AdminUser = Depends(require_admin_permission("dashboard:view"))
             "task_type_dist": type_dist,
             "platform_dist": platform_items,
             "funnel": funnel,
+            "source_stats": {
+                "users": _build_source_stats(users_by_source, as_float=False),
+                "tasks": _build_source_stats(tasks_by_source, as_float=False),
+                "paid_orders": _build_source_stats(paid_orders_by_source, as_float=False),
+                "revenue": _build_source_stats(paid_revenue_by_source, as_float=True),
+            },
             "switch_status": {
                 "current_mode": switch.current_mode if switch else "LLM_PLUS_ALGO",
                 "llm_fail_count": switch.llm_fail_count if switch else 0,
@@ -1378,12 +1972,16 @@ def admin_users(
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=100),
     q: str | None = Query(default=None),
+    source: str | None = Query(default=None),
     _: AdminUser = Depends(require_admin_permission("users:view")),
     db: Session = Depends(db_dep),
 ) -> APIResp:
     base_query = db.query(User)
     if q:
         base_query = base_query.filter(User.phone.like(f"%{q}%"))
+    source_filter = _normalize_source_filter(source)
+    base_query = _apply_source_filter(base_query, User.source, source_filter)
+    source_rows = base_query.with_entities(User.source, func.count(User.id)).group_by(User.source).all()
     total = base_query.count()
     rows = (
         base_query.order_by(desc(User.created_at))
@@ -1398,11 +1996,19 @@ def admin_users(
             "nickname": u.nickname,
             "credits": u.credits,
             "is_banned": u.is_banned,
+            "source": _normalize_source_bucket(u.source),
             "created_at": u.created_at,
         }
         for u in rows
     ]
-    return ok(data={"items": items, "pagination": paginate(total, page, page_size)})
+    return ok(
+        data={
+            "items": items,
+            "pagination": paginate(total, page, page_size),
+            "source_filter": source_filter or "all",
+            "source_stats": _build_source_stats(source_rows, as_float=False),
+        }
+    )
 
 
 @router.post("/users/{user_id}/adjust-credits", response_model=APIResp)
@@ -1497,6 +2103,7 @@ def user_detail(
                 "nickname": user.nickname,
                 "credits": user.credits,
                 "is_banned": user.is_banned,
+                "source": _normalize_source_bucket(user.source),
                 "created_at": user.created_at,
             },
             "summary": {
@@ -1543,6 +2150,7 @@ def admin_tasks(
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=100),
     q_phone: str | None = Query(default=None),
+    source: str | None = Query(default=None),
     task_type: str | None = Query(default=None),
     platform: str | None = Query(default=None),
     status: str | None = Query(default=None),
@@ -1552,8 +2160,11 @@ def admin_tasks(
     db: Session = Depends(db_dep),
 ) -> APIResp:
     base_query = db.query(Task).join(User, User.id == Task.user_id)
+    source_filter = _normalize_source_filter(source)
     if q_phone:
         base_query = base_query.filter(User.phone.like(f"%{q_phone}%"))
+    if source_filter:
+        base_query = _apply_source_filter(base_query, Task.source, source_filter)
     if task_type:
         try:
             base_query = base_query.filter(Task.task_type == TaskType(task_type))
@@ -1580,6 +2191,7 @@ def admin_tasks(
             base_query = base_query.filter(Task.created_at <= dt)
         except Exception:
             raise BizError(code=4345, message="end_date 格式应为YYYY-MM-DD")
+    source_rows = base_query.with_entities(Task.source, func.count(Task.id)).group_by(Task.source).all()
     total = base_query.count()
     rows = (
         base_query.order_by(desc(Task.created_at))
@@ -1595,13 +2207,21 @@ def admin_tasks(
             "platform": t.platform,
             "processing_mode": t.processing_mode,
             "status": t.status.value,
+            "source": _normalize_source_bucket(t.source),
             "char_count": t.char_count,
             "cost_credits": t.cost_credits,
             "created_at": t.created_at,
         }
         for t in rows
     ]
-    return ok(data={"items": items, "pagination": paginate(total, page, page_size)})
+    return ok(
+        data={
+            "items": items,
+            "pagination": paginate(total, page, page_size),
+            "source_filter": source_filter or "all",
+            "source_stats": _build_source_stats(source_rows, as_float=False),
+        }
+    )
 
 
 @router.get("/tasks/{task_id}/detail", response_model=APIResp)
@@ -1622,6 +2242,7 @@ def admin_task_detail(
             "task_type": row.task_type.value,
             "platform": row.platform,
             "processing_mode": row.processing_mode,
+            "source": _normalize_source_bucket(row.source),
             "status": row.status.value,
             "char_count": row.char_count,
             "cost_credits": row.cost_credits,
@@ -1659,6 +2280,7 @@ def admin_orders(
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=100),
     q_phone: str | None = Query(default=None),
+    source: str | None = Query(default=None),
     order_no: str | None = Query(default=None),
     status: str | None = Query(default=None),
     provider: str | None = Query(default=None),
@@ -1666,14 +2288,19 @@ def admin_orders(
     db: Session = Depends(db_dep),
 ) -> APIResp:
     base_query = db.query(Order).join(User, User.id == Order.user_id)
+    source_filter = _normalize_source_filter(source)
     if q_phone:
         base_query = base_query.filter(User.phone.like(f"%{q_phone}%"))
+    if source_filter:
+        base_query = _apply_source_filter(base_query, Order.source, source_filter)
     if order_no:
         base_query = base_query.filter(Order.order_no.like(f"%{order_no}%"))
     if status:
         base_query = base_query.filter(Order.status == status.strip().lower())
     if provider:
         base_query = base_query.filter(Order.provider == provider.strip().lower())
+    source_count_rows = base_query.with_entities(Order.source, func.count(Order.id)).group_by(Order.source).all()
+    source_revenue_rows = base_query.with_entities(Order.source, func.coalesce(func.sum(Order.amount_cny), 0.0)).group_by(Order.source).all()
     total = base_query.count()
     rows = (
         base_query.order_by(desc(Order.created_at))
@@ -1688,12 +2315,23 @@ def admin_orders(
             "amount_cny": o.amount_cny,
             "credits": o.credits,
             "status": o.status,
+            "source": _normalize_source_bucket(o.source),
             "is_first_pay": o.is_first_pay,
             "created_at": o.created_at,
         }
         for o in rows
     ]
-    return ok(data={"items": items, "pagination": paginate(total, page, page_size)})
+    return ok(
+        data={
+            "items": items,
+            "pagination": paginate(total, page, page_size),
+            "source_filter": source_filter or "all",
+            "source_stats": {
+                "orders": _build_source_stats(source_count_rows, as_float=False),
+                "revenue": _build_source_stats(source_revenue_rows, as_float=True),
+            },
+        }
+    )
 
 
 @router.get("/orders/{order_no}/detail", response_model=APIResp)
@@ -1711,6 +2349,7 @@ def order_detail(order_no: str, _: AdminUser = Depends(require_admin_permission(
             "credits": row.credits,
             "status": row.status,
             "provider": row.provider,
+            "source": _normalize_source_bucket(row.source),
             "is_first_pay": row.is_first_pay,
             "created_at": row.created_at,
             "updated_at": row.updated_at,
@@ -1905,7 +2544,7 @@ def get_config_readiness(
     db: Session = Depends(db_dep),
 ) -> APIResp:
     items = []
-    for c in ("llm", "payment", "billing", "login", "referral"):
+    for c in ("llm", "payment", "billing", "login", "notice", "miniapp", "referral"):
         value = _get_category_config(db, c)
         items.append(_category_readiness(c, value))
     return ok(data={"items": items})
@@ -1931,7 +2570,13 @@ def update_config(
     c = _assert_category(category)
     if not isinstance(payload, dict):
         raise BizError(code=4341, message="配置内容必须为 JSON 对象")
-    normalized = _normalize_category_payload(c, payload)
+    effective_payload = payload
+    if c in CONFIG_DEFAULTS:
+        current_value = _get_category_config(db, c)
+        if isinstance(current_value, dict):
+            effective_payload = dict(current_value)
+            effective_payload.update(payload)
+    normalized = _normalize_category_payload(c, effective_payload)
     try:
         value = _save_category_config(db, c, normalized, admin)
         db.commit()
@@ -2246,3 +2891,6 @@ def deactivate_algo_package_slot(
     except Exception:
         db.rollback()
         raise
+
+
+

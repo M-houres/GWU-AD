@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import hashlib
+import json
+import re
 from typing import Any, Mapping
 
 import httpx
@@ -10,6 +13,8 @@ from app.exceptions import BizError
 from app.models import SystemConfig, TaskType
 
 settings = get_settings()
+
+LOCAL_MOCK_PROVIDER = "local_mock"
 
 LLM_PROVIDER_PRESETS = {
     "openai": {
@@ -66,6 +71,12 @@ LLM_PROVIDER_PRESETS = {
         "base_url": "",
         "model": "",
     },
+    LOCAL_MOCK_PROVIDER: {
+        "label": "Local Mock LLM",
+        "api_style": LOCAL_MOCK_PROVIDER,
+        "base_url": "",
+        "model": "local-mock-v1",
+    },
 }
 
 SUPPORTED_LLM_PROVIDERS = set(LLM_PROVIDER_PRESETS)
@@ -75,6 +86,8 @@ def normalize_llm_provider(provider: str | None) -> str:
     raw = str(provider or "").strip().lower()
     if raw in {"openai_compatible", "custom", "compatible"}:
         return "custom_openai"
+    if raw in {"local_mock", "mock", "local", "offline"}:
+        return LOCAL_MOCK_PROVIDER
     if raw in SUPPORTED_LLM_PROVIDERS:
         return raw
     return "openai"
@@ -84,12 +97,16 @@ def resolve_llm_config(value: dict | None = None) -> dict:
     raw = value if isinstance(value, dict) else {}
     provider = normalize_llm_provider(raw.get("provider"))
     preset = LLM_PROVIDER_PRESETS[provider]
+    base_url = str(raw.get("base_url") or preset["base_url"] or settings.llm_api_base_url).rstrip("/")
+    api_key = str(raw.get("api_key") or settings.llm_api_key)
+    if provider == LOCAL_MOCK_PROVIDER:
+        base_url = ""
     return {
         "enabled": bool(raw.get("enabled", settings.llm_enabled_default)),
         "provider": provider,
         "api_style": preset["api_style"],
-        "base_url": str(raw.get("base_url") or preset["base_url"] or settings.llm_api_base_url).rstrip("/"),
-        "api_key": str(raw.get("api_key") or settings.llm_api_key),
+        "base_url": base_url,
+        "api_key": api_key,
         "model": str(raw.get("model") or preset["model"] or settings.llm_model),
         "timeout_seconds": int(raw.get("timeout_seconds", settings.llm_timeout_seconds)),
         "max_output_tokens": int(raw.get("max_output_tokens", 2048) or 2048),
@@ -111,14 +128,14 @@ def _build_prompt(task_type: TaskType, text: str) -> str:
     if task_type == TaskType.DEDUP:
         return (
             "Rewrite the academic text to reduce duplication risk without changing meaning. "
-            "Return only the rewritten正文 content without explanation.\n\n"
-            f"原文:\n{text}"
+            "Return only the rewritten text without explanation.\n\n"
+            f"Source:\n{text}"
         )
     if task_type == TaskType.REWRITE:
         return (
             "Rewrite the academic text to sound more natural and compliant while preserving arguments and data. "
-            "Return only the rewritten正文 content without explanation.\n\n"
-            f"原文:\n{text}"
+            "Return only the rewritten text without explanation.\n\n"
+            f"Source:\n{text}"
         )
     if task_type == TaskType.AIGC_DETECT:
         return (
@@ -128,32 +145,42 @@ def _build_prompt(task_type: TaskType, text: str) -> str:
         )
     return text
 
+
+def _is_local_mock_config(cfg: Mapping[str, Any]) -> bool:
+    provider = str(cfg.get("provider", "")).strip().lower()
+    api_style = str(cfg.get("api_style", "")).strip().lower()
+    return provider == LOCAL_MOCK_PROVIDER or api_style == LOCAL_MOCK_PROVIDER
+
+
 def generate_with_llm(db: Session, *, task_type: TaskType, text: str) -> str:
     cfg = load_llm_config(db)
     if not cfg["enabled"]:
-        raise BizError(code=4601, message="LLM 未启用")
-    if not cfg["api_key"]:
-        raise BizError(code=4602, message="LLM API Key 未配置")
+        raise BizError(code=4601, message="LLM is disabled")
 
     try:
-        with httpx.Client(timeout=cfg["timeout_seconds"]) as client:
-            if cfg["api_style"] == "anthropic":
-                content = _call_anthropic(client, cfg=cfg, task_type=task_type, text=text)
-            elif cfg["api_style"] == "gemini":
-                content = _call_gemini(client, cfg=cfg, task_type=task_type, text=text)
-            else:
-                content = _call_openai_compatible(client, cfg=cfg, task_type=task_type, text=text)
+        if _is_local_mock_config(cfg):
+            content = _call_local_mock(task_type=task_type, text=text)
+        else:
+            if not cfg["api_key"]:
+                raise BizError(code=4602, message="LLM API key is missing")
+            with httpx.Client(timeout=cfg["timeout_seconds"]) as client:
+                if cfg["api_style"] == "anthropic":
+                    content = _call_anthropic(client, cfg=cfg, task_type=task_type, text=text)
+                elif cfg["api_style"] == "gemini":
+                    content = _call_gemini(client, cfg=cfg, task_type=task_type, text=text)
+                else:
+                    content = _call_openai_compatible(client, cfg=cfg, task_type=task_type, text=text)
     except httpx.TimeoutException as exc:
-        raise BizError(code=4603, message="LLM 调用超时") from exc
+        raise BizError(code=4603, message="LLM request timed out") from exc
     except httpx.HTTPError as exc:
-        raise BizError(code=4604, message=f"LLM HTTP 调用失败: {exc}") from exc
+        raise BizError(code=4604, message=f"LLM HTTP error: {exc}") from exc
     except BizError:
         raise
     except Exception as exc:
-        raise BizError(code=4605, message=f"LLM 调用异常: {exc}") from exc
+        raise BizError(code=4605, message=f"LLM invocation error: {exc}") from exc
 
     if not isinstance(content, str) or not content.strip():
-        raise BizError(code=4606, message="LLM 返回内容为空")
+        raise BizError(code=4606, message="LLM returned empty content")
     return content.strip()
 
 
@@ -162,7 +189,7 @@ def _call_openai_compatible(client: httpx.Client, *, cfg: Mapping[str, Any], tas
     payload: dict[str, Any] = {
         "model": cfg["model"],
         "messages": [
-            {"role": "system", "content": "你是可靠的中文学术文本处理助手。"},
+            {"role": "system", "content": "You are a reliable academic writing assistant."},
             {"role": "user", "content": _build_prompt(task_type, text)},
         ],
         "temperature": cfg["temperature"],
@@ -182,7 +209,7 @@ def _call_anthropic(client: httpx.Client, *, cfg: Mapping[str, Any], task_type: 
         "model": cfg["model"],
         "max_tokens": cfg["max_output_tokens"],
         "temperature": cfg["temperature"],
-        "system": "你是可靠的中文学术文本处理助手。",
+        "system": "You are a reliable academic writing assistant.",
         "messages": [{"role": "user", "content": _build_prompt(task_type, text)}],
     }
     headers = {
@@ -204,15 +231,8 @@ def _call_anthropic(client: httpx.Client, *, cfg: Mapping[str, Any], task_type: 
 def _call_gemini(client: httpx.Client, *, cfg: Mapping[str, Any], task_type: TaskType, text: str) -> str:
     url = f"{cfg['base_url']}/models/{cfg['model']}:generateContent"
     payload = {
-        "systemInstruction": {
-            "parts": [{"text": "你是可靠的中文学术文本处理助手。"}],
-        },
-        "contents": [
-            {
-                "role": "user",
-                "parts": [{"text": _build_prompt(task_type, text)}],
-            }
-        ],
+        "systemInstruction": {"parts": [{"text": "You are a reliable academic writing assistant."}]},
+        "contents": [{"role": "user", "parts": [{"text": _build_prompt(task_type, text)}]}],
         "generationConfig": {
             "temperature": cfg["temperature"],
             "maxOutputTokens": cfg["max_output_tokens"],
@@ -226,3 +246,118 @@ def _call_gemini(client: httpx.Client, *, cfg: Mapping[str, Any], task_type: Tas
         return ""
     parts = candidates[0].get("content", {}).get("parts", [])
     return "\n".join(str(item.get("text", "")) for item in parts if isinstance(item, dict)).strip()
+
+
+def _call_local_mock(*, task_type: TaskType, text: str) -> str:
+    if task_type == TaskType.AIGC_DETECT:
+        payload = _local_mock_detect_payload(text)
+        return json.dumps(payload, ensure_ascii=False)
+    return _local_mock_transform_text(task_type=task_type, text=text)
+
+
+def _local_mock_transform_text(*, task_type: TaskType, text: str) -> str:
+    normalized = _normalize_local_text(text)
+    if not normalized:
+        return ""
+
+    seed = int(hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:8], 16)
+    output = normalized
+    common_replacements = (
+        ("首先", "第一"),
+        ("其次", "第二"),
+        ("因此", "由此可见"),
+        ("但是", "然而"),
+        ("总之", "综合来看"),
+        ("可以看出", "据此可见"),
+    )
+    rewrite_replacements = (
+        ("研究表明", "已有研究指出"),
+        ("我们发现", "分析结果显示"),
+        ("非常", "较为"),
+        ("重要", "关键"),
+    )
+
+    for src, dst in common_replacements:
+        output = output.replace(src, dst)
+    if task_type == TaskType.REWRITE:
+        for src, dst in rewrite_replacements:
+            output = output.replace(src, dst)
+
+    if task_type == TaskType.DEDUP:
+        output = _rotate_clause_segments(output, seed=seed)
+    else:
+        output = _inject_transition_tokens(output, seed=seed)
+
+    if output == normalized:
+        output = f"{normalized}\n\n[local-mock-llm-refined]"
+    return output.strip()
+
+
+def _local_mock_detect_payload(text: str) -> dict[str, Any]:
+    normalized = _normalize_local_text(text)
+    if not normalized:
+        return {"ai_score": 0.02, "label": "low", "reason": "empty_text"}
+
+    chunks = [part.strip() for part in re.split(r"[。！？.!?\n]+", normalized) if part.strip()]
+    sentence_count = len(chunks)
+    avg_len = sum(len(part) for part in chunks) / max(sentence_count, 1)
+    unique_ratio = len(set(normalized)) / max(len(normalized), 1)
+    repeat_signal = max(0.0, min(1.0, 1.0 - unique_ratio))
+    punctuation_signal = len(re.findall(r"[，,；;。.!?！？]", normalized)) / max(len(normalized), 1)
+
+    seed = int(hashlib.sha256(normalized.encode("utf-8")).hexdigest()[-8:], 16)
+    jitter = ((seed % 11) - 5) / 1000.0
+
+    raw_score = 0.22 + (avg_len / 120.0) * 0.4 + repeat_signal * 0.33 + punctuation_signal * 1.6 + jitter
+    score = round(_clamp01(raw_score), 4)
+    if score >= 0.65:
+        label = "high"
+    elif score >= 0.35:
+        label = "medium"
+    else:
+        label = "low"
+
+    reason = (
+        f"local_mock_estimate(avg_sentence_len={avg_len:.1f}, "
+        f"repeat_signal={repeat_signal:.2f}, sentence_count={sentence_count})"
+    )
+    return {"ai_score": score, "label": label, "reason": reason}
+
+
+def _normalize_local_text(text: str) -> str:
+    return re.sub(r"\s+", " ", str(text or "")).strip()
+
+
+def _rotate_clause_segments(text: str, *, seed: int) -> str:
+    clauses = [item.strip() for item in re.split(r"[，,；;]", text) if item.strip()]
+    if len(clauses) < 2:
+        return text
+    shift = seed % len(clauses)
+    rotated = clauses[shift:] + clauses[:shift]
+    return "，".join(rotated)
+
+
+def _inject_transition_tokens(text: str, *, seed: int) -> str:
+    tokens = ("从结构上看，", "进一步而言，", "在此基础上，", "换个角度看，")
+    chunks = re.split(r"([。！？.!?])", text)
+    if not chunks:
+        return text
+
+    rebuilt: list[str] = []
+    sentence_index = 0
+    for index in range(0, len(chunks), 2):
+        body = chunks[index].strip()
+        punct = chunks[index + 1] if index + 1 < len(chunks) else ""
+        if not body:
+            continue
+        if sentence_index > 0:
+            token = tokens[(seed + sentence_index) % len(tokens)]
+            if not body.startswith(token):
+                body = f"{token}{body}"
+        rebuilt.append(f"{body}{punct}")
+        sentence_index += 1
+    return "".join(rebuilt).strip()
+
+
+def _clamp01(value: float) -> float:
+    return max(0.0, min(1.0, float(value)))

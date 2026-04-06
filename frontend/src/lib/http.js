@@ -12,13 +12,12 @@ function resolveBaseURL() {
   if (explicit) {
     return explicit
   }
+  // Local fallback: make API target explicit so both `vite dev` and `vite preview`
+  // can work without depending on proxy configuration.
   if (typeof window !== "undefined") {
-    const { hostname, port } = window.location
-    const isLocalPreview =
-      (hostname === "127.0.0.1" || hostname === "localhost") &&
-      /^517\d$/.test(port)
-    if (isLocalPreview) {
-      return "http://127.0.0.1:8100/api/v1"
+    const { hostname } = window.location
+    if (hostname === "127.0.0.1" || hostname === "localhost") {
+      return "http://127.0.0.1:8000/api/v1"
     }
   }
   return "/api/v1"

@@ -1,0 +1,26 @@
+<view class="container login-page">
+  <view class="card">
+    <view class="title">格物学术</view>
+    <view class="muted gap-12">微信小程序版本</view>
+    <view class="muted gap-12">点击下方按钮后将使用微信身份登录并创建平台账号。</view>
+
+    <input
+      class="input gap-24"
+      placeholder="邀请码（可选）"
+      value="{{ referrerCode }}"
+      bindinput="onInputReferrer"
+    />
+
+    <button
+      class="btn-primary gap-24"
+      loading="{{ loading }}"
+      disabled="{{ loading }}"
+      bindtap="onTapWeChatLogin"
+    >
+      {{ loading ? "登录中..." : "微信一键登录" }}
+    </button>
+
+    <view class="muted gap-16">如遇问题，请先确认后台已开启“小程序登录”并配置 AppID/AppSecret。</view>
+  </view>
+</view>
+

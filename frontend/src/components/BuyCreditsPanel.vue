@@ -6,7 +6,7 @@
           <div class="scholar-kicker">Credits Packages</div>
           <h3 class="scholar-subtitle">积分套餐</h3>
           <p class="scholar-lead">
-            充值页与后台套餐配置自动同步，支持微信支付、支付宝和联调模式。
+            充值页套餐实时同步，支持微信支付、支付宝和联调模式。
           </p>
         </div>
         <span class="scholar-badge" :class="paymentTestMode ? 'scholar-badge--warn' : 'scholar-badge--info'">
@@ -228,7 +228,7 @@ function packageDescription(item) {
   if (text) {
     return text
   }
-  return "适合常规论文处理场景，可用于 AIGC 检测、降重复率和降 AIGC 率任务。"
+  return "适合常规论文处理场景，可用于 AIGC 检测、降重复率和学术润色任务。"
 }
 
 async function openPay(item) {

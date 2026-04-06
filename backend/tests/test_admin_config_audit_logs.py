@@ -35,4 +35,4 @@ def test_config_audit_logs_include_changed_fields(
 
     readiness = client.get("/api/v1/admin/configs/readiness")
     assert readiness.status_code == 200
-    assert len(readiness.json()["data"]["items"]) == 5
+    assert len(readiness.json()["data"]["items"]) == 7

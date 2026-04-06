@@ -1,4 +1,4 @@
-﻿import { createRouter, createWebHistory } from 'vue-router'
+import { createRouter, createWebHistory } from 'vue-router'
 
 import { resolveAdminRedirect, resolveUserRedirect } from '../lib/redirect'
 import { adminHasPermission, getAdminInfo, getAdminToken, getUserToken } from '../lib/session'
@@ -12,6 +12,7 @@ const AdminUserDetailPage = () => import('../views/admin/AdminUserDetailPage.vue
 const AdminDashboardPage = () => import('../views/admin/AdminDashboardPage.vue')
 const AdminAlgoPackagePage = () => import('../views/admin/AdminAlgoPackagePage.vue')
 const AdminConfigPage = () => import('../views/admin/AdminConfigPage.vue')
+const AdminNoticeConfigPage = () => import('../views/admin/AdminNoticeConfigPage.vue')
 const AdminLogsPage = () => import('../views/admin/AdminLogsPage.vue')
 const AdminAdminUsersPage = () => import('../views/admin/AdminAdminUsersPage.vue')
 const LoginPage = () => import('../views/user/LoginPage.vue')
@@ -37,6 +38,7 @@ const adminEntryRoutes = [
   { path: '/admin/logs', permission: 'logs:view' },
   { path: '/admin/algo-packages', permission: 'algo:view' },
   { path: '/admin/configs', permission: 'configs:view' },
+  { path: '/admin/configs/notice', permission: 'configs:view' },
   { path: '/admin/admin-users', permission: 'admins:view' },
 ]
 
@@ -52,7 +54,8 @@ function firstAccessibleAdminRoute() {
 const router = createRouter({
   history: createWebHistory(),
   routes: [
-    { path: '/', redirect: '/app/detect' },
+    { path: '/', redirect: '/login' },
+    { path: '/home', redirect: '/login' },
     { path: '/login', component: LoginPage },
     { path: '/register', component: RegisterPage },
     { path: '/detect', redirect: '/app/detect' },
@@ -71,8 +74,8 @@ const router = createRouter({
     { path: '/app/detect/records', component: UserDetectRecordsPage, meta: { auth: 'user', title: 'AIGC检测记录' } },
     { path: '/app/dedup', component: UserDedupPage, meta: { auth: 'user', title: '降重复率' } },
     { path: '/app/dedup/records', component: UserDedupRecordsPage, meta: { auth: 'user', title: '降重复率记录' } },
-    { path: '/app/rewrite', component: UserRewritePage, meta: { auth: 'user', title: '降AIGC率' } },
-    { path: '/app/rewrite/records', component: UserRewriteRecordsPage, meta: { auth: 'user', title: '降AIGC率记录' } },
+    { path: '/app/rewrite', component: UserRewritePage, meta: { auth: 'user', title: '学术润色' } },
+    { path: '/app/rewrite/records', component: UserRewriteRecordsPage, meta: { auth: 'user', title: '学术润色记录' } },
     { path: '/app/review', component: UserReviewPage, meta: { auth: 'user', title: '智能审稿' } },
     { path: '/app/defense', component: UserDefensePage, meta: { auth: 'user', title: '答辩服务' } },
     { path: '/app/referral', component: UserReferralPage, meta: { auth: 'user', title: '推广福利' } },
@@ -85,11 +88,13 @@ const router = createRouter({
     { path: '/admin/users/:id', component: AdminUserDetailPage, meta: { auth: 'admin', title: '用户详情', adminPermission: 'users:view' } },
     { path: '/admin/tasks', component: AdminTaskPage, meta: { auth: 'admin', title: '任务管理', adminPermission: 'tasks:view' } },
     { path: '/admin/orders', component: AdminOrderPage, meta: { auth: 'admin', title: '订单管理', adminPermission: 'orders:view' } },
-    { path: '/admin/algo-packages', component: AdminAlgoPackagePage, meta: { auth: 'admin', title: '算法包管理', adminPermission: 'algo:view' } },
+    { path: '/admin/algo-packages', component: AdminAlgoPackagePage, meta: { auth: 'admin', title: '算法配置', adminPermission: 'algo:view' } },
     { path: '/admin/referrals', component: AdminReferralPage, meta: { auth: 'admin', title: '推广管理', adminPermission: 'referrals:view' } },
     { path: '/admin/configs', component: AdminConfigPage, meta: { auth: 'admin', title: '配置中心', adminPermission: 'configs:view' } },
+    { path: '/admin/configs/notice', component: AdminNoticeConfigPage, meta: { auth: 'admin', title: '公告配置', adminPermission: 'configs:view' } },
+    { path: '/admin/configs/miniapp', redirect: '/admin/configs?tab=miniapp' },
     { path: '/admin/logs', component: AdminLogsPage, meta: { auth: 'admin', title: '系统日志', adminPermission: 'logs:view' } },
-    { path: '/admin/admin-users', component: AdminAdminUsersPage, meta: { auth: 'admin', title: '管理员管理', adminPermission: 'admins:view' } },
+    { path: '/admin/admin-users', component: AdminAdminUsersPage, meta: { auth: 'admin', title: '权限管理', adminPermission: 'admins:view' } },
   ],
 })
 

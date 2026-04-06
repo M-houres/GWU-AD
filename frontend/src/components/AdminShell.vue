@@ -4,7 +4,10 @@
       <aside class="scholar-sidebar">
         <div class="scholar-brand">
           <div class="scholar-brand__eyebrow">运营后台</div>
-          <div class="scholar-brand__title">格物学术</div>
+          <div class="admin-brand">
+            <span class="admin-brand__mark">GW</span>
+            <span class="admin-brand__name">格物学术</span>
+          </div>
           <p class="scholar-brand__lead">统一管理用户、任务、订单、推广、配置与审计，支持多管理员协同运营。</p>
         </div>
 
@@ -67,23 +70,6 @@
             </div>
           </div>
 
-          <div class="scholar-topbar__brief">
-            <article class="scholar-topbar__brief-item">
-              <span>操作路径</span>
-              <strong>{{ activeMenu?.label || '后台模块' }}</strong>
-              <p>先筛选再处理，常用动作尽量在当前页完成，减少跳转。</p>
-            </article>
-            <article class="scholar-topbar__brief-item">
-              <span>权限分层</span>
-              <strong>超管统一分配</strong>
-              <p>普通管理员只看可见模块，默认收敛高风险操作。</p>
-            </article>
-            <article class="scholar-topbar__brief-item">
-              <span>生效机制</span>
-              <strong>保存即生效</strong>
-              <p>关键参数在线可维护，并保留审计日志便于追溯。</p>
-            </article>
-          </div>
         </header>
 
         <main class="scholar-content">
@@ -130,20 +116,18 @@ const coreMenuDefs = [
   { path: "/admin/tasks", label: "任务管理", permission: "tasks:view" },
   { path: "/admin/orders", label: "订单管理", permission: "orders:view" },
   { path: "/admin/referrals", label: "推广管理", permission: "referrals:view" },
+  { path: "/admin/configs/notice", label: "公告配置", permission: "configs:view" },
   { path: "/admin/logs", label: "系统日志", permission: "logs:view" },
 ]
 
 const advancedMenuDefs = [
-  { path: "/admin/algo-packages", label: "算法包管理", permission: "algo:view" },
+  { path: "/admin/algo-packages", label: "算法配置", permission: "algo:view" },
   { path: "/admin/configs", label: "配置中心", permission: "configs:view" },
-  { path: "/admin/admin-users", label: "管理员管理", permission: "admins:view" },
+  { path: "/admin/admin-users", label: "权限管理", permission: "admins:view" },
 ]
 
 const coreMenus = computed(() => coreMenuDefs.filter((item) => adminHasPermission(item.permission)))
 const advancedMenus = computed(() => advancedMenuDefs.filter((item) => adminHasPermission(item.permission)))
-
-const menus = computed(() => [...coreMenus.value, ...advancedMenus.value])
-const activeMenu = computed(() => menus.value.find((item) => isRouteMatch(route.path, item.path)) || menus.value[0] || null)
 
 const systemModeText = computed(() => {
   if (systemMode.value === "ALGO_ONLY") {
@@ -186,6 +170,88 @@ function isRouteMatch(currentPath, targetPath) {
   if (targetPath === "/admin/users") {
     return currentPath === targetPath || currentPath.startsWith("/admin/users/")
   }
+  if (targetPath === "/admin/configs") {
+    return currentPath === targetPath
+  }
   return currentPath === targetPath || currentPath.startsWith(`${targetPath}/`)
 }
 </script>
+
+<style scoped>
+.admin-brand {
+  margin-top: 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.admin-brand__mark {
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  display: grid;
+  place-items: center;
+  background: #111111;
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+
+.admin-brand__name {
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: #111111;
+}
+
+.scholar-sidebar .scholar-nav__item,
+.scholar-sidebar .scholar-nav__item:hover,
+.scholar-sidebar .scholar-nav__item:focus,
+.scholar-sidebar .scholar-nav__item:focus-visible,
+.scholar-sidebar .scholar-nav__item:active,
+.scholar-sidebar .scholar-nav__item.is-active,
+.scholar-sidebar .scholar-nav__item:visited {
+  background: #ffffff !important;
+  color: #000000 !important;
+  border-color: #d0d0d0 !important;
+  box-shadow: none !important;
+}
+
+.scholar-sidebar .scholar-nav__item .scholar-nav__label {
+  color: #000000 !important;
+}
+
+.scholar-sidebar .scholar-nav__item.is-active::before {
+  background: #000000 !important;
+}
+
+.scholar-sidebar .scholar-rail-card,
+.scholar-sidebar .scholar-rail-card--accent {
+  background: #ffffff !important;
+  border: 1px solid #d9d9d9 !important;
+  color: #111111 !important;
+}
+
+.scholar-sidebar .scholar-rail-card::before,
+.scholar-sidebar .scholar-rail-card::after {
+  display: none !important;
+  content: none !important;
+}
+
+.scholar-sidebar .scholar-rail-card__eyeline,
+.scholar-sidebar .scholar-rail-card__headline,
+.scholar-sidebar .scholar-rail-card__body,
+.scholar-sidebar .scholar-rail-card__label,
+.scholar-sidebar .scholar-rail-card__value,
+.scholar-sidebar .scholar-rail-card__metric span,
+.scholar-sidebar .scholar-rail-card__metric strong {
+  color: #111111 !important;
+}
+
+.scholar-sidebar .scholar-rail-card__metric {
+  background: #ffffff !important;
+  border: 1px solid #d9d9d9 !important;
+}
+
+</style>

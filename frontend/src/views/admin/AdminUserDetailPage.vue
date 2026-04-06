@@ -466,7 +466,7 @@ function mapTaskType(type) {
   const map = {
     aigc_detect: "AIGC 检测",
     dedup: "降重复率",
-    rewrite: "降AIGC率",
+    rewrite: "学术润色",
   }
   return map[type] || type || "-"
 }

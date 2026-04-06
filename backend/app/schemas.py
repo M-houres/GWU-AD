@@ -21,6 +21,12 @@ class LoginReq(BaseModel):
     device_fingerprint: str | None = Field(default=None, max_length=128)
 
 
+class MiniProgramLoginReq(BaseModel):
+    code: str = Field(min_length=2, max_length=256)
+    referrer_code: str | None = None
+    device_fingerprint: str | None = Field(default=None, max_length=128)
+
+
 class UserResp(BaseModel):
     id: int
     phone: str
@@ -57,6 +63,7 @@ class MockPayReq(BaseModel):
 class CreateOrderReq(BaseModel):
     package_name: str
     provider: str = Field(default="wechat")
+    scene: str = Field(default="web")
 
 
 class PayCallbackReq(BaseModel):

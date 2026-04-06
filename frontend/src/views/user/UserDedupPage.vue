@@ -13,10 +13,8 @@
 
       <section class="aigc-page-head">
         <h2 class="aigc-page-head__title">上传降重处理文档</h2>
-        <p class="aigc-page-head__notice">
-          降重复率服务：可针对文本相似表达进行优化处理，帮助降低重复风险。作为辅助处理工具服务，请结合学校与期刊规则综合研判使用。
-        </p>
       </section>
+      <div class="aigc-page-head__divider" aria-hidden="true"></div>
 
       <div class="uploadLiterature_content">
         <div class="uploadLit_content panels-container">

@@ -154,10 +154,10 @@
               <div v-if="insufficient" class="scholar-note scholar-note--danger">当前积分不足，请先充值后再提交任务。</div>
 
               <div class="scholar-inline-actions">
-                <button class="scholar-button" type="button" :disabled="!canSubmit" @click="submit">
+                <button class="scholar-button scholar-button--compact" type="button" :disabled="!canSubmit" @click="submit">
                   {{ submitting ? "提交中..." : actionText }}
                 </button>
-                <button class="scholar-button scholar-button--secondary" type="button" @click="$emit('go-history')">
+                <button class="scholar-button scholar-button--secondary scholar-button--compact" type="button" @click="$emit('go-history')">
                   查看任务记录
                 </button>
               </div>
@@ -227,7 +227,7 @@ const sectionCode = computed(() => {
   const mapping = {
     aigc_detect: "AIGC检测任务",
     dedup: "降重复率任务",
-    rewrite: "降AIGC率任务",
+    rewrite: "学术润色任务",
   }
   return mapping[props.taskType] || "任务提交"
 })
@@ -246,7 +246,7 @@ const platformOptions = computed(() => {
     return [
       { value: "cnki", label: "格物学术标准版", desc: "控制表达痕迹并尽量保持论点稳定。", badge: "学术" },
       { value: "vip", label: "格物学术专业版", desc: "适合投稿前的语言整理与段落优化。", badge: "投稿" },
-      { value: "paperpass", label: "格物学术极速版", desc: "偏向快速降 AIGC 率处理。", badge: "效率" },
+      { value: "paperpass", label: "格物学术极速版", desc: "偏向快速学术润色处理。", badge: "效率" },
     ]
   }
   return [

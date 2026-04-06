@@ -18,6 +18,14 @@
       </article>
     </section>
 
+    <section class="scholar-grid md:grid-cols-3" style="margin-top: 14px">
+      <article class="scholar-stat" v-for="item in sourceCards" :key="item.label">
+        <div class="scholar-stat__label">{{ item.label }}</div>
+        <div class="scholar-stat__value">{{ item.value }}</div>
+        <div class="scholar-stat__hint">{{ item.hint }}</div>
+      </article>
+    </section>
+
     <section class="scholar-hero-grid">
       <article class="scholar-chart-card">
         <div class="flex items-start justify-between gap-3">
@@ -98,14 +106,37 @@ const statCards = computed(() => {
   const totalOrders = typeof overview.total_orders === "number" ? overview.total_orders : 0
   const totalRevenue = typeof overview.total_revenue === "number" ? overview.total_revenue : 0
   return [
-    { label: "累计用户", value: totalUsers, hint: "注册用户总量" },
-    { label: "累计任务", value: totalTasks, hint: "含检测、降重、降 AIGC 率" },
-    { label: "支付订单", value: totalOrders, hint: "已创建订单总数" },
-    { label: "累计收入", value: totalRevenue, hint: "订单支付后的累计金额" },
+    { label: "累计用户", value: formatNumber(totalUsers), hint: "注册用户总量" },
+    { label: "累计任务", value: formatNumber(totalTasks), hint: "含检测、降重、学术润色" },
+    { label: "支付订单", value: formatNumber(totalOrders), hint: "已创建订单总数" },
+    { label: "累计收入", value: `¥${formatNumber(totalRevenue)}`, hint: "订单支付后的累计金额" },
   ]
 })
 
 const switchStatus = computed(() => dashboard.value?.switch_status || {})
+const sourceCards = computed(() => {
+  const sourceStats = dashboard.value?.source_stats || {}
+  const taskStats = sourceStats.tasks || {}
+  const orderStats = sourceStats.paid_orders || {}
+  const revenueStats = sourceStats.revenue || {}
+  return [
+    {
+      label: "Web 来源任务",
+      value: formatNumber(taskStats.web || 0),
+      hint: `支付单 ${formatNumber(orderStats.web || 0)} / 收入 ¥${formatNumber(revenueStats.web || 0)}`,
+    },
+    {
+      label: "小程序来源任务",
+      value: formatNumber(taskStats.miniapp || 0),
+      hint: `支付单 ${formatNumber(orderStats.miniapp || 0)} / 收入 ¥${formatNumber(revenueStats.miniapp || 0)}`,
+    },
+    {
+      label: "其他来源任务",
+      value: formatNumber(taskStats.other || 0),
+      hint: `支付单 ${formatNumber(orderStats.other || 0)} / 收入 ¥${formatNumber(revenueStats.other || 0)}`,
+    },
+  ]
+})
 const trendRows = computed(() => {
   const rows = dashboard.value?.trend_30d || []
   return rows.slice(-7)
@@ -159,6 +190,12 @@ function initChart(el, chartRef) {
     return chartRef
   }
   return echarts.init(el)
+}
+
+function formatNumber(value) {
+  const num = Number(value)
+  if (!Number.isFinite(num)) return "0"
+  return num.toLocaleString("zh-CN")
 }
 
 function baseAxisStyle() {

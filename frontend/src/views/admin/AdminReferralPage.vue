@@ -22,7 +22,7 @@
 
       <section v-if="canManageReferrals" class="rounded-2xl border border-[#d9dee4] bg-white p-5">
         <h3 class="text-base font-semibold">推广规则配置</h3>
-        <div class="mt-2 rounded-xl border border-[#e1e8ee] bg-[#f8fbff] p-3 text-sm leading-6 text-[#50606c]">
+        <div class="mt-2 rounded-xl border border-[#e1e8ee] bg-white p-3 text-sm leading-6 text-[#50606c]">
           运营只需配置 5 个字段：注册奖励、返佣比例、同 IP 24 小时注册上限。
         </div>
         <div class="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-5">

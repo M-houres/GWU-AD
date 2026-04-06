@@ -13,10 +13,8 @@
 
       <section class="aigc-page-head">
         <h2 class="aigc-page-head__title">上传 AIGC 待检测文档</h2>
-        <p class="aigc-page-head__notice">
-          AIGC检测服务：可有效识别文本是否部分或全部具有AI模型生成特征。作为辅助检测工具服务，请结合实际情况综合研判使用。当前支持识别中文、英文、中英文混合文本。
-        </p>
       </section>
+      <div class="aigc-page-head__divider" aria-hidden="true"></div>
 
       <div class="uploadLiterature_content">
         <div class="uploadLit_content panels-container">
@@ -49,7 +47,6 @@
                           </svg>
                         </div>
                         <p class="aigc-upload__title">请将待检测文档拖拽至区域，或<span>点击上传</span></p>
-                        <p class="aigc-upload__subtitle">当前支持识别中文、英文、中英文混合文本</p>
                       </div>
                     </label>
                     <p class="aigc-upload__ext">支持 .docx / .pdf / .txt，单文件上限 20MB</p>

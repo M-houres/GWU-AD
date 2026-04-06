@@ -201,11 +201,18 @@ def test_save_login_strategy_config_affects_auth_options(
             "sms_provider": "disabled",
             "debug_code_enabled": True,
             "wechat_login_enabled": False,
+            "wechat_miniprogram_login_enabled": True,
+            "wechat_miniprogram_app_id": "wx-mini-test-001",
+            "wechat_miniprogram_app_secret": "mini-secret-test-001",
             "new_user_initial_credits": 2000,
             "max_code_retry": 4,
             "phone_lock_minutes": 8,
             "send_code_ip_1h_limit": 88,
             "login_ip_10m_limit": 66,
+            "notice_enabled": True,
+            "notice_title": "系统维护通知",
+            "notice_content": "今晚 23:00-23:30 平台将进行例行升级维护。",
+            "notice_level": "important",
         },
     )
     assert resp.status_code == 200
@@ -220,3 +227,137 @@ def test_save_login_strategy_config_affects_auth_options(
     assert options.status_code == 200
     data = options.json()["data"]
     assert data["new_user_initial_credits"] == 2000
+    assert data["notice"]["title"] == "系统维护通知"
+    assert data["notice"]["content"].startswith("今晚 23:00")
+    assert data["notice"]["level"] == "important"
+    assert data["notice"]["enabled"] is True
+    assert data["notice"]["version"] >= 1
+    assert data["wechat_miniprogram_login_enabled"] is True
+
+
+def test_notice_version_increases_when_notice_content_changes(
+    client: TestClient,
+    admin_override,
+) -> None:
+    first = client.post(
+        "/api/v1/admin/configs/login",
+        json={
+            "sms_provider": "disabled",
+            "debug_code_enabled": True,
+            "wechat_login_enabled": False,
+            "notice_enabled": True,
+            "notice_title": "公告",
+            "notice_content": "第一版公告",
+            "notice_level": "info",
+        },
+    )
+    assert first.status_code == 200
+    first_value = first.json()["data"]["value"]
+    first_version = int(first_value.get("notice_version") or 1)
+
+    second = client.post(
+        "/api/v1/admin/configs/login",
+        json={
+            "sms_provider": "disabled",
+            "debug_code_enabled": True,
+            "wechat_login_enabled": False,
+            "notice_enabled": True,
+            "notice_title": "公告",
+            "notice_content": "第二版公告",
+            "notice_level": "warning",
+            "notice_version": first_version,
+            "notice_updated_at": first_value.get("notice_updated_at", ""),
+        },
+    )
+    assert second.status_code == 200
+    second_value = second.json()["data"]["value"]
+    second_version = int(second_value.get("notice_version") or 1)
+    assert second_version == first_version + 1
+    assert second_value.get("notice_updated_at")
+
+    notice_resp = client.get("/api/v1/auth/announcement")
+    assert notice_resp.status_code == 200
+    notice = notice_resp.json()["data"]
+    assert notice["content"] == "第二版公告"
+    assert notice["level"] == "warning"
+    assert int(notice["version"]) == second_version
+
+
+def test_save_local_mock_llm_config_without_api_key(
+    client: TestClient,
+    admin_override,
+) -> None:
+    resp = client.post(
+        "/api/v1/admin/configs/llm",
+        json={
+            "enabled": True,
+            "provider": "local_mock",
+            "model": "local-mock-v1",
+            "timeout_seconds": 20,
+            "max_output_tokens": 1024,
+            "temperature": 0.1,
+        },
+    )
+    assert resp.status_code == 200
+    value = resp.json()["data"]["value"]
+    assert value["provider"] == "local_mock"
+    assert value["model"] == "local-mock-v1"
+    assert value["api_key"] == ""
+
+    readiness = _readiness_item(client, "llm")
+    assert readiness["status"] == "ready"
+
+
+def test_save_notice_config_in_separate_category_affects_auth_announcement(
+    client: TestClient,
+    admin_override,
+) -> None:
+    resp = client.post(
+        "/api/v1/admin/configs/notice",
+        json={
+            "enabled": True,
+            "title": "发布提醒",
+            "content": "今晚 23:30 进行系统维护。",
+            "header_text": "今晚 23:30 系统维护，请提前保存进度。",
+            "level": "important",
+        },
+    )
+    assert resp.status_code == 200
+    value = resp.json()["data"]["value"]
+    assert value["title"] == "发布提醒"
+    assert value["level"] == "important"
+
+    ann = client.get("/api/v1/auth/announcement")
+    assert ann.status_code == 200
+    payload = ann.json()["data"]
+    assert payload["title"] == "发布提醒"
+    assert payload["level"] == "important"
+    assert payload["enabled"] is True
+
+
+def test_save_miniapp_config_in_separate_category_affects_auth_options(
+    client: TestClient,
+    admin_override,
+) -> None:
+    resp = client.post(
+        "/api/v1/admin/configs/miniapp",
+        json={
+            "enabled": True,
+            "app_id": "wx-mini-ops-001",
+            "app_secret": "mini-secret-ops-001",
+            "wechat_miniprogram_login_enabled": True,
+            "wechat_miniprogram_app_id": "wx-mini-ops-001",
+            "wechat_miniprogram_app_secret": "mini-secret-ops-001",
+            "api_base_url": "https://api.example.com/api/v1",
+            "request_domain": "https://api.example.com",
+        },
+    )
+    assert resp.status_code == 200
+    value = resp.json()["data"]["value"]
+    assert value["wechat_miniprogram_login_enabled"] is True
+    assert value["wechat_miniprogram_app_id"] == "wx-mini-ops-001"
+
+    options = client.get("/api/v1/auth/options")
+    assert options.status_code == 200
+    data = options.json()["data"]
+    assert data["wechat_miniprogram_login_enabled"] is True

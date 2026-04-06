@@ -1,6 +1,6 @@
 <template>
   <AdminShell title="算法包与策略" subtitle="运营只维护 9 宫格策略与激活算法包，用户侧不暴露处理模式。">
-    <div class="space-y-4">
+    <div class="algo-admin-page space-y-4">
       <section class="rounded-2xl border border-[#d9dee4] bg-white p-5">
         <div class="flex flex-wrap items-center justify-between gap-2">
           <h3 class="text-base font-semibold text-[#1f2d3a]">算法包操作</h3>
@@ -23,7 +23,7 @@
           </div>
         </div>
 
-        <div class="mt-3 space-y-4 rounded-2xl border border-[#dee6ed] bg-[#f8fbff] p-4">
+        <div class="mt-3 space-y-4 rounded-2xl border border-[#dee6ed] bg-white p-4">
           <div>
             <div class="mb-2 text-xs font-semibold tracking-[0.08em] text-[#6b7a86]">选择平台</div>
             <div class="grid gap-2 md:grid-cols-3">
@@ -54,7 +54,7 @@
             </div>
           </div>
 
-          <div class="rounded-xl bg-[#eef4f9] px-3 py-2 text-xs text-[#4c5d69]">
+          <div class="rounded-xl bg-white px-3 py-2 text-xs text-[#4c5d69]">
             当前选择：{{ mapPlatform(uploadForm.platform) }} / {{ mapFunctionType(uploadForm.function_type) }}
           </div>
         </div>
@@ -79,7 +79,7 @@
           </button>
         </div>
 
-        <p v-else class="mt-3 rounded-xl border border-[#dce4eb] bg-[#f8fbff] px-3 py-2 text-sm text-[#4f5d69]">
+        <p v-else class="mt-3 rounded-xl border border-[#dce4eb] bg-white px-3 py-2 text-sm text-[#4f5d69]">
           当前账号只有查看权限，如需上传或切换算法包，请联系超级管理员授权。
         </p>
 
@@ -92,7 +92,7 @@
           <h3 class="text-base font-semibold text-[#1f2d3a]">处理策略矩阵（9 宫格）</h3>
           <button class="rounded-lg bg-[#edf2f6] px-3 py-2 text-sm text-[#344250]" @click="loadStrategies">刷新</button>
         </div>
-        <p class="mb-3 rounded-xl border border-[#dde6ee] bg-[#f8fbff] px-3 py-2 text-xs text-[#4f5d69]">
+        <p class="mb-3 rounded-xl border border-[#dde6ee] bg-white px-3 py-2 text-xs text-[#4f5d69]">
           每个“平台 × 功能”独立配置：处理模式、是否启用、超时时间。用户端不会看到这些内部策略。
         </p>
 
@@ -118,12 +118,7 @@
             <div class="mt-3 flex gap-2">
               <button
                 type="button"
-                class="flex-1 rounded-lg border px-2 py-1.5 text-xs"
-                :class="
-                  cell.process_mode === 'algo_only'
-                    ? 'border-[#0f7a5f] bg-[#e8f4ef] text-[#0f6c53]'
-                    : 'border-[#cad4de] bg-white text-[#4c5b68]'
-                "
+                :class="processModeClass(cell.process_mode === 'algo_only')"
                 :disabled="!canManageAlgo"
                 @click="cell.process_mode = 'algo_only'"
               >
@@ -131,12 +126,7 @@
               </button>
               <button
                 type="button"
-                class="flex-1 rounded-lg border px-2 py-1.5 text-xs"
-                :class="
-                  cell.process_mode === 'algo_llm'
-                    ? 'border-[#0f7a5f] bg-[#e8f4ef] text-[#0f6c53]'
-                    : 'border-[#cad4de] bg-white text-[#4c5b68]'
-                "
+                :class="processModeClass(cell.process_mode === 'algo_llm')"
                 :disabled="!canManageAlgo"
                 @click="cell.process_mode = 'algo_llm'"
               >
@@ -171,6 +161,9 @@
             </button>
           </article>
         </div>
+        <p v-if="strategyCards.length === 0" class="mt-3 rounded-xl border border-[#dce4eb] bg-white px-3 py-2 text-sm text-[#4f5d69]">
+          {{ loadingStrategies ? "策略加载中..." : "暂无策略数据" }}
+        </p>
       </section>
 
       <section class="rounded-2xl border border-[#d9dee4] bg-white p-5">
@@ -197,7 +190,9 @@
                 <td class="px-2 py-2">{{ formatTime(slot.uploaded_at) }}</td>
               </tr>
               <tr v-if="slots.length === 0">
-                <td colspan="6" class="px-2 py-4 text-center text-[#6b7782]">暂无槽位数据</td>
+                <td colspan="6" class="px-2 py-4 text-center text-[#6b7782]">
+                  {{ loadingPackages ? "算法包加载中..." : "暂无槽位数据" }}
+                </td>
               </tr>
             </tbody>
           </table>
@@ -260,7 +255,9 @@
                 </td>
               </tr>
               <tr v-if="rows.length === 0">
-                <td colspan="9" class="px-2 py-4 text-center text-[#6b7782]">暂无算法包</td>
+                <td colspan="9" class="px-2 py-4 text-center text-[#6b7782]">
+                  {{ loadingPackages ? "算法包加载中..." : "暂无算法包" }}
+                </td>
               </tr>
             </tbody>
           </table>
@@ -290,6 +287,8 @@ const hintText = ref("")
 const errorText = ref("")
 const bootstrapping = ref(false)
 const downloadingPackageKey = ref("")
+const loadingPackages = ref(false)
+const loadingStrategies = ref(false)
 const uploadForm = ref({
   platform: "cnki",
   function_type: "dedup",
@@ -306,7 +305,7 @@ const platformOptions = [
 
 const functionTypeOptions = [
   { value: "aigc_detect", label: "AIGC检测" },
-  { value: "rewrite", label: "降AIGC率" },
+  { value: "rewrite", label: "学术润色" },
   { value: "dedup", label: "降重复率" },
 ]
 
@@ -323,17 +322,27 @@ const taskTypeOrder = {
 }
 
 onMounted(async () => {
-  await Promise.all([loadPackages(), loadStrategies()])
+  await Promise.allSettled([loadPackages(), loadStrategies()])
 })
 
 async function loadPackages() {
+  loadingPackages.value = true
   errorText.value = ""
-  const data = await adminHttp.get("/admin/algo-packages")
-  rows.value = data.items || []
-  slots.value = data.slots || []
+  try {
+    const data = await adminHttp.get("/admin/algo-packages")
+    rows.value = data.items || []
+    slots.value = data.slots || []
+  } catch (error) {
+    rows.value = []
+    slots.value = []
+    errorText.value = error.message || "加载算法包失败"
+  } finally {
+    loadingPackages.value = false
+  }
 }
 
 async function loadStrategies() {
+  loadingStrategies.value = true
   errorText.value = ""
   try {
     const data = await adminHttp.get("/admin/strategies")
@@ -353,7 +362,10 @@ async function loadStrategies() {
         return (platformOrder[a.platform] || 99) - (platformOrder[b.platform] || 99)
       })
   } catch (error) {
+    strategyCards.value = []
     errorText.value = error.message || "加载策略失败"
+  } finally {
+    loadingStrategies.value = false
   }
 }
 
@@ -520,7 +532,7 @@ function mapFunctionType(type) {
   const mapping = {
     aigc_detect: "AIGC检测",
     dedup: "降重复率",
-    rewrite: "降AIGC率",
+    rewrite: "学术润色",
   }
   return mapping[type] || type
 }
@@ -532,26 +544,85 @@ function buildRowKey(row) {
 function selectCardClass(current, value) {
   const active = current === value
   if (active) {
-    return "rounded-xl border border-[#0f7a5f] bg-[#e8f4ef] px-3 py-3 text-left text-[#1d2b36]"
+    return "is-active rounded-xl border border-[#0f7a5f] bg-[#e8f4ef] px-3 py-3 text-left text-[#1d2b36]"
   }
   return "rounded-xl border border-[#cfd8e0] bg-white px-3 py-3 text-left text-[#3f4d58] hover:border-[#98adbb]"
 }
 
+function processModeClass(active) {
+  return ["gw-mode-btn", active ? "is-selected" : ""]
+}
+
 function toggleSwitchClass(active) {
-  return [
-    "relative inline-flex h-6 w-11 items-center rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-60",
-    active ? "bg-[#0f7a5f]" : "bg-[#cfd8e0]",
-  ]
+  return ["gw-toggle-switch", active ? "is-on" : "is-off"]
 }
 
 function toggleThumbClass(active) {
-  return [
-    "inline-block h-5 w-5 transform rounded-full bg-white transition-transform",
-    active ? "translate-x-5" : "translate-x-1",
-  ]
+  return ["gw-toggle-switch__thumb", active ? "is-on" : "is-off"]
 }
 
 function formatTime(value) {
   return value ? String(value).slice(0, 19).replace("T", " ") : "-"
 }
 </script>
+
+<style scoped>
+.algo-admin-page .gw-mode-btn {
+  flex: 1;
+  min-height: 30px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  border: 1px solid #111111 !important;
+  background: #ffffff !important;
+  color: #111111 !important;
+  font-size: 12px;
+  line-height: 1.3;
+  transition: background-color 0.16s ease, color 0.16s ease, border-color 0.16s ease;
+}
+
+.algo-admin-page .gw-mode-btn.is-selected {
+  background: #111111 !important;
+  color: #ffffff !important;
+}
+
+.algo-admin-page .gw-mode-btn:disabled {
+  opacity: 0.58 !important;
+  cursor: not-allowed;
+}
+
+.algo-admin-page .gw-toggle-switch {
+  position: relative;
+  display: inline-flex;
+  width: 44px;
+  height: 24px;
+  align-items: center;
+  border-radius: 999px;
+  border: 1px solid #111111 !important;
+  background: #ffffff !important;
+  transition: background-color 0.16s ease;
+}
+
+.algo-admin-page .gw-toggle-switch.is-on {
+  background: #111111 !important;
+}
+
+.algo-admin-page .gw-toggle-switch:disabled {
+  opacity: 0.58 !important;
+  cursor: not-allowed;
+}
+
+.algo-admin-page .gw-toggle-switch__thumb {
+  display: inline-block;
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  background: #111111 !important;
+  transform: translateX(3px);
+  transition: transform 0.16s ease, background-color 0.16s ease;
+}
+
+.algo-admin-page .gw-toggle-switch__thumb.is-on {
+  background: #ffffff !important;
+  transform: translateX(22px);
+}
+</style>

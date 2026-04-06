@@ -1,5 +1,5 @@
 <template>
-  <UserShell title="购买积分" subtitle="前台套餐与后台配置实时同步，可直接选择方案完成充值。" :credits="userCredits" @buy="noop">
+  <UserShell title="购买积分" subtitle="前台套餐实时同步，可直接选择方案完成充值。" :credits="userCredits" @buy="noop">
     <section class="scholar-panel scholar-panel--soft">
       <div class="scholar-panel__body">
         <div class="scholar-kicker">Purchase Notes</div>

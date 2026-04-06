@@ -7,7 +7,7 @@
             v-for="tab in tabs"
             :key="tab.key"
             class="rounded-lg px-3 py-2 text-sm"
-            :class="activeTab === tab.key ? 'bg-[#0f7a5f] text-white' : 'bg-[#edf2f6] text-[#344250]'"
+            :class="[activeTab === tab.key ? 'bg-[#0f7a5f] text-white' : 'bg-[#edf2f6] text-[#344250]', { 'is-active': activeTab === tab.key }]"
             @click="activeTab = tab.key"
           >
             {{ tab.label }}
@@ -20,7 +20,7 @@
           <h3 class="text-base font-semibold">模式切换日志</h3>
           <button class="rounded-lg bg-[#edf2f6] px-3 py-2 text-sm text-[#344250]" @click="loadSwitchLogs">刷新</button>
         </div>
-        <div class="mb-3 rounded-xl border border-[#e1e8ee] bg-[#f8fbff] px-3 py-2 text-sm text-[#4f5f6b]">
+        <div class="mb-3 rounded-xl border border-[#e1e8ee] bg-white px-3 py-2 text-sm text-[#4f5f6b]">
           共 {{ switchRows.length }} 条切换记录
         </div>
         <div class="overflow-x-auto">
@@ -65,7 +65,7 @@
             <button class="rounded-lg bg-[#0f7a5f] px-3 py-2 text-sm text-white" @click="exportCsv">导出CSV</button>
           </div>
         </div>
-        <div class="mb-3 grid gap-3 rounded-xl border border-[#e1e8ee] bg-[#f8fbff] p-3 text-sm md:grid-cols-3">
+        <div class="mb-3 grid gap-3 rounded-xl border border-[#e1e8ee] bg-white p-3 text-sm md:grid-cols-3">
           <div>
             <div class="text-xs text-[#6b7782]">异常总数</div>
             <div class="mt-1 text-lg font-semibold">{{ llmRows.length }}</div>

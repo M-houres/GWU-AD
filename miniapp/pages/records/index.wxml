@@ -1,0 +1,18 @@
+<view class="container">
+  <view class="card" wx:if="{{ !records.length }}">
+    <view class="muted">暂无任务记录，先去提交一个任务吧。</view>
+  </view>
+
+  <view class="card record-item" wx:for="{{ records }}" wx:key="id">
+    <view class="row">
+      <view>任务 #{{ item.id }}</view>
+      <view class="muted">{{ item.statusText }}</view>
+    </view>
+    <view class="muted gap-12">{{ item.task_type }} / {{ item.platform }}</view>
+    <view class="muted gap-12">字符数：{{ item.char_count }} · 扣费：{{ item.cost_credits }}</view>
+    <view class="row gap-16">
+      <button class="btn-secondary" data-id="{{ item.id }}" bindtap="onTapDetail">查看详情</button>
+      <button class="btn-primary" data-id="{{ item.id }}" data-status="{{ item.status }}" bindtap="onTapDownload">下载结果</button>
+    </view>
+  </view>
+</view>

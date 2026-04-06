@@ -179,6 +179,17 @@ def normalize_admin_permissions(value) -> set[str]:
     return set()
 
 
+def _expand_permission_compat(permissions: set[str]) -> set[str]:
+    expanded = set(permissions)
+    # Backward compatibility:
+    # historical operator accounts often had config permissions but no algo permissions.
+    if "configs:manage" in expanded:
+        expanded.update({"configs:view", "algo:view", "algo:manage"})
+    elif "configs:view" in expanded:
+        expanded.add("algo:view")
+    return expanded
+
+
 def admin_has_permission(admin: AdminUser, permission: str) -> bool:
     if not permission:
         return True
@@ -187,6 +198,7 @@ def admin_has_permission(admin: AdminUser, permission: str) -> bool:
     permissions = normalize_admin_permissions(getattr(admin, "permissions_json", []))
     if not permissions:
         permissions = set(LEGACY_OPERATOR_DEFAULT_PERMISSIONS)
+    permissions = _expand_permission_compat(permissions)
     if "*" in permissions:
         return True
     if permission in permissions:

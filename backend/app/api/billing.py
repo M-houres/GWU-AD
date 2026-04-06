@@ -1,4 +1,4 @@
-import base64
+﻿import base64
 from datetime import datetime, timezone
 from io import BytesIO
 import logging
@@ -34,6 +34,8 @@ settings = get_settings()
 logger = logging.getLogger("app.api.billing")
 ORDER_PAY_TIMEOUT_SECONDS = 300
 SUPPORTED_PROVIDERS = {"wechat", "alipay", "mock"}
+SUPPORTED_SCENES = {"web", "miniprogram"}
+MINIPROGRAM_SCENE = "miniprogram"
 PACKAGE_NAME_ALIASES = {
     "年费包": "大额包",
 }
@@ -132,7 +134,7 @@ def _settle_package_order(
     expected_amount = round(float(pkg["price"]), 2)
     paid_amount = expected_amount if amount_cny is None else round(float(amount_cny), 2)
     if paid_amount != expected_amount:
-        raise BizError(code=4207, message="支付金额与套餐价格不匹配")
+        raise BizError(code=4207, message="鏀粯閲戦涓庡椁愪环鏍间笉鍖归厤")
 
     locked_user = db.query(User).filter(User.id == user.id).with_for_update().first()
     if locked_user is None:
@@ -201,7 +203,7 @@ def _settle_package_order(
         locked_user,
         tx_type=CreditType.PACKAGE_PAY,
         delta=credits,
-        reason=f"购买套餐:{package_name}",
+        reason=f"璐拱濂楅:{package_name}",
         related_id=order_no,
         source=order.source or order_source,
     )
@@ -220,7 +222,7 @@ def _pay_pending_order(db: Session, order: Order) -> tuple[Order, bool]:
     if order.status == "paid":
         return order, True
     if order.status == "refunded":
-        raise BizError(code=4209, message="订单已退款，不可重复支付")
+        raise BizError(code=4209, message="璁㈠崟宸查€€娆撅紝涓嶅彲閲嶅鏀粯")
     if order.status == "closed":
         raise BizError(code=4210, message="订单已关闭，请重新下单")
 
@@ -254,7 +256,7 @@ def _pay_pending_order(db: Session, order: Order) -> tuple[Order, bool]:
         user,
         tx_type=CreditType.PACKAGE_PAY,
         delta=order.credits,
-        reason=f"支付订单:{order.order_no}",
+        reason=f"鏀粯璁㈠崟:{order.order_no}",
         related_id=order.order_no,
         source=order.source or getattr(user, "source", "") or DEFAULT_CLIENT_SOURCE,
     )
@@ -300,7 +302,7 @@ def _assert_paid_amount_matches(order: Order, amount_cny: float | None) -> None:
     actual = round(float(amount_cny), 2)
     expected = round(float(order.amount_cny), 2)
     if abs(actual - expected) > 0.01:
-        raise BizError(code=4207, message="支付金额与订单金额不匹配")
+        raise BizError(code=4207, message="鏀粯閲戦涓庤鍗曢噾棰濅笉鍖归厤")
 
 
 def _settle_existing_order(
@@ -353,14 +355,24 @@ def create_order(
     pkg = _find_package(db, req.package_name)
     if pkg is None:
         raise BizError(code=4201, message="套餐不存在")
-    provider = req.provider.strip().lower()
+
+    requested_provider = req.provider.strip().lower()
+    provider = requested_provider
+    scene = str(req.scene or "web").strip().lower() or "web"
+    if scene not in SUPPORTED_SCENES:
+        raise BizError(code=4211, message="支付场景不支持")
+
     enabled = set(enabled_payment_providers(db))
     payment_cfg = load_payment_config(db)
     payment_test_mode = bool(payment_cfg.get("test_mode", settings.payment_test_mode))
+
     if provider not in SUPPORTED_PROVIDERS or provider not in enabled:
         raise BizError(code=4211, message="支付方式不支持")
-    if provider == "mock" and not payment_test_mode:
+    if provider == "mock" and (not payment_test_mode) and settings.app_env == "prod":
         raise BizError(code=4213, message="当前环境未开启测试支付")
+
+    if scene == MINIPROGRAM_SCENE and provider == "wechat" and not str(user.wechat_openid_mp or "").strip():
+        raise BizError(code=4216, message="小程序支付缺少openid，请重新登录")
 
     order_no = make_order_no()
     client_source = get_client_source(request)
@@ -378,11 +390,40 @@ def create_order(
     db.flush()
 
     pay_url = _default_mock_pay_url(order_no, request)
+    payment_params: dict | None = None
     if provider != "mock":
-        session = create_payment_session(db, order=order, package_name=req.package_name)
-        pay_url = str(session.get("pay_url", "")).strip()
-        if not pay_url:
-            raise BizError(code=4214, message="支付通道未返回支付链接")
+        try:
+            session = create_payment_session(
+                db,
+                order=order,
+                package_name=req.package_name,
+                scene=scene,
+                wechat_openid=user.wechat_openid_mp,
+            )
+            pay_url = str(session.get("pay_url", "")).strip()
+            if isinstance(session.get("payment_params"), dict):
+                payment_params = session["payment_params"]
+            if scene != MINIPROGRAM_SCENE and not pay_url:
+                raise BizError(code=4214, message="支付通道未返回支付链接")
+        except BizError as exc:
+            if settings.app_env == "prod":
+                raise
+            if exc.code not in {4211, 4214}:
+                raise
+            logger.warning(
+                "billing_create_order_dev_fallback_to_mock",
+                extra={
+                    "order_no": order_no,
+                    "user_id": user.id,
+                    "provider": provider,
+                    "scene": scene,
+                    "reason_code": exc.code,
+                },
+            )
+            provider = "mock"
+            order.provider = "mock"
+            pay_url = _default_mock_pay_url(order_no, request)
+            payment_params = None
 
     try:
         db.commit()
@@ -396,6 +437,7 @@ def create_order(
             "order_no": order_no,
             "user_id": user.id,
             "provider": provider,
+            "scene": scene,
             "amount_cny": order.amount_cny,
         },
     )
@@ -404,10 +446,14 @@ def create_order(
             "order_no": order_no,
             "status": order.status,
             "provider": provider,
+            "scene": scene,
+            "provider_requested": requested_provider,
+            "provider_fallback": provider != requested_provider,
             "amount_cny": order.amount_cny,
             "credits": order.credits,
             "expire_seconds": ORDER_PAY_TIMEOUT_SECONDS,
-            "qrcode_data_url": _build_qrcode_data(pay_url),
+            "qrcode_data_url": _build_qrcode_data(pay_url) if pay_url else "",
+            "payment_params": payment_params,
             "payment_test_mode": payment_test_mode,
         }
     )
@@ -580,7 +626,7 @@ def mock_pay(
 def pay_callback(req: PayCallbackReq, request: Request, db: Session = Depends(db_dep)) -> APIResp:
     payload = req.model_dump(exclude={"sign"})
     if not verify_payload_signature(payload, req.sign, db=db):
-        raise BizError(code=4204, message="支付回调验签失败")
+        raise BizError(code=4204, message="鏀粯鍥炶皟楠岀澶辫触")
 
     now_ts = int(datetime.now(timezone.utc).timestamp())
     if abs(now_ts - req.paid_at) > settings.payment_callback_ttl_seconds:
@@ -651,13 +697,13 @@ async def wechatpay_notify(request: Request, db: Session = Depends(db_dep)) -> J
             if order and order.status == "created":
                 order.status = "closed"
                 db.commit()
-        return _wechat_ack(True, "成功")
+        return _wechat_ack(True, "鎴愬姛")
     except BizError as exc:
         logger.warning("billing_wechatpay_notify_failed", extra={"detail": exc.message})
         return _wechat_ack(False, exc.message)
     except Exception as exc:
         logger.exception("billing_wechatpay_notify_exception")
-        return _wechat_ack(False, str(exc)[:120] or "回调处理失败")
+        return _wechat_ack(False, str(exc)[:120] or "鍥炶皟澶勭悊澶辫触")
 
 
 @router.post("/notify/alipay")
@@ -687,3 +733,4 @@ async def alipay_notify(request: Request, db: Session = Depends(db_dep)) -> Plai
     except Exception as exc:
         logger.warning("billing_alipay_notify_failed", extra={"detail": str(exc)[:160]})
         return PlainTextResponse("failure", status_code=400)
+

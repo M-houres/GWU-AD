@@ -1,0 +1,4 @@
+.record-item + .record-item {
+  margin-top: 16rpx;
+}
+

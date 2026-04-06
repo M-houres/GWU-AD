@@ -384,17 +384,37 @@ class ProcessingEngine:
         return None
 
     def _transform_text(self, text: str, task_type: TaskType, platform: str, report_summary: dict) -> str:
-        llm_output = self._run_llm(task_type, text)
-        if isinstance(llm_output, str) and llm_output.strip():
-            return llm_output
+        normalized_input = self._normalize_text(text)
 
-        algo_result = self._run_algo_package(platform, task_type, text)
+        # In combined mode, enforce algorithm package -> LLM chaining so both links
+        # can contribute to dedup/rewrite when available.
+        if self._effective_mode == MODE_LLM_PLUS_ALGO:
+            algo_result = self._run_algo_package(platform, task_type, normalized_input)
+            algo_text = self._extract_algo_text(algo_result)
+            llm_input = algo_text or normalized_input
+            llm_output = self._run_llm(task_type, llm_input)
+            if isinstance(llm_output, str) and llm_output.strip():
+                return llm_output
+            if algo_text:
+                return algo_text
+            return self._heuristic_transform_text(
+                text=normalized_input,
+                task_type=task_type,
+                report_summary=report_summary,
+            )
+
+        algo_result = self._run_algo_package(platform, task_type, normalized_input)
         algo_text = self._extract_algo_text(algo_result)
         if algo_text:
             return algo_text
+        return self._heuristic_transform_text(
+            text=normalized_input,
+            task_type=task_type,
+            report_summary=report_summary,
+        )
 
+    def _heuristic_transform_text(self, *, text: str, task_type: TaskType, report_summary: dict) -> str:
         pressure = report_summary.get("pressure", "low")
-        normalized = self._normalize_text(text)
         if task_type == TaskType.DEDUP:
             replacements = {
                 "因此": "由此可见",
@@ -405,7 +425,7 @@ class ProcessingEngine:
                 "可以看出": "据此可见",
                 "本文认为": "本文进一步指出",
             }
-            output = self._apply_replacements(normalized, replacements)
+            output = self._apply_replacements(text, replacements)
             output = self._split_long_sentences(output, 48 if pressure == "high" else 64)
             return output
         if task_type == TaskType.REWRITE:
@@ -418,11 +438,10 @@ class ProcessingEngine:
                 "我们发现": "研究发现",
                 "这个": "该",
             }
-            output = self._apply_replacements(normalized, replacements)
+            output = self._apply_replacements(text, replacements)
             output = self._split_long_sentences(output, 54 if pressure == "high" else 72)
             return output
-        return normalized
-
+        return text
     def _normalize_text(self, text: str) -> str:
         output = re.sub(r"[ \t]+", " ", text)
         output = re.sub(r"\n{3,}", "\n\n", output)
@@ -935,7 +954,7 @@ class ProcessingEngine:
         sample_after = output_text[:4000]
         similarity = SequenceMatcher(None, sample_before, sample_after).ratio() if sample_before or sample_after else 1.0
         change_ratio = round((1 - similarity) * 100, 2)
-        task_label = "降重" if task_type == TaskType.DEDUP else "降AIGC率"
+        task_label = "降重" if task_type == TaskType.DEDUP else "学术润色"
         review_points = list(report_summary.get("recommended_actions") or [])
         review_points.append("建议下载结果文档后结合原文进行人工终审。")
         review_points.append("重点检查摘要、结论、数据表述和引用位置。")
@@ -960,3 +979,4 @@ class ProcessingEngine:
         if len(compact) <= limit:
             return compact
         return f"{compact[:limit].rstrip()}..."
+

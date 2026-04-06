@@ -1,9 +1,9 @@
 <template>
-  <AdminShell title="管理员管理" subtitle="由超级管理员统一创建账号、配置权限、设置密码">
-    <section v-if="!isSuperAdmin" class="scholar-panel scholar-panel--soft">
+  <AdminShell title="权限管理" subtitle="管理员账号、模板授权、权限边界与密码重置">
+    <section v-if="!canViewPermissionAdmin" class="scholar-panel scholar-panel--soft">
       <div class="scholar-panel__body">
-        <h3 class="scholar-subtitle">仅超级管理员可访问</h3>
-        <p class="scholar-lead">当前账号没有管理员管理权限，请使用超级管理员账号登录。</p>
+        <h3 class="scholar-subtitle">当前账号无权限</h3>
+        <p class="scholar-lead">需要 `admins:view` 或 `admins:manage` 才能访问权限管理。</p>
       </div>
     </section>
 
@@ -23,7 +23,14 @@
         </article>
       </section>
 
-      <section class="scholar-panel">
+      <section v-if="!canManagePermissionAdmin" class="scholar-panel scholar-panel--soft">
+        <div class="scholar-panel__body">
+          <div class="scholar-subtitle">当前为只读模式</div>
+          <p class="scholar-lead">可查看管理员与权限，不可创建账号、改权限、重置密码或启停账号。</p>
+        </div>
+      </section>
+
+      <section v-if="canManagePermissionAdmin" class="scholar-panel">
         <div class="scholar-panel__header">
           <div class="scholar-kicker">创建管理员</div>
           <h3 class="scholar-subtitle">新增普通管理员账号</h3>
@@ -45,6 +52,33 @@
             </div>
           </div>
 
+          <div class="scholar-grid md:grid-cols-[1fr_2fr]" style="margin-top: 14px">
+            <label class="scholar-field">
+              <span class="scholar-field__label">复制已有权限</span>
+              <select v-model="createCopyFromId" class="scholar-select" @change="applyCreateFromAdminId">
+                <option value="">不复制</option>
+                <option v-for="item in reusableAdmins" :key="item.id" :value="String(item.id)">
+                  {{ item.username }}（{{ roleText(item.role) }}）
+                </option>
+              </select>
+            </label>
+            <div class="scholar-field">
+              <span class="scholar-field__label">权限模板</span>
+              <div class="scholar-inline-actions">
+                <button
+                  v-for="tpl in permissionTemplates"
+                  :key="tpl.key"
+                  class="scholar-button scholar-button--ghost"
+                  type="button"
+                  :title="tpl.description || ''"
+                  @click="applyCreateTemplate(tpl.permissions)"
+                >
+                  {{ tpl.label }}
+                </button>
+              </div>
+            </div>
+          </div>
+
           <div class="scholar-inline-actions" style="margin-top: 16px">
             <label class="scholar-chip">
               <input v-model="createForm.is_active" type="checkbox" />
@@ -59,11 +93,20 @@
             <button class="scholar-button scholar-button--ghost" type="button" @click="clearCreatePermissions">
               清空权限
             </button>
+            <span class="scholar-pill">已选 {{ createSelectedCount }} 项</span>
           </div>
 
           <div class="scholar-grid md:grid-cols-2" style="margin-top: 16px">
             <article v-for="group in permissionGroups" :key="group.group" class="scholar-note">
-              <div style="font-weight: 600; color: var(--ink)">{{ group.group }}</div>
+              <div class="scholar-inline-actions" style="justify-content: space-between">
+                <div style="font-weight: 600; color: var(--ink)">
+                  {{ group.group }}（{{ countSelectedInGroup(group.items, createForm.permissions) }}/{{ group.items.length }}）
+                </div>
+                <div class="scholar-inline-actions">
+                  <button class="scholar-button scholar-button--ghost" type="button" @click="selectCreateGroup(group.items)">全选</button>
+                  <button class="scholar-button scholar-button--ghost" type="button" @click="clearCreateGroup(group.items)">清空</button>
+                </div>
+              </div>
               <div class="scholar-stack" style="margin-top: 10px">
                 <label
                   v-for="item in group.items"
@@ -151,7 +194,7 @@
                     <div class="text-sm font-semibold">{{ row.username }}</div>
                     <div v-if="row.id === currentAdminId" class="text-xs text-[var(--ink-faint)]">当前登录账号</div>
                   </td>
-                  <td>{{ row.role }}</td>
+                  <td>{{ roleText(row.role) }}</td>
                   <td>
                     <span class="scholar-badge" :class="row.is_active ? 'scholar-badge--success' : 'scholar-badge--danger'">
                       {{ row.is_active ? "启用" : "停用" }}
@@ -166,10 +209,16 @@
                   <td>{{ formatTime(row.created_at) }}</td>
                   <td>
                     <div class="scholar-inline-actions">
-                      <button class="scholar-button scholar-button--secondary" @click="openEdit(row)">编辑</button>
+                      <button
+                        class="scholar-button scholar-button--secondary"
+                        :disabled="!canManagePermissionAdmin"
+                        @click="openEdit(row)"
+                      >
+                        编辑
+                      </button>
                       <button
                         class="scholar-button scholar-button--ghost"
-                        :disabled="row.role === 'super_admin' || row.id === currentAdminId"
+                        :disabled="!canManagePermissionAdmin || row.role === 'super_admin' || row.id === currentAdminId"
                         @click="toggleStatus(row)"
                       >
                         {{ row.is_active ? "停用账号" : "启用账号" }}
@@ -188,14 +237,15 @@
         </div>
       </section>
 
-      <section v-if="editing" class="scholar-panel scholar-panel--soft">
+      <section v-if="editing && canManagePermissionAdmin" class="scholar-panel scholar-panel--soft">
         <div class="scholar-panel__body">
           <div class="scholar-kicker">编辑管理员</div>
           <h3 class="scholar-subtitle">{{ editing.username }}</h3>
 
           <div class="scholar-inline-actions" style="margin-top: 12px">
-            <span class="scholar-pill">角色：{{ editing.role }}</span>
+            <span class="scholar-pill">角色：{{ roleText(editing.role) }}</span>
             <span class="scholar-pill">状态：{{ editing.is_active ? "启用" : "停用" }}</span>
+            <span v-if="editing.role !== 'super_admin'" class="scholar-pill">已选 {{ editSelectedCount }} 项</span>
             <button
               v-if="editing.role !== 'super_admin'"
               class="scholar-button scholar-button--ghost"
@@ -222,13 +272,48 @@
             </button>
           </div>
 
+          <div v-if="editing.role !== 'super_admin'" class="scholar-grid md:grid-cols-[1fr_2fr]" style="margin-top: 14px">
+            <label class="scholar-field">
+              <span class="scholar-field__label">复制已有权限</span>
+              <select v-model="editCopyFromId" class="scholar-select" @change="applyEditFromAdminId">
+                <option value="">不复制</option>
+                <option v-for="item in reusableAdmins" :key="item.id" :value="String(item.id)">
+                  {{ item.username }}（{{ roleText(item.role) }}）
+                </option>
+              </select>
+            </label>
+            <div class="scholar-field">
+              <span class="scholar-field__label">权限模板</span>
+              <div class="scholar-inline-actions">
+                <button
+                  v-for="tpl in permissionTemplates"
+                  :key="`edit-${tpl.key}`"
+                  class="scholar-button scholar-button--ghost"
+                  type="button"
+                  :title="tpl.description || ''"
+                  @click="applyEditTemplate(tpl.permissions)"
+                >
+                  {{ tpl.label }}
+                </button>
+              </div>
+            </div>
+          </div>
+
           <div v-if="editing.role === 'super_admin'" class="scholar-note" style="margin-top: 16px">
             超级管理员拥有全量权限，不支持修改权限集。
           </div>
 
           <div v-else class="scholar-grid md:grid-cols-2" style="margin-top: 16px">
             <article v-for="group in permissionGroups" :key="group.group" class="scholar-note">
-              <div style="font-weight: 600; color: var(--ink)">{{ group.group }}</div>
+              <div class="scholar-inline-actions" style="justify-content: space-between">
+                <div style="font-weight: 600; color: var(--ink)">
+                  {{ group.group }}（{{ countSelectedInGroup(group.items, editPermissions) }}/{{ group.items.length }}）
+                </div>
+                <div class="scholar-inline-actions">
+                  <button class="scholar-button scholar-button--ghost" type="button" @click="selectEditGroup(group.items)">全选</button>
+                  <button class="scholar-button scholar-button--ghost" type="button" @click="clearEditGroup(group.items)">清空</button>
+                </div>
+              </div>
               <div class="scholar-stack" style="margin-top: 10px">
                 <label
                   v-for="item in group.items"
@@ -273,7 +358,7 @@ import { computed, onMounted, ref } from "vue"
 
 import AdminShell from "../../components/AdminShell.vue"
 import { adminHttp } from "../../lib/http"
-import { getAdminInfo } from "../../lib/session"
+import { adminHasPermission, getAdminInfo } from "../../lib/session"
 
 const DEFAULT_OPERATOR_PERMISSIONS = [
   "dashboard:view",
@@ -288,8 +373,30 @@ const DEFAULT_OPERATOR_PERMISSIONS = [
   "algo:view",
 ]
 
+const DEFAULT_PERMISSION_TEMPLATES = [
+  {
+    key: "ops_basic",
+    label: "运营基础",
+    description: "适合日常运营",
+    permissions: [...DEFAULT_OPERATOR_PERMISSIONS],
+  },
+  {
+    key: "service_support",
+    label: "客服支持",
+    description: "聚焦用户与订单处理",
+    permissions: ["users:view", "users:manage", "tasks:view", "orders:view", "orders:refund", "credits:view"],
+  },
+  {
+    key: "read_only_audit",
+    label: "只读审计",
+    description: "只读查看数据和日志",
+    permissions: ["dashboard:view", "users:view", "tasks:view", "orders:view", "referrals:view", "logs:view", "credits:view", "algo:view", "configs:view", "admins:view"],
+  },
+]
+
 const rows = ref([])
 const catalog = ref([])
+const permissionTemplates = ref([...DEFAULT_PERMISSION_TEMPLATES])
 const summary = ref({ total: 0, active: 0, inactive: 0 })
 const filters = ref({
   keyword: "",
@@ -302,6 +409,8 @@ const createForm = ref({
   is_active: true,
   permissions: [...DEFAULT_OPERATOR_PERMISSIONS],
 })
+const createCopyFromId = ref("")
+const editCopyFromId = ref("")
 const editing = ref(null)
 const editPermissions = ref([])
 const newPassword = ref("")
@@ -313,6 +422,17 @@ const errorText = ref("")
 const adminInfo = getAdminInfo()
 const currentAdminId = Number(adminInfo?.id || 0)
 const isSuperAdmin = computed(() => adminInfo?.role === "super_admin")
+const canViewPermissionAdmin = computed(() => isSuperAdmin.value || adminHasPermission("admins:view") || adminHasPermission("admins:manage"))
+const canManagePermissionAdmin = computed(() => isSuperAdmin.value || adminHasPermission("admins:manage"))
+
+const permissionLabelMap = computed(() => {
+  const map = new Map()
+  for (const item of catalog.value) {
+    map.set(item.key, item.label || item.key)
+  }
+  return map
+})
+
 const permissionGroups = computed(() => {
   const grouped = new Map()
   for (const item of catalog.value) {
@@ -325,10 +445,14 @@ const permissionGroups = computed(() => {
   return Array.from(grouped.entries()).map(([group, items]) => ({ group, items }))
 })
 
+const createSelectedCount = computed(() => normalizePermissions(createForm.value.permissions).length)
+const editSelectedCount = computed(() => normalizePermissions(editPermissions.value).length)
+const reusableAdmins = computed(() => rows.value.filter((item) => item.id !== editing.value?.id))
+
 onMounted(loadAll)
 
 async function loadAll() {
-  if (!isSuperAdmin.value) {
+  if (!canViewPermissionAdmin.value) {
     return
   }
   try {
@@ -348,6 +472,9 @@ async function loadAll() {
     rows.value = data.items || []
     catalog.value = data.permission_catalog || []
     summary.value = data.summary || calcSummary(rows.value)
+    permissionTemplates.value = Array.isArray(data.permission_templates) && data.permission_templates.length
+      ? data.permission_templates
+      : [...DEFAULT_PERMISSION_TEMPLATES]
   } catch (error) {
     errorText.value = error.message || "加载管理员列表失败"
   }
@@ -363,6 +490,27 @@ function calcSummary(items) {
   }
 }
 
+function normalizePermissions(rawList) {
+  const set = new Set()
+  const allowed = new Set(catalog.value.map((item) => item.key))
+  for (const item of rawList || []) {
+    const key = String(item || "").trim()
+    if (!key) continue
+    if (allowed.size > 0 && !allowed.has(key)) continue
+    set.add(key)
+  }
+  return Array.from(set)
+}
+
+function mergePermissions(current, appendList) {
+  return normalizePermissions([...(current || []), ...(appendList || [])])
+}
+
+function removePermissions(current, toRemoveList) {
+  const blocked = new Set((toRemoveList || []).map((item) => String(item || "").trim()))
+  return normalizePermissions((current || []).filter((item) => !blocked.has(String(item || "").trim())))
+}
+
 function toggleCreatePermission(key) {
   const current = new Set(createForm.value.permissions || [])
   if (current.has(key)) {
@@ -370,7 +518,7 @@ function toggleCreatePermission(key) {
   } else {
     current.add(key)
   }
-  createForm.value.permissions = Array.from(current)
+  createForm.value.permissions = normalizePermissions(Array.from(current))
 }
 
 function toggleEditPermission(key) {
@@ -380,15 +528,15 @@ function toggleEditPermission(key) {
   } else {
     current.add(key)
   }
-  editPermissions.value = Array.from(current)
+  editPermissions.value = normalizePermissions(Array.from(current))
 }
 
 function setCreateDefaultPermissions() {
-  createForm.value.permissions = [...DEFAULT_OPERATOR_PERMISSIONS]
+  createForm.value.permissions = normalizePermissions(DEFAULT_OPERATOR_PERMISSIONS)
 }
 
 function selectAllCreatePermissions() {
-  createForm.value.permissions = catalog.value.map((item) => item.key)
+  createForm.value.permissions = normalizePermissions(catalog.value.map((item) => item.key))
 }
 
 function clearCreatePermissions() {
@@ -396,15 +544,62 @@ function clearCreatePermissions() {
 }
 
 function setEditDefaultPermissions() {
-  editPermissions.value = [...DEFAULT_OPERATOR_PERMISSIONS]
+  editPermissions.value = normalizePermissions(DEFAULT_OPERATOR_PERMISSIONS)
 }
 
 function selectAllEditPermissions() {
-  editPermissions.value = catalog.value.map((item) => item.key)
+  editPermissions.value = normalizePermissions(catalog.value.map((item) => item.key))
 }
 
 function clearEditPermissions() {
   editPermissions.value = []
+}
+
+function selectCreateGroup(items) {
+  createForm.value.permissions = mergePermissions(createForm.value.permissions, items.map((item) => item.key))
+}
+
+function clearCreateGroup(items) {
+  createForm.value.permissions = removePermissions(createForm.value.permissions, items.map((item) => item.key))
+}
+
+function selectEditGroup(items) {
+  editPermissions.value = mergePermissions(editPermissions.value, items.map((item) => item.key))
+}
+
+function clearEditGroup(items) {
+  editPermissions.value = removePermissions(editPermissions.value, items.map((item) => item.key))
+}
+
+function countSelectedInGroup(items, currentPermissions) {
+  const selected = new Set(normalizePermissions(currentPermissions))
+  let count = 0
+  for (const item of items || []) {
+    if (selected.has(item.key)) {
+      count += 1
+    }
+  }
+  return count
+}
+
+function applyCreateTemplate(permissions) {
+  createForm.value.permissions = normalizePermissions(permissions || [])
+}
+
+function applyEditTemplate(permissions) {
+  editPermissions.value = normalizePermissions(permissions || [])
+}
+
+function applyCreateFromAdminId() {
+  const target = rows.value.find((item) => String(item.id) === String(createCopyFromId.value))
+  if (!target) return
+  applyCreateTemplate(target.permissions || [])
+}
+
+function applyEditFromAdminId() {
+  const target = rows.value.find((item) => String(item.id) === String(editCopyFromId.value))
+  if (!target) return
+  applyEditTemplate(target.permissions || [])
 }
 
 function fillCreateRandomPassword() {
@@ -425,6 +620,10 @@ function randomPassword() {
 }
 
 async function createAdmin() {
+  if (!canManagePermissionAdmin.value) {
+    errorText.value = "当前账号没有管理员管理权限"
+    return
+  }
   hintText.value = ""
   errorText.value = ""
   if (!createForm.value.username) {
@@ -435,6 +634,7 @@ async function createAdmin() {
     errorText.value = "初始密码至少 8 位"
     return
   }
+  createForm.value.permissions = normalizePermissions(createForm.value.permissions)
   if (!Array.isArray(createForm.value.permissions) || createForm.value.permissions.length === 0) {
     errorText.value = "至少选择 1 项权限"
     return
@@ -449,6 +649,7 @@ async function createAdmin() {
       is_active: true,
       permissions: [...DEFAULT_OPERATOR_PERMISSIONS],
     }
+    createCopyFromId.value = ""
     await loadAll()
   } catch (error) {
     errorText.value = error.message || "创建管理员失败"
@@ -458,8 +659,13 @@ async function createAdmin() {
 }
 
 function openEdit(row) {
+  if (!canManagePermissionAdmin.value) {
+    errorText.value = "当前账号没有管理员管理权限"
+    return
+  }
   editing.value = row
-  editPermissions.value = Array.isArray(row.permissions) ? [...row.permissions] : []
+  editPermissions.value = normalizePermissions(Array.isArray(row.permissions) ? row.permissions : [])
+  editCopyFromId.value = ""
   newPassword.value = ""
   hintText.value = ""
   errorText.value = ""
@@ -468,10 +674,15 @@ function openEdit(row) {
 function closeEdit() {
   editing.value = null
   editPermissions.value = []
+  editCopyFromId.value = ""
   newPassword.value = ""
 }
 
 async function saveEdit() {
+  if (!canManagePermissionAdmin.value) {
+    errorText.value = "当前账号没有管理员管理权限"
+    return
+  }
   if (!editing.value) {
     return
   }
@@ -480,6 +691,7 @@ async function saveEdit() {
   errorText.value = ""
   try {
     if (editing.value.role !== "super_admin") {
+      editPermissions.value = normalizePermissions(editPermissions.value)
       if (!Array.isArray(editPermissions.value) || editPermissions.value.length === 0) {
         throw new Error("至少选择 1 项权限")
       }
@@ -506,6 +718,10 @@ async function saveEdit() {
 }
 
 async function toggleStatus(row) {
+  if (!canManagePermissionAdmin.value) {
+    errorText.value = "当前账号没有管理员管理权限"
+    return
+  }
   if (row.role === "super_admin") {
     return
   }
@@ -538,15 +754,25 @@ function resetFilters() {
   loadAll()
 }
 
+function roleText(role) {
+  if (role === "super_admin") return "超级管理员"
+  if (role === "operator") return "普通管理员"
+  return role || "-"
+}
+
+function resolvePermissionLabel(key) {
+  return permissionLabelMap.value.get(key) || key
+}
+
 function permissionBrief(row) {
   if (row.role === "super_admin") {
     return "全量权限"
   }
-  const list = Array.isArray(row.permissions) ? row.permissions : []
+  const list = normalizePermissions(Array.isArray(row.permissions) ? row.permissions : [])
   if (list.length === 0) {
     return "未配置"
   }
-  const head = list.slice(0, 3).join(" / ")
+  const head = list.slice(0, 3).map((key) => resolvePermissionLabel(key)).join(" / ")
   return list.length > 3 ? `${list.length} 项: ${head} ...` : `${list.length} 项: ${head}`
 }
 
@@ -554,8 +780,8 @@ function fullPermissionText(row) {
   if (row.role === "super_admin") {
     return "全量权限"
   }
-  const list = Array.isArray(row.permissions) ? row.permissions : []
-  return list.join(", ")
+  const list = normalizePermissions(Array.isArray(row.permissions) ? row.permissions : [])
+  return list.map((key) => `${resolvePermissionLabel(key)} (${key})`).join(", ")
 }
 
 function formatTime(value) {

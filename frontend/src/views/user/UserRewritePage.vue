@@ -1,7 +1,7 @@
-﻿<template>
+<template>
   <UserShell
-    title="降AIGC率"
-    subtitle="上传文档后提交任务，系统将按平台规则自动完成降AIGC处理并生成记录。"
+    title="学术润色"
+    subtitle="上传文档后提交任务，系统将按平台规则自动完成学术润色处理并生成记录。"
     :credits="userCredits"
     :hide-topbar="true"
     :hide-header-title="true"
@@ -12,11 +12,9 @@
       <p v-if="successText" class="aigc-alert aigc-alert--success">{{ successText }}</p>
 
       <section class="aigc-page-head">
-        <h2 class="aigc-page-head__title">上传降 AIGC 处理文档</h2>
-        <p class="aigc-page-head__notice">
-          降AIGC率服务：在尽量保持原文语义和结构的前提下，对疑似AI特征段落进行优化处理。作为辅助处理工具服务，请结合导师要求与人工复核综合使用。
-        </p>
+        <h2 class="aigc-page-head__title">上传学术润色 处理文档</h2>
       </section>
+      <div class="aigc-page-head__divider" aria-hidden="true"></div>
 
       <div class="uploadLiterature_content">
         <div class="uploadLit_content panels-container">
@@ -141,7 +139,7 @@
 
                   <div class="submitBtnCon">
                     <button class="aigc-submit-action__button" type="button" :disabled="submitting" @click="submitTask">
-                      {{ submitting ? "提交中..." : "提交降AIGC" }}
+                      {{ submitting ? "提交中..." : "提交学术润色" }}
                     </button>
                   </div>
                 </div>
@@ -158,7 +156,7 @@
               </section>
 
               <section class="aigc-side__brand">
-                <h3>降AIGC率服务</h3>
+                <h3>学术润色服务</h3>
               </section>
 
               <section class="aigc-feature-list features-list">

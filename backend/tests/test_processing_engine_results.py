@@ -153,3 +153,54 @@ def test_aigc_detect_accepts_nested_score_and_chinese_label(tmp_path: Path, db_s
     assert result.result_json["score_pct"] > 0
     assert result.result_json["score_breakdown"].get("algo_package_score") == 0.63
     assert "algo_package_score" in result.result_json["score_breakdown"]
+
+
+def test_transform_text_combined_mode_runs_algo_then_llm(db_session: Session, monkeypatch) -> None:
+    engine = ProcessingEngine(db_session)
+    engine._effective_mode = "LLM_PLUS_ALGO"
+
+    call_order: list[tuple[str, str]] = []
+
+    def _fake_algo(self, _platform: str, _task_type: TaskType, text: str):
+        call_order.append(("algo", text))
+        self._pipeline_usage["algo_package_used"] = True
+        return {"text": f"algo::{text}"}
+
+    def _fake_llm(self, _task_type: TaskType, text: str):
+        call_order.append(("llm", text))
+        self._pipeline_usage["llm_used"] = True
+        return f"llm::{text}"
+
+    monkeypatch.setattr(ProcessingEngine, "_run_algo_package", _fake_algo)
+    monkeypatch.setattr(ProcessingEngine, "_run_llm", _fake_llm)
+
+    output = engine._transform_text("source text", TaskType.REWRITE, "cnki", {})
+
+    assert output == "llm::algo::source text"
+    assert call_order[0][0] == "algo"
+    assert call_order[1][0] == "llm"
+    assert call_order[1][1] == "algo::source text"
+
+
+def test_transform_text_combined_mode_falls_back_to_algo_when_llm_empty(db_session: Session, monkeypatch) -> None:
+    engine = ProcessingEngine(db_session)
+    engine._effective_mode = "LLM_PLUS_ALGO"
+
+    call_order: list[str] = []
+
+    def _fake_algo(self, _platform: str, _task_type: TaskType, text: str):
+        call_order.append("algo")
+        self._pipeline_usage["algo_package_used"] = True
+        return {"text": f"algo::{text}"}
+
+    def _fake_llm(self, _task_type: TaskType, _text: str):
+        call_order.append("llm")
+        return None
+
+    monkeypatch.setattr(ProcessingEngine, "_run_algo_package", _fake_algo)
+    monkeypatch.setattr(ProcessingEngine, "_run_llm", _fake_llm)
+
+    output = engine._transform_text("source text", TaskType.DEDUP, "cnki", {})
+
+    assert output == "algo::source text"
+    assert call_order == ["algo", "llm"]

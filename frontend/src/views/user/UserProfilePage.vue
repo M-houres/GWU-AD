@@ -436,7 +436,7 @@ function mapCreditType(type) {
     referral_bonus: "被邀请福利",
     referral_first_pay: "首充返佣",
     referral_recurring: "持续返利",
-    admin_adjust: "管理员调整",
+    admin_adjust: "系统调整",
   }
   return map[type] || type
 }
@@ -445,7 +445,7 @@ function mapTaskType(type) {
   const mapping = {
     aigc_detect: "AIGC 检测",
     dedup: "降重复率",
-    rewrite: "降 AIGC 率",
+    rewrite: "学术润色",
   }
   return mapping[type] || type
 }

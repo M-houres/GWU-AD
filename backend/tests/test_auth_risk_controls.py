@@ -201,3 +201,108 @@ def test_new_user_login_uses_configured_initial_credits(client: TestClient, db_s
     user = db_session.get(User, user_id)
     assert user is not None
     assert user.credits == 2345
+
+
+def test_send_code_dev_fallback_returns_debug_code_when_sms_unavailable(
+    client: TestClient,
+    db_session: Session,
+) -> None:
+    from app.config import get_settings
+
+    settings = get_settings()
+    old_env = settings.app_env
+    settings.app_env = "dev"
+    db_session.add(
+        SystemConfig(
+            category="system",
+            config_key="login",
+            config_value={
+                "sms_provider": "disabled",
+                "debug_code_enabled": False,
+            },
+        )
+    )
+    db_session.commit()
+
+    try:
+        resp = client.post("/api/v1/auth/send-code", json={"phone": "13800006002"})
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["code"] == 0
+        debug_code = str(body["data"].get("debug_code", ""))
+        assert len(debug_code) >= 4
+    finally:
+        settings.app_env = old_env
+
+
+def test_wx_miniprogram_login_accepts_mock_code_in_non_prod(client: TestClient) -> None:
+    from app.config import get_settings
+
+    settings = get_settings()
+    old_env = settings.app_env
+    settings.app_env = "dev"
+    try:
+        resp = client.post("/api/v1/auth/wx/mini-login", json={"code": "mock_mini_login_001"})
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["code"] == 0
+        assert body["data"]["scene"] == "miniprogram"
+        assert body["data"]["token"]
+        assert int(body["data"]["user"]["id"]) > 0
+    finally:
+        settings.app_env = old_env
+
+
+def test_wx_miniprogram_login_calls_jscode2session_when_credentials_ready(
+    client: TestClient,
+    db_session: Session,
+    monkeypatch,
+) -> None:
+    from app.api import auth as auth_api
+    from app.config import get_settings
+
+    class _FakeResp:
+        status_code = 200
+
+        @staticmethod
+        def json():
+            return {"openid": "mini_openid_1001", "unionid": "mini_union_1001"}
+
+    called = {"ok": False}
+
+    def _fake_get(url, params=None, timeout=0):
+        assert "jscode2session" in url
+        assert params["appid"] == "wx-mini-real-001"
+        assert params["secret"] == "mini-real-secret-001"
+        assert params["js_code"] == "real_code_001"
+        called["ok"] = True
+        return _FakeResp()
+
+    monkeypatch.setattr(auth_api.httpx, "get", _fake_get)
+
+    settings = get_settings()
+    old_env = settings.app_env
+    settings.app_env = "prod"
+    db_session.add(
+        SystemConfig(
+            category="system",
+            config_key="login",
+            config_value={
+                "wechat_miniprogram_login_enabled": True,
+                "wechat_miniprogram_app_id": "wx-mini-real-001",
+                "wechat_miniprogram_app_secret": "mini-real-secret-001",
+            },
+        )
+    )
+    db_session.commit()
+
+    try:
+        resp = client.post("/api/v1/auth/wx/mini-login", json={"code": "real_code_001"})
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["code"] == 0
+        assert body["data"]["scene"] == "miniprogram"
+        assert body["data"]["token"]
+        assert called["ok"] is True
+    finally:
+        settings.app_env = old_env
