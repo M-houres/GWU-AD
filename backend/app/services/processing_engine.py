@@ -938,6 +938,744 @@ class ProcessingEngine:
                 lines.append(f"- 段落{item.get('index')} | 风险 {item.get('score')}% | {item.get('excerpt')}")
         return "\n".join(lines)
 
+    def _platform_detect_profile(self, platform: str) -> dict:
+        key = (platform or "").strip().lower()
+        profiles = {
+            "cnki": {
+                "name": "cnki_like",
+                "provider_label": "知网AIGC检测仿真",
+                "score_label": "AIGC值",
+                "baseline_weight": 0.56,
+                "style_weight": 0.14,
+                "repeat_weight": 0.12,
+                "template_weight": 0.10,
+                "context_weight": 0.08,
+                "offset": 0.0,
+                "high": 0.67,
+                "medium": 0.42,
+                "overall_paragraph_weight": 0.56,
+                "overall_peak_weight": 0.26,
+                "overall_segment_weight": 0.18,
+            },
+            "vip": {
+                "name": "vip_like",
+                "provider_label": "维普AIGC检测仿真",
+                "score_label": "AIGC疑似度",
+                "baseline_weight": 0.52,
+                "style_weight": 0.16,
+                "repeat_weight": 0.12,
+                "template_weight": 0.11,
+                "context_weight": 0.09,
+                "offset": -0.02,
+                "high": 0.64,
+                "medium": 0.40,
+                "overall_paragraph_weight": 0.54,
+                "overall_peak_weight": 0.24,
+                "overall_segment_weight": 0.22,
+            },
+            "paperpass": {
+                "name": "paperpass_like",
+                "provider_label": "PaperPass AIGC检测仿真",
+                "score_label": "AIGC风险值",
+                "baseline_weight": 0.48,
+                "style_weight": 0.14,
+                "repeat_weight": 0.14,
+                "template_weight": 0.10,
+                "context_weight": 0.14,
+                "offset": 0.03,
+                "high": 0.60,
+                "medium": 0.38,
+                "overall_paragraph_weight": 0.50,
+                "overall_peak_weight": 0.22,
+                "overall_segment_weight": 0.28,
+            },
+        }
+        return profiles.get(key, profiles["cnki"])
+
+    def _split_detect_sentences(self, text: str) -> list[str]:
+        return [seg.strip() for seg in re.split(r"[。！？!?；;\n]+", str(text or "")) if seg.strip()]
+
+    def _template_signal(self, text: str) -> tuple[float, list[str]]:
+        hits: list[str] = []
+        phrases = [
+            "研究表明",
+            "可以看出",
+            "由此可见",
+            "综上所述",
+            "总而言之",
+            "值得注意的是",
+            "首先",
+            "其次",
+            "此外",
+            "另一方面",
+            "进一步而言",
+            "从整体上看",
+            "不难发现",
+        ]
+        content = str(text or "")
+        for phrase in phrases:
+            if phrase in content:
+                hits.append(phrase)
+        density = len(hits) / max(len(content) / 85.0, 1.0)
+        return round(self._clamp_score(density), 4), hits[:4]
+
+    def _citation_relief_signal(self, text: str) -> float:
+        content = str(text or "")
+        patterns = [r"\[\d+\]", r"（\d{4}）", r"\(\d{4}\)", r"表\d+", r"图\d+", r"\d+%"]
+        hit_count = 0
+        for pattern in patterns:
+            hit_count += len(re.findall(pattern, content))
+        return round(min(0.18, hit_count * 0.025), 4)
+
+    def _uniformity_signal(self, sentences: list[str]) -> float:
+        lengths = [len(item.strip()) for item in sentences if item.strip()]
+        if not lengths:
+            return 0.0
+        if len(lengths) == 1:
+            return 0.5
+        avg_len = sum(lengths) / len(lengths)
+        variance = sum((value - avg_len) ** 2 for value in lengths) / len(lengths)
+        signal = 1.0 - min(1.0, variance / max(avg_len * 14.0, 1.0))
+        return round(self._clamp_score(signal), 4)
+
+    def _simulate_platform_detect_score(self, platform: str, text: str, base_score: float) -> tuple[float, dict, dict]:
+        profile = self._platform_detect_profile(platform)
+        stats = self._text_stats(text)
+        clean = (text or "").strip()
+        compact = " ".join(clean.split())
+        unique_ratio = (len(set(compact)) / len(compact)) if compact else 1.0
+        repeat_signal = self._clamp_score(1.0 - unique_ratio)
+        avg_len = float(stats.get("avg_sentence_length") or 0.0)
+        style_signal = self._clamp_score((avg_len - 18.0) / 52.0)
+        template_signal, template_hits = self._template_signal(clean)
+        context_signal = self._uniformity_signal(self._split_detect_sentences(clean))
+        citation_relief = self._citation_relief_signal(clean)
+
+        weighted = (
+            float(base_score) * profile["baseline_weight"]
+            + style_signal * profile["style_weight"]
+            + repeat_signal * profile["repeat_weight"]
+            + template_signal * profile["template_weight"]
+            + context_signal * profile["context_weight"]
+            - citation_relief
+            + profile["offset"]
+        )
+        score = round(self._clamp_score(weighted), 4)
+        breakdown = {
+            "base_score": round(float(base_score), 4),
+            "style_signal": round(style_signal, 4),
+            "repeat_signal": round(repeat_signal, 4),
+            "template_signal": round(template_signal, 4),
+            "context_signal": round(context_signal, 4),
+            "citation_relief": round(citation_relief, 4),
+            "template_hits": template_hits,
+            "weights": {
+                "baseline": profile["baseline_weight"],
+                "style": profile["style_weight"],
+                "repeat": profile["repeat_weight"],
+                "template": profile["template_weight"],
+                "context": profile["context_weight"],
+                "offset": profile["offset"],
+            },
+            "thresholds": {"high": profile["high"], "medium": profile["medium"]},
+        }
+        return score, profile, breakdown
+
+    def _score_to_detect_label(self, score: float, profile: dict) -> str:
+        if score >= float(profile.get("high", 0.65)):
+            return "high"
+        if score >= float(profile.get("medium", 0.35)):
+            return "medium"
+        return "low"
+
+    def _extract_algo_paragraphs(self, algo_result) -> list[dict]:
+        candidates: list = []
+        if not isinstance(algo_result, dict):
+            return []
+        for current in self._iter_result_dicts(algo_result):
+            for key in ("paragraphs", "paragraph_details", "risk_paragraphs", "full_text_analysis"):
+                value = current.get(key)
+                if isinstance(value, list):
+                    candidates = value
+                    break
+            if candidates:
+                break
+
+        rows: list[dict] = []
+        for fallback_index, item in enumerate(candidates, start=1):
+            if not isinstance(item, dict):
+                continue
+            score = self._coerce_ratio(
+                item.get("score_ratio")
+                or item.get("ai_score")
+                or item.get("score")
+                or item.get("score_pct")
+                or item.get("risk_score")
+            )
+            segments: list[dict] = []
+            raw_segments = item.get("suspicious_segments") or item.get("fragments") or item.get("sentences") or []
+            if isinstance(raw_segments, list):
+                for raw_segment in raw_segments[:6]:
+                    if isinstance(raw_segment, dict):
+                        text = raw_segment.get("text") or raw_segment.get("excerpt") or raw_segment.get("content") or ""
+                        segment_score = self._coerce_ratio(
+                            raw_segment.get("score") or raw_segment.get("score_pct") or raw_segment.get("risk_score")
+                        )
+                        reason = raw_segment.get("reason") or raw_segment.get("signal") or ""
+                    else:
+                        text = str(raw_segment or "")
+                        segment_score = None
+                        reason = ""
+                    compact = self._clip_text(str(text), 72)
+                    if not compact:
+                        continue
+                    segments.append(
+                        {
+                            "text": compact,
+                            "score": round((segment_score or 0.0) * 100, 2) if segment_score is not None else 0.0,
+                            "reason": str(reason).strip(),
+                        }
+                    )
+
+            rows.append(
+                {
+                    "index": int(item.get("index") or fallback_index),
+                    "score_ratio": score,
+                    "label": self._normalize_detect_label(item.get("label") or item.get("risk_level")),
+                    "excerpt": self._clip_text(
+                        str(item.get("excerpt") or item.get("text") or item.get("content") or ""),
+                        110,
+                    ),
+                    "segments": segments,
+                }
+            )
+        return rows
+
+    def _local_suspicious_segments(self, paragraph: str, platform: str, profile: dict) -> list[dict]:
+        segments: list[dict] = []
+        for sentence in self._split_detect_sentences(paragraph):
+            if len(sentence) < 8:
+                continue
+            base_score = self._heuristic_ai_score(sentence)
+            score, _profile, breakdown = self._simulate_platform_detect_score(platform, sentence, base_score)
+            if score < float(profile.get("medium", 0.35)) and len(breakdown.get("template_hits") or []) < 2:
+                continue
+            reasons: list[str] = []
+            if float(breakdown.get("template_signal") or 0.0) >= 0.22:
+                reasons.append("模板衔接词偏密")
+            if float(breakdown.get("repeat_signal") or 0.0) >= 0.32:
+                reasons.append("重复表达偏多")
+            if float(breakdown.get("context_signal") or 0.0) >= 0.58:
+                reasons.append("句式波动较小")
+            segments.append(
+                {
+                    "text": self._clip_text(sentence, 76),
+                    "score": round(score * 100, 2),
+                    "reason": "、".join(reasons[:2]) or "综合风险偏高",
+                }
+            )
+        segments.sort(key=lambda item: item["score"], reverse=True)
+        return segments[:3]
+
+    def _merge_suspicious_segments(self, *group_lists) -> list[dict]:
+        merged: list[dict] = []
+        seen: set[str] = set()
+        for group in group_lists:
+            if not isinstance(group, list):
+                continue
+            for item in group:
+                if not isinstance(item, dict):
+                    continue
+                text = self._clip_text(str(item.get("text") or item.get("excerpt") or ""), 76)
+                if not text or text in seen:
+                    continue
+                seen.add(text)
+                merged.append(
+                    {
+                        "text": text,
+                        "score": round(float(item.get("score") or 0.0), 2),
+                        "reason": str(item.get("reason") or "").strip(),
+                    }
+                )
+        merged.sort(key=lambda item: item["score"], reverse=True)
+        return merged[:4]
+
+    def _paragraph_reason_tags(self, breakdown: dict) -> list[str]:
+        tags: list[str] = []
+        if float(breakdown.get("template_signal") or 0.0) >= 0.22:
+            tags.append("模板衔接词偏多")
+        if float(breakdown.get("repeat_signal") or 0.0) >= 0.30:
+            tags.append("重复表达偏高")
+        if float(breakdown.get("context_signal") or 0.0) >= 0.56:
+            tags.append("句式波动偏小")
+        if float(breakdown.get("style_signal") or 0.0) >= 0.55:
+            tags.append("长句占比较高")
+        return tags[:3]
+
+    def _build_detect_paragraph_details(self, text: str, platform: str, profile: dict, algo_result) -> list[dict]:
+        paragraphs = [part.strip() for part in str(text or "").splitlines() if part.strip()]
+        if not paragraphs and str(text or "").strip():
+            paragraphs = [str(text).strip()]
+
+        algo_map = {item["index"]: item for item in self._extract_algo_paragraphs(algo_result)}
+        rows: list[dict] = []
+        for index, paragraph in enumerate(paragraphs, start=1):
+            base_score = self._heuristic_ai_score(paragraph)
+            score_ratio, _profile, breakdown = self._simulate_platform_detect_score(platform, paragraph, base_score)
+            algo_row = algo_map.get(index)
+            if algo_row and algo_row.get("score_ratio") is not None:
+                score_ratio = round(
+                    self._clamp_score(score_ratio * 0.68 + float(algo_row["score_ratio"]) * 0.32),
+                    4,
+                )
+
+            local_segments = self._local_suspicious_segments(paragraph, platform, profile)
+            merged_segments = self._merge_suspicious_segments(local_segments, (algo_row or {}).get("segments") or [])
+            if merged_segments:
+                score_ratio = round(self._clamp_score(score_ratio + min(0.06, len(merged_segments) * 0.012)), 4)
+
+            label = (algo_row or {}).get("label") or self._score_to_detect_label(score_ratio, profile)
+            rows.append(
+                {
+                    "index": index,
+                    "label": label,
+                    "risk_band": self._risk_band(score_ratio, high=profile["high"], medium=profile["medium"]),
+                    "score": round(score_ratio * 100, 2),
+                    "char_count": count_billable_chars(paragraph),
+                    "sentence_count": len(self._split_detect_sentences(paragraph)),
+                    "excerpt": self._clip_text(paragraph, 110),
+                    "reason_tags": self._paragraph_reason_tags(breakdown),
+                    "suspicious_segments": merged_segments,
+                }
+            )
+        return rows
+
+    def _build_section_distribution(self, paragraph_details: list[dict]) -> list[dict]:
+        if not paragraph_details:
+            return []
+        total = len(paragraph_details)
+        buckets = [
+            ("开篇", range(1, max(2, total // 3 + 1))),
+            ("中段", range(max(2, total // 3 + 1), max(3, total * 2 // 3 + 1))),
+            ("结尾", range(max(3, total * 2 // 3 + 1), total + 1)),
+        ]
+        results: list[dict] = []
+        for label, index_range in buckets:
+            rows = [item for item in paragraph_details if item["index"] in index_range]
+            if not rows:
+                continue
+            avg_score = round(sum(float(item["score"]) for item in rows) / len(rows), 2)
+            high_count = sum(1 for item in rows if item.get("label") == "high")
+            results.append(
+                {
+                    "section": label,
+                    "paragraph_count": len(rows),
+                    "avg_score": avg_score,
+                    "high_count": high_count,
+                }
+            )
+        return results
+
+    def _collect_suspicious_segments(self, paragraph_details: list[dict]) -> list[dict]:
+        items: list[dict] = []
+        seen: set[str] = set()
+        for paragraph in paragraph_details:
+            for segment in paragraph.get("suspicious_segments") or []:
+                text = str(segment.get("text") or "").strip()
+                if not text or text in seen:
+                    continue
+                seen.add(text)
+                items.append(
+                    {
+                        "paragraph_index": paragraph.get("index"),
+                        "score": round(float(segment.get("score") or 0.0), 2),
+                        "text": text,
+                        "reason": str(segment.get("reason") or "").strip(),
+                    }
+                )
+        items.sort(key=lambda item: item["score"], reverse=True)
+        return items[:12]
+
+    def _build_detect_distribution(self, paragraph_details: list[dict]) -> dict:
+        total = len(paragraph_details)
+        if total == 0:
+            return {
+                "paragraph_count": 0,
+                "high_count": 0,
+                "medium_count": 0,
+                "low_count": 0,
+                "high_ratio": 0.0,
+                "medium_ratio": 0.0,
+                "low_ratio": 0.0,
+                "avg_score": 0.0,
+                "max_score": 0.0,
+            }
+        high_count = sum(1 for item in paragraph_details if item.get("label") == "high")
+        medium_count = sum(1 for item in paragraph_details if item.get("label") == "medium")
+        low_count = total - high_count - medium_count
+        scores = [float(item.get("score") or 0.0) for item in paragraph_details]
+        return {
+            "paragraph_count": total,
+            "high_count": high_count,
+            "medium_count": medium_count,
+            "low_count": low_count,
+            "high_ratio": round(high_count / total * 100, 2),
+            "medium_ratio": round(medium_count / total * 100, 2),
+            "low_ratio": round(low_count / total * 100, 2),
+            "avg_score": round(sum(scores) / total, 2),
+            "max_score": round(max(scores), 2),
+        }
+
+    def _build_detect_result(
+        self,
+        *,
+        text: str,
+        platform: str,
+        mode: str,
+        report_summary: dict,
+        algo_result,
+        llm_result: dict | None,
+    ) -> dict:
+        base_score = self._heuristic_ai_score(text)
+        score, profile, breakdown = self._simulate_platform_detect_score(platform, text, base_score)
+        paragraph_details = self._build_detect_paragraph_details(text, platform, profile, algo_result)
+        distribution = self._build_detect_distribution(paragraph_details)
+        section_distribution = self._build_section_distribution(paragraph_details)
+        suspicious_segments = self._collect_suspicious_segments(paragraph_details)
+
+        mean_paragraph_ratio = round(float(distribution.get("avg_score") or 0.0) / 100.0, 4)
+        max_paragraph_ratio = round(float(distribution.get("max_score") or 0.0) / 100.0, 4)
+        segment_ratio = round(
+            min(
+                1.0,
+                (
+                    sum(float(item.get("score") or 0.0) for item in suspicious_segments[:5])
+                    / max(len(suspicious_segments[:5]), 1)
+                )
+                / 100.0,
+            ),
+            4,
+        )
+        score = round(
+            self._clamp_score(
+                score * 0.42
+                + mean_paragraph_ratio * profile["overall_paragraph_weight"] * 0.58
+                + max_paragraph_ratio * profile["overall_peak_weight"] * 0.42
+                + segment_ratio * profile["overall_segment_weight"] * 0.30
+            ),
+            4,
+        )
+        label = self._score_to_detect_label(score, profile)
+        algo_has_label = False
+
+        if isinstance(algo_result, dict):
+            package_score = self._extract_algo_score(algo_result)
+            if package_score is not None:
+                score = round(self._clamp_score(score * 0.7 + package_score * 0.3), 4)
+                breakdown["algo_package_score"] = round(package_score, 4)
+                breakdown["algo_package_blended"] = True
+            else:
+                breakdown["algo_package_blended"] = False
+
+            algo_label = self._extract_algo_label(algo_result)
+            if algo_label:
+                label = algo_label
+                algo_has_label = True
+        else:
+            breakdown["algo_package_blended"] = False
+
+        if isinstance(llm_result, dict):
+            llm_score = self._coerce_ratio(llm_result.get("ai_score"))
+            if llm_score is not None:
+                score = round(self._clamp_score(score * 0.82 + llm_score * 0.18), 4)
+                breakdown["llm_score"] = round(llm_score, 4)
+                breakdown["llm_blended"] = True
+            else:
+                breakdown["llm_blended"] = False
+
+            llm_label = self._normalize_detect_label(llm_result.get("label"))
+            if llm_label and not algo_has_label:
+                label = llm_label
+
+            reason = llm_result.get("reason")
+            if isinstance(reason, str) and reason.strip():
+                breakdown["llm_reason"] = reason.strip()[:180]
+        else:
+            breakdown["llm_blended"] = False
+
+        band = self._risk_band(score, high=profile["high"], medium=profile["medium"])
+        risk_paragraphs = sorted(paragraph_details, key=lambda item: item["score"], reverse=True)[:5]
+        report_no = f"GW-AIGC-{platform.upper()}-{datetime.now().strftime('%Y%m%d%H%M%S')}-{self._current_task_id or 0}"
+        generated_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        breakdown["paragraph_mean_score"] = mean_paragraph_ratio
+        breakdown["peak_paragraph_score"] = max_paragraph_ratio
+        breakdown["segment_signal"] = segment_ratio
+
+        summary = (
+            f"{profile['provider_label']}全文检测完成，{profile['score_label']}为 {round(score * 100, 2)}%，"
+            f"高风险段落占比 {distribution.get('high_ratio', 0.0)}%。结果用于内部研判与改写辅助，不等同于官方报告。"
+        )
+
+        return {
+            "type": TaskType.AIGC_DETECT.value,
+            "platform": platform,
+            "provider_label": profile["provider_label"],
+            "score_label": profile["score_label"],
+            "simulation_profile": profile["name"],
+            "report_no": report_no,
+            "generated_at": generated_at,
+            "mode": mode,
+            "llm_used": self._pipeline_usage["llm_used"],
+            "algo_package_used": self._pipeline_usage["algo_package_used"],
+            "ai_score": score,
+            "score_pct": round(score * 100, 2),
+            "label": label,
+            "risk_band": band,
+            "summary": summary,
+            "source_stats": self._text_stats(text),
+            "report_summary": report_summary,
+            "score_breakdown": breakdown,
+            "distribution": distribution,
+            "section_distribution": section_distribution,
+            "risk_paragraphs": risk_paragraphs,
+            "paragraph_details": paragraph_details,
+            "suspicious_segments": suspicious_segments,
+        }
+
+    def _risk_band(self, score: float, *, high: float = 0.65, medium: float = 0.35) -> str:
+        if score >= high:
+            return "高风险"
+        if score >= medium:
+            return "中风险"
+        return "低风险"
+
+    def _top_risk_paragraphs(self, text: str, platform: str = "cnki") -> list[dict]:
+        profile = self._platform_detect_profile(platform)
+        rows = self._build_detect_paragraph_details(text, platform, profile, None)
+        return sorted(rows, key=lambda item: item["score"], reverse=True)[:5]
+
+    def _write_detect_report_pdf(self, output_path: Path, result: dict) -> None:
+        lines = self._build_detect_report_lines(result)
+        output_path.write_bytes(self._render_pdf(lines))
+
+    def _build_detect_report_lines(self, result: dict) -> list[str]:
+        stats = result.get("source_stats") or {}
+        distribution = result.get("distribution") or {}
+        section_distribution = result.get("section_distribution") or []
+        paragraph_details = result.get("paragraph_details") or []
+        suspicious_segments = result.get("suspicious_segments") or []
+        report_summary = result.get("report_summary") or {}
+
+        lines: list[str] = [
+            "格物学术 AIGC 全文检测报告",
+            f"报告编号：{result.get('report_no') or '-'}",
+            f"生成时间：{result.get('generated_at') or datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+            f"检测平台：{result.get('provider_label') or result.get('platform')}",
+            f"检测模式：{result.get('mode') or '-'}",
+            f"{result.get('score_label') or 'AIGC分值'}：{result.get('score_pct', 0)}%",
+            f"风险等级：{result.get('risk_band') or '-'}",
+            "",
+            "一、报告摘要",
+            str(result.get("summary") or ""),
+            "",
+            "二、正文统计",
+            f"- 字符数：{stats.get('char_count', 0)}",
+            f"- 段落数：{stats.get('paragraph_count', 0)}",
+            f"- 句子数：{stats.get('sentence_count', 0)}",
+            f"- 平均句长：{stats.get('avg_sentence_length', 0)}",
+            "",
+            "三、全文分布",
+            f"- 高风险段落：{distribution.get('high_count', 0)}（{distribution.get('high_ratio', 0)}%）",
+            f"- 中风险段落：{distribution.get('medium_count', 0)}（{distribution.get('medium_ratio', 0)}%）",
+            f"- 低风险段落：{distribution.get('low_count', 0)}（{distribution.get('low_ratio', 0)}%）",
+            f"- 段落均值：{distribution.get('avg_score', 0)}%",
+            f"- 最高段落：{distribution.get('max_score', 0)}%",
+            "",
+            "四、章节分布",
+        ]
+
+        if section_distribution:
+            for item in section_distribution:
+                lines.append(
+                    f"- {item.get('section')}：段落 {item.get('paragraph_count')} 个，均值 {item.get('avg_score')}%，高风险 {item.get('high_count')} 个"
+                )
+        else:
+            lines.append("- 未生成章节分布。")
+
+        lines.extend(["", "五、重点可疑片段"])
+        if suspicious_segments:
+            for item in suspicious_segments[:10]:
+                detail = f"P{int(item.get('paragraph_index') or 0):02d} | {item.get('score', 0)}%"
+                reason = str(item.get("reason") or "").strip()
+                if reason:
+                    detail = f"{detail} | {reason}"
+                lines.append(f"- {detail}")
+                lines.append(f"  {self._clip_text(str(item.get('text') or ''), 140)}")
+        else:
+            lines.append("- 未提取到高置信可疑片段。")
+
+        lines.extend(["", "六、辅助报告信号"])
+        if report_summary.get("available"):
+            metrics = report_summary.get("metrics") or []
+            actions = report_summary.get("recommended_actions") or []
+            if metrics:
+                for metric in metrics:
+                    lines.append(f"- {metric.get('label', '指标')}：{metric.get('value', '-')}{metric.get('unit', '')}")
+            if actions:
+                for action in actions[:5]:
+                    lines.append(f"- 建议：{action}")
+            if not metrics and not actions:
+                lines.append("- 已上传辅助报告，但未解析出结构化指标。")
+        else:
+            lines.append("- 本次任务未上传辅助报告。")
+
+        lines.extend(["", "七、全文段落明细"])
+        if paragraph_details:
+            for item in paragraph_details:
+                lines.append(
+                    f"P{int(item.get('index') or 0):02d} | {item.get('risk_band') or '-'} | {item.get('score', 0)}% | 字符 {item.get('char_count', 0)} | 句子 {item.get('sentence_count', 0)}"
+                )
+                if item.get("reason_tags"):
+                    lines.append(f"  信号：{'、'.join(item.get('reason_tags') or [])}")
+                lines.append(f"  摘要：{self._clip_text(str(item.get('excerpt') or ''), 150)}")
+                for segment in (item.get("suspicious_segments") or [])[:2]:
+                    lines.append(
+                        f"  片段：{segment.get('score', 0)}% | {self._clip_text(str(segment.get('text') or ''), 120)}"
+                    )
+        else:
+            lines.append("- 未生成段落级结果。")
+
+        lines.extend(
+            [
+                "",
+                "说明：",
+                "1. 本报告参考公开产品特征构建全文风险结构，用于内部流程优化与人工复核辅助。",
+                "2. 本报告不是知网、维普或 PaperPass 官方出具的检测报告。",
+                "3. AIGC相关分值属于概率研判，需结合人工审阅与真实送检结果理解。",
+            ]
+        )
+        return lines
+
+    def _wrap_pdf_line(self, text: str, width: int = 56) -> list[str]:
+        compact = " ".join(str(text or "").split())
+        if not compact:
+            return [""]
+
+        lines: list[str] = []
+        current = ""
+        current_width = 0
+        for char in compact:
+            char_width = 1 if ord(char) < 128 else 2
+            if current and current_width + char_width > width:
+                lines.append(current.rstrip())
+                current = char
+                current_width = char_width
+                continue
+            current += char
+            current_width += char_width
+        if current:
+            lines.append(current.rstrip())
+        return lines or [""]
+
+    def _pdf_text_hex(self, text: str) -> str:
+        value = str(text or " ")
+        return value.encode("utf-16-be").hex().upper()
+
+    def _render_pdf(self, lines: list[str]) -> bytes:
+        page_width = 595
+        page_height = 842
+        margin_x = 44
+        margin_top = 56
+        margin_bottom = 48
+        font_size = 11
+        line_height = 16
+
+        expanded_lines: list[str] = []
+        for line in lines:
+            wrapped = self._wrap_pdf_line(line, width=56)
+            expanded_lines.extend(wrapped if wrapped else [""])
+        if not expanded_lines:
+            expanded_lines = [""]
+
+        usable_height = page_height - margin_top - margin_bottom
+        lines_per_page = max(1, int(usable_height // line_height))
+        page_line_chunks = [
+            expanded_lines[i : i + lines_per_page] for i in range(0, len(expanded_lines), lines_per_page)
+        ]
+
+        objects: list[tuple[int, bytes]] = [(1, b"<< /Type /Catalog /Pages 2 0 R >>")]
+        page_refs: list[str] = []
+        next_obj_id = 3
+        font_obj_id = 2 + len(page_line_chunks) * 2 + 1
+        descendant_font_obj_id = font_obj_id + 1
+
+        for chunk in page_line_chunks:
+            page_obj_id = next_obj_id
+            content_obj_id = next_obj_id + 1
+            next_obj_id += 2
+            page_refs.append(f"{page_obj_id} 0 R")
+
+            text_ops: list[str] = []
+            for index, line in enumerate(chunk):
+                y = page_height - margin_top - index * line_height
+                hex_text = self._pdf_text_hex(line)
+                text_ops.append(f"BT /F1 {font_size} Tf 1 0 0 1 {margin_x} {y:.2f} Tm <{hex_text}> Tj ET")
+            stream_text = "\n".join(text_ops)
+            stream_bytes = stream_text.encode("ascii")
+
+            page_obj = (
+                f"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {page_width} {page_height}] "
+                f"/Resources << /Font << /F1 {font_obj_id} 0 R >> >> /Contents {content_obj_id} 0 R >>"
+            ).encode("ascii")
+            content_obj = (
+                f"<< /Length {len(stream_bytes)} >>\nstream\n".encode("ascii")
+                + stream_bytes
+                + b"\nendstream"
+            )
+            objects.append((page_obj_id, page_obj))
+            objects.append((content_obj_id, content_obj))
+
+        pages_obj = f"<< /Type /Pages /Count {len(page_line_chunks)} /Kids [{' '.join(page_refs)}] >>".encode("ascii")
+        objects.insert(1, (2, pages_obj))
+        objects.append(
+            (
+                font_obj_id,
+                (
+                    f"<< /Type /Font /Subtype /Type0 /BaseFont /STSong-Light "
+                    f"/Encoding /UniGB-UCS2-H /DescendantFonts [{descendant_font_obj_id} 0 R] >>"
+                ).encode("ascii"),
+            )
+        )
+        objects.append(
+            (
+                descendant_font_obj_id,
+                b"<< /Type /Font /Subtype /CIDFontType0 /BaseFont /STSong-Light "
+                b"/CIDSystemInfo << /Registry (Adobe) /Ordering (GB1) /Supplement 4 >> /DW 1000 >>",
+            )
+        )
+
+        objects.sort(key=lambda item: item[0])
+        output = bytearray()
+        output.extend(b"%PDF-1.4\n%\xe2\xe3\xcf\xd3\n")
+        offsets: dict[int, int] = {}
+
+        for obj_id, obj_body in objects:
+            offsets[obj_id] = len(output)
+            output.extend(f"{obj_id} 0 obj\n".encode("ascii"))
+            output.extend(obj_body)
+            output.extend(b"\nendobj\n")
+
+        xref_offset = len(output)
+        max_obj_id = max(offsets)
+        output.extend(f"xref\n0 {max_obj_id + 1}\n".encode("ascii"))
+        output.extend(b"0000000000 65535 f \n")
+        for obj_id in range(1, max_obj_id + 1):
+            offset = offsets.get(obj_id, 0)
+            output.extend(f"{offset:010d} 00000 n \n".encode("ascii"))
+        output.extend(f"trailer\n<< /Size {max_obj_id + 1} /Root 1 0 R >>\n".encode("ascii"))
+        output.extend(f"startxref\n{xref_offset}\n%%EOF".encode("ascii"))
+        return bytes(output)
+
     def _build_transform_result(
         self,
         *,

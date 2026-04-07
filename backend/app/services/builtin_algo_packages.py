@@ -339,6 +339,275 @@ def _build_template_readme(spec: BuiltinPackageSpec) -> str:
     ).strip() + "\n"
 
 
+_AIGC_VERSION = "1.2.0"
+_AIGC_VERSION_TAG = _AIGC_VERSION.replace(".", "_")
+
+
+def _aigc_detect_code_v2(*, profile: str, score_offset: float) -> str:
+    return (
+        dedent(
+            f"""
+            import hashlib
+            import re
+
+            PROFILE = "{profile}"
+            SCORE_OFFSET = {score_offset}
+            PROFILE_SETTINGS = {{
+                "cnki_like": {{
+                    "high": 0.67,
+                    "medium": 0.42,
+                    "paragraph_weight": 0.58,
+                    "peak_weight": 0.24,
+                    "segment_weight": 0.18,
+                }},
+                "vip_like": {{
+                    "high": 0.64,
+                    "medium": 0.40,
+                    "paragraph_weight": 0.54,
+                    "peak_weight": 0.22,
+                    "segment_weight": 0.24,
+                }},
+                "paperpass_like": {{
+                    "high": 0.60,
+                    "medium": 0.38,
+                    "paragraph_weight": 0.50,
+                    "peak_weight": 0.20,
+                    "segment_weight": 0.30,
+                }},
+            }}
+            TEMPLATE_PHRASES = [
+                "研究表明",
+                "可以看出",
+                "由此可见",
+                "综上所述",
+                "总而言之",
+                "值得注意的是",
+                "首先",
+                "其次",
+                "此外",
+                "另一方面",
+                "进一步而言",
+                "从整体上看",
+                "不难发现",
+            ]
+            RELIEF_PATTERNS = [r"\\[\\d+\\]", r"（\\d{{4}}）", r"\\(\\d{{4}}\\)", r"表\\d+", r"图\\d+", r"\\d+%"]
+
+
+            def _clamp(value):
+                return max(0.0, min(1.0, float(value)))
+
+
+            def _split_sentences(text):
+                return [seg.strip() for seg in re.split(r"[。！？!?；;\\n]+", str(text or "")) if seg.strip()]
+
+
+            def _template_signal(text):
+                hits = [phrase for phrase in TEMPLATE_PHRASES if phrase in str(text or "")]
+                density = len(hits) / max(len(str(text or "")) / 85.0, 1.0)
+                return _clamp(density), hits[:4]
+
+
+            def _repetition_signal(text):
+                content = " ".join(str(text or "").split())
+                if not content:
+                    return 0.0
+                unique_ratio = len(set(content)) / max(len(content), 1)
+                return _clamp(1.0 - unique_ratio)
+
+
+            def _uniformity_signal(sentences):
+                lengths = [len(item) for item in sentences if item]
+                if not lengths:
+                    return 0.0
+                if len(lengths) == 1:
+                    return 0.5
+                avg_len = sum(lengths) / len(lengths)
+                variance = sum((value - avg_len) ** 2 for value in lengths) / len(lengths)
+                return _clamp(1.0 - min(1.0, variance / max(avg_len * 14.0, 1.0)))
+
+
+            def _citation_relief(text):
+                content = str(text or "")
+                hit_count = 0
+                for pattern in RELIEF_PATTERNS:
+                    hit_count += len(re.findall(pattern, content))
+                return min(0.18, hit_count * 0.025)
+
+
+            def _score_to_label(score, settings):
+                if score >= settings["high"]:
+                    return "high"
+                if score >= settings["medium"]:
+                    return "medium"
+                return "low"
+
+
+            def _sentence_payload(sentence, settings):
+                sentences = _split_sentences(sentence)
+                template_signal, template_hits = _template_signal(sentence)
+                score = _clamp(
+                    0.28
+                    + template_signal * 0.28
+                    + _repetition_signal(sentence) * 0.18
+                    + _uniformity_signal(sentences) * 0.12
+                    - _citation_relief(sentence)
+                    + SCORE_OFFSET
+                )
+                return {{
+                    "text": sentence[:76],
+                    "score": round(score * 100, 2),
+                    "reason": "、".join(template_hits[:2]) if template_hits else "综合风险偏高",
+                }}
+
+
+            def _paragraph_payload(index, paragraph, settings):
+                sentences = _split_sentences(paragraph)
+                avg_len = sum(len(seg) for seg in sentences) / max(len(sentences), 1)
+                template_signal, template_hits = _template_signal(paragraph)
+                repeat_signal = _repetition_signal(paragraph)
+                uniformity_signal = _uniformity_signal(sentences)
+                citation_relief = _citation_relief(paragraph)
+                seed = int(hashlib.md5(paragraph.encode("utf-8")).hexdigest()[:8], 16)
+                jitter = ((seed % 11) - 5) / 1000.0
+                score = _clamp(
+                    0.34
+                    + max(0.0, (avg_len - 18.0) / 55.0) * 0.18
+                    + template_signal * 0.18
+                    + repeat_signal * 0.16
+                    + uniformity_signal * 0.12
+                    - citation_relief
+                    + SCORE_OFFSET
+                    + jitter
+                )
+                suspicious_segments = []
+                for sentence in sentences:
+                    if len(sentence) < 8:
+                        continue
+                    item = _sentence_payload(sentence, settings)
+                    if item["score"] / 100.0 >= settings["medium"] or len(template_hits) >= 2:
+                        suspicious_segments.append(item)
+                suspicious_segments.sort(key=lambda item: item["score"], reverse=True)
+                label = _score_to_label(score, settings)
+                return {{
+                    "index": index,
+                    "score": round(score * 100, 2),
+                    "label": label,
+                    "excerpt": paragraph[:110],
+                    "char_count": len(paragraph),
+                    "sentence_count": len(sentences),
+                    "signals": {{
+                        "template_signal": round(template_signal, 4),
+                        "repeat_signal": round(repeat_signal, 4),
+                        "uniformity_signal": round(uniformity_signal, 4),
+                        "citation_relief": round(citation_relief, 4),
+                    }},
+                    "suspicious_segments": suspicious_segments[:3],
+                }}
+
+
+            def process(input_data):
+                text = input_data.get("text", "") if isinstance(input_data, dict) else str(input_data)
+                clean = str(text or "").strip()
+                if not clean:
+                    return {{
+                        "ai_score": 0.1,
+                        "label": "low",
+                        "profile": PROFILE,
+                        "algorithm": f"{{PROFILE}}_aigc_sim_v{_AIGC_VERSION_TAG}",
+                        "text_stats": {{"chars": 0, "sentences": 0, "paragraphs": 0}},
+                        "distribution": {{"high": 0, "medium": 0, "low": 0, "high_ratio": 0.0}},
+                        "paragraphs": [],
+                        "suspicious_segments": [],
+                    }}
+
+                settings = PROFILE_SETTINGS.get(PROFILE, PROFILE_SETTINGS["cnki_like"])
+                paragraphs = [part.strip() for part in re.split(r"\\n+", clean) if part.strip()]
+                if not paragraphs:
+                    paragraphs = [clean]
+                paragraph_payloads = [_paragraph_payload(index, paragraph, settings) for index, paragraph in enumerate(paragraphs, start=1)]
+                paragraph_scores = [item["score"] / 100.0 for item in paragraph_payloads]
+                suspicious_segments = []
+                for item in paragraph_payloads:
+                    for segment in item["suspicious_segments"]:
+                        suspicious_segments.append({{
+                            "paragraph_index": item["index"],
+                            "text": segment["text"],
+                            "score": segment["score"],
+                            "reason": segment["reason"],
+                        }})
+                suspicious_segments.sort(key=lambda item: item["score"], reverse=True)
+
+                mean_score = sum(paragraph_scores) / max(len(paragraph_scores), 1)
+                peak_score = max(paragraph_scores) if paragraph_scores else 0.0
+                segment_score = (
+                    sum(item["score"] for item in suspicious_segments[:5]) / max(len(suspicious_segments[:5]), 1) / 100.0
+                    if suspicious_segments
+                    else 0.0
+                )
+                score = _clamp(
+                    mean_score * settings["paragraph_weight"]
+                    + peak_score * settings["peak_weight"]
+                    + segment_score * settings["segment_weight"]
+                )
+
+                high_count = sum(1 for item in paragraph_payloads if item["label"] == "high")
+                medium_count = sum(1 for item in paragraph_payloads if item["label"] == "medium")
+                low_count = len(paragraph_payloads) - high_count - medium_count
+                sentences = _split_sentences(clean)
+
+                return {{
+                    "ai_score": round(score, 4),
+                    "label": _score_to_label(score, settings),
+                    "profile": PROFILE,
+                    "algorithm": f"{{PROFILE}}_aigc_sim_v{_AIGC_VERSION_TAG}",
+                    "text_stats": {{
+                        "chars": len(clean),
+                        "sentences": len(sentences),
+                        "paragraphs": len(paragraph_payloads),
+                        "avg_sentence_length": round(sum(len(seg) for seg in sentences) / max(len(sentences), 1), 2),
+                    }},
+                    "distribution": {{
+                        "high": high_count,
+                        "medium": medium_count,
+                        "low": low_count,
+                        "high_ratio": round(high_count / max(len(paragraph_payloads), 1) * 100, 2),
+                    }},
+                    "paragraphs": paragraph_payloads,
+                    "suspicious_segments": suspicious_segments[:10],
+                }}
+            """
+        ).strip()
+        + "\n"
+    )
+
+
+def _upgrade_builtin_specs() -> tuple[BuiltinPackageSpec, ...]:
+    profile_offsets = {
+        "cnki": ("cnki_like", 0.0),
+        "vip": ("vip_like", -0.02),
+        "paperpass": ("paperpass_like", 0.03),
+    }
+    upgraded: list[BuiltinPackageSpec] = []
+    for spec in BUILTIN_PACKAGE_SPECS:
+        if spec.function_type != "aigc_detect":
+            upgraded.append(spec)
+            continue
+        profile, score_offset = profile_offsets[spec.platform]
+        upgraded.append(
+            BuiltinPackageSpec(
+                platform=spec.platform,
+                function_type=spec.function_type,
+                name=spec.name,
+                version=_AIGC_VERSION,
+                main_py=_aigc_detect_code_v2(profile=profile, score_offset=score_offset),
+            )
+        )
+    return tuple(upgraded)
+
+
+BUILTIN_PACKAGE_SPECS = _upgrade_builtin_specs()
+
+
 def build_builtin_template_package(
     *,
     platform: str,

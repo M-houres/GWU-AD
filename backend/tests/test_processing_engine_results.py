@@ -1,6 +1,7 @@
 from pathlib import Path
 
 from docx import Document
+from pypdf import PdfReader
 from sqlalchemy.orm import Session
 
 from app.models import TaskType
@@ -80,12 +81,16 @@ def test_aigc_detect_returns_structured_result(tmp_path: Path, db_session: Sessi
     assert "summary" in result.result_json
     assert "risk_band" in result.result_json
     assert result.result_json["simulation_profile"] == "cnki_like"
+    assert result.result_json["provider_label"] == "知网AIGC检测仿真"
     assert result.result_json["source_stats"]["char_count"] > 0
     assert len(result.result_json["risk_paragraphs"]) >= 1
+    assert len(result.result_json["paragraph_details"]) >= 1
+    assert "distribution" in result.result_json
+    assert "suspicious_segments" in result.result_json
     content = output_path.read_bytes()
     assert content.startswith(b"%PDF-")
-    assert b"Detection Summary" in content
-    assert b"GEWU Academic" not in content
+    assert b"/UniGB-UCS2-H" in content
+    assert b"/STSong-Light" in content
 
 
 def test_aigc_detect_platform_profiles_are_close_but_not_identical(
@@ -153,6 +158,27 @@ def test_aigc_detect_accepts_nested_score_and_chinese_label(tmp_path: Path, db_s
     assert result.result_json["score_pct"] > 0
     assert result.result_json["score_breakdown"].get("algo_package_score") == 0.63
     assert "algo_package_score" in result.result_json["score_breakdown"]
+    assert "distribution" in result.result_json
+
+
+def test_aigc_detect_full_text_pdf_report_is_parseable(tmp_path: Path, db_session: Session, monkeypatch) -> None:
+    source_path = tmp_path / "full_text.txt"
+    output_path = tmp_path / "full_text_report.pdf"
+    paragraphs = [
+        f"第{i}段：本研究围绕教学治理展开分析，研究表明该路径具备较强复制性，因此可以看出其表达具有模板化倾向，同时在多个场景中重复使用统一结论。"
+        for i in range(1, 19)
+    ]
+    source_path.write_text("\n".join(paragraphs), encoding="utf-8")
+
+    monkeypatch.setattr(ProcessingEngine, "_run_algo_package", lambda self, *_args, **_kwargs: None)
+
+    engine = ProcessingEngine(db_session)
+    result = engine.process(TaskType.AIGC_DETECT, "paperpass", source_path, output_path, task_id=8)
+
+    assert output_path.exists()
+    assert len(result.result_json["paragraph_details"]) == 18
+    reader = PdfReader(str(output_path))
+    assert len(reader.pages) >= 2
 
 
 def test_transform_text_combined_mode_runs_algo_then_llm(db_session: Session, monkeypatch) -> None:

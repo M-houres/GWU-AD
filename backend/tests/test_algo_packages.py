@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
 from app.services.algo_package_service import install_algorithm_package, run_active_package, run_package_smoke_test
+from app.services.builtin_algo_packages import bootstrap_builtin_algo_packages
 
 
 def _build_package_zip(
@@ -450,3 +451,26 @@ def test_admin_bootstrap_builtin_algorithm_packages(
     assert any(row["platform"] == "cnki" and row["function_type"] == "dedup" for row in rows)
     assert any(row["platform"] == "vip" and row["function_type"] == "aigc_detect" for row in rows)
     assert any(row["platform"] == "paperpass" and row["function_type"] == "rewrite" for row in rows)
+
+
+def test_builtin_aigc_package_returns_full_text_payload(
+    db_session: Session,
+    settings_override,
+) -> None:
+    bootstrap_builtin_algo_packages(db_session, uploaded_by=1, activate_after_upload=True)
+
+    result, _meta = run_active_package(
+        db_session,
+        platform="cnki",
+        function_type="aigc_detect",
+        text=(
+            "本研究围绕教学治理机制展开分析，研究表明该路径能够快速复制，因此可以看出其表达较为模板化。\n"
+            "此外，文本在不同段落中重复使用一致的总结句和连接词，这会提升疑似 AIGC 风险。"
+        ),
+    )
+
+    assert isinstance(result, dict)
+    assert result["algorithm"].startswith("cnki_like_aigc_sim_v1_2_0")
+    assert len(result["paragraphs"]) >= 2
+    assert "distribution" in result
+    assert "suspicious_segments" in result
