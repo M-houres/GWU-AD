@@ -374,14 +374,27 @@ async function submitTask() {
     if (reportFile.value) payload.append("report", reportFile.value)
 
     const data = await userHttp.post("/tasks/submit", payload, {
-      headers: { "Content-Type": "multipart/form-data" },
+      timeout: 120000,
     })
 
     successText.value = `提交成功，任务 #${data.id} 已创建`
-    await refreshUser()
+    try {
+      await refreshUser()
+    } catch (refreshError) {
+      console.warn("task_submit_refresh_user_failed", refreshError)
+    }
     router.push({ path: "/app/dedup/records", query: { focus: String(data.id) } })
   } catch (error) {
-    errorText.value = error.message || "提交失败，请稍后重试"
+    const message = String(error?.message || "").trim()
+    if (/timeout/i.test(message)) {
+      errorText.value = "提交耗时较长，请稍后到降重记录页确认任务是否已创建"
+      return
+    }
+    if (/network error/i.test(message)) {
+      errorText.value = "提交未收到有效响应，请检查后端服务；也可到降重记录页查看任务是否已创建"
+      return
+    }
+    errorText.value = message || "提交失败，请稍后重试"
   } finally {
     submitting.value = false
   }

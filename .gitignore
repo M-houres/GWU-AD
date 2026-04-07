@@ -26,5 +26,6 @@ backend/tmp_bootstrap_debug/
 backend/wuhongai.db
 logs/
 .playwright-cli/
+.codex/
 
 .DS_Store

@@ -70,7 +70,7 @@
         <div class="aigc-record-item__left">
           <div class="aigc-record-item__title-row">
             <button class="aigc-record-item__title" type="button" @click="openDetails(item)">
-              {{ item.source_filename || `任务 #${item.id}` }}
+              {{ taskLabel(item) }}
             </button>
             <span v-if="item.status === 'completed'" class="aigc-record-item__origin-tag">原始文档可追溯</span>
           </div>
@@ -250,7 +250,7 @@ const filteredTasks = computed(() => {
     if (!text) {
       return true
     }
-    const searchText = `${item.id} ${item.source_filename || ""} ${mapPlatform(item.platform)}`.toLowerCase()
+    const searchText = `${item.id} ${taskLabel(item)} ${mapPlatform(item.platform)}`.toLowerCase()
     return searchText.includes(text)
   })
 })
@@ -349,6 +349,14 @@ function mapPlatform(platform) {
     paperpass: "格物学术极速版",
   }
   return mapping[platform] || platform || "-"
+}
+
+function taskLabel(item) {
+  const paperTitle = String(item?.result_json?.paper_title || "").trim()
+  if (paperTitle) {
+    return paperTitle
+  }
+  return item?.source_filename || `任务 #${item?.id}`
 }
 
 function safeText(value) {

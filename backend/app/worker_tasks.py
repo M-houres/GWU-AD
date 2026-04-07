@@ -36,6 +36,8 @@ _local_task_queue: Queue[tuple[object, tuple, dict, str]] = Queue()
 _local_worker_lock = threading.Lock()
 _local_worker_thread: threading.Thread | None = None
 
+_TASK_RESULT_META_KEYS = ("paper_title", "authors")
+
 
 @lru_cache(maxsize=1)
 def _celery_broker_probe():
@@ -99,12 +101,19 @@ def wait_for_local_tasks(timeout_seconds: float = 5.0) -> bool:
     return _local_task_queue.unfinished_tasks == 0
 
 
+def _merge_task_result_metadata(existing_result, new_result) -> dict:
+    base = dict(new_result) if isinstance(new_result, dict) else {}
+    if not isinstance(existing_result, dict):
+        return base
+    for key in _TASK_RESULT_META_KEYS:
+        value = existing_result.get(key)
+        if isinstance(value, str) and value.strip():
+            base[key] = value.strip()
+    return base
+
+
 def dispatch_background_task(task, *args, **kwargs) -> str:
     task_name = getattr(task, "name", getattr(task, "__name__", "unknown_task"))
-    if settings.app_env == "prod":
-        task.delay(*args, **kwargs)
-        return "celery"
-
     if _celery_broker_available():
         try:
             task.delay(*args, **kwargs)
@@ -182,10 +191,11 @@ def process_task_async(task_id: int) -> dict:
                 report_path=Path(task.report_path) if task.report_path else None,
                 processing_mode=task.processing_mode,
             )
+            merged_result_json = _merge_task_result_metadata(task.result_json, result.result_json)
 
             task.status = TaskStatus.COMPLETED
             task.output_path = result.output_path
-            task.result_json = result.result_json
+            task.result_json = merged_result_json
             task.error_message = None
             task.updated_at = datetime.utcnow()
             db.flush()

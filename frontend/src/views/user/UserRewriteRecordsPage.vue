@@ -70,7 +70,7 @@
         <div class="aigc-record-item__left">
           <div class="aigc-record-item__title-row">
             <button class="aigc-record-item__title" type="button" @click="openDetails(item)">
-              {{ item.source_filename || `任务 #${item.id}` }}
+              {{ taskLabel(item) }}
             </button>
           </div>
 
@@ -232,7 +232,7 @@ const filteredTasks = computed(() => {
     if (!text) {
       return true
     }
-    const searchText = `${item.id} ${item.source_filename || ""}`.toLowerCase()
+    const searchText = `${item.id} ${taskLabel(item)}`.toLowerCase()
     return searchText.includes(text)
   })
 })
@@ -329,6 +329,14 @@ function safeText(value) {
     return value.trim()
   }
   return "-"
+}
+
+function taskLabel(item) {
+  const paperTitle = String(item?.result_json?.paper_title || "").trim()
+  if (paperTitle) {
+    return paperTitle
+  }
+  return item?.source_filename || `任务 #${item?.id}`
 }
 
 function formatTime(value) {
