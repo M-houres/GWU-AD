@@ -186,6 +186,11 @@ import BuyCreditsPanel from "../../components/BuyCreditsPanel.vue"
 import UserShell from "../../components/UserShell.vue"
 import { useUserProfile } from "../../composables/useUserProfile"
 import { userHttp } from "../../lib/http"
+import {
+  isTaskSubmitNetworkError,
+  isTaskSubmitTimeoutError,
+  recoverSubmittedTask,
+} from "../../lib/taskSubmitRecovery"
 import { TASK_PLATFORM_OPTIONS } from "../../lib/taskPlatform"
 import { ensureUserLogin } from "../../lib/requireLogin"
 import { getUserToken } from "../../lib/session"
@@ -360,6 +365,7 @@ async function submitTask() {
   submitting.value = true
   errorText.value = ""
   successText.value = ""
+  const submittedAt = Date.now()
 
   try {
     const payload = new FormData()
@@ -382,12 +388,31 @@ async function submitTask() {
     }
     router.push({ path: "/app/rewrite/records", query: { focus: String(data.id) } })
   } catch (error) {
+    if (isTaskSubmitTimeoutError(error) || isTaskSubmitNetworkError(error)) {
+      const recoveredTask = await recoverSubmittedTask({
+        taskType: "rewrite",
+        paperTitle: form.title.trim(),
+        authors: form.authors.trim(),
+        sourceFilename: paperFile.value?.name,
+        submittedAt,
+      })
+      if (recoveredTask?.id) {
+        successText.value = `提交响应中断，但任务 #${recoveredTask.id} 已创建，正在跳转记录页`
+        try {
+          await refreshUser()
+        } catch (refreshError) {
+          console.warn("task_submit_refresh_user_failed", refreshError)
+        }
+        router.push({ path: "/app/rewrite/records", query: { focus: String(recoveredTask.id) } })
+        return
+      }
+    }
     const message = String(error?.message || "").trim()
-    if (/timeout/i.test(message)) {
+    if (isTaskSubmitTimeoutError(error)) {
       errorText.value = "提交耗时较长，请稍后到润色记录页确认任务是否已创建"
       return
     }
-    if (/network error/i.test(message)) {
+    if (isTaskSubmitNetworkError(error)) {
       errorText.value = "提交未收到有效响应，请检查后端服务；也可到润色记录页查看任务是否已创建"
       return
     }

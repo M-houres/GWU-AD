@@ -1,12 +1,15 @@
+from contextlib import contextmanager
 import io
 import json
 import zipfile
 from io import BytesIO
+from pathlib import Path
 
 from docx import Document
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
+from app import worker_tasks
 from app.deps import current_user
 from app.main import app
 from app.models import SystemConfig, Task, TaskStatus, TaskType, User
@@ -103,6 +106,109 @@ def test_admin_enable_strategy_success_after_active_package(
     assert body["data"]["is_enabled"] is True
     assert body["data"]["timeout_sec"] == 600
     assert body["data"]["active_package"]["name"] == "rewrite_engine"
+
+
+def test_submit_and_process_rewrite_task_with_algo_llm_strategy(
+    client: TestClient,
+    db_session: Session,
+    monkeypatch,
+    admin_override,
+    settings_override,
+) -> None:
+    user = User(phone="13800008883", nickname="algo-llm-user", credits=10000)
+    db_session.add(user)
+    db_session.flush()
+
+    install_algorithm_package(
+        db_session,
+        file_bytes=_build_package_zip(platform="cnki", function_type="rewrite", name="rewrite_engine"),
+        platform="cnki",
+        function_type="rewrite",
+        uploaded_by=1,
+        activate_after_upload=True,
+    )
+    db_session.add(
+        SystemConfig(
+            category="system",
+            config_key="llm",
+            config_value={
+                "enabled": True,
+                "provider": "local_mock",
+                "model": "local-mock-v1",
+                "api_key": "",
+                "base_url": "",
+                "timeout_seconds": 20,
+            },
+            updated_by=1,
+        )
+    )
+    db_session.commit()
+
+    strategy_resp = client.put(
+        "/api/v1/admin/strategies/rewrite/cnki",
+        json={"is_enabled": True, "process_mode": "algo_llm", "timeout_sec": 600},
+    )
+    assert strategy_resp.status_code == 200
+    assert strategy_resp.json()["data"]["process_mode"] == "algo_llm"
+
+    monkeypatch.setattr("app.worker_tasks.dispatch_background_task", lambda *_args, **_kwargs: "test-inline")
+    app.dependency_overrides[current_user] = lambda: user
+    try:
+        submit_resp = client.post(
+            "/api/v1/tasks/submit",
+            data={
+                "task_type": "rewrite",
+                "platform": "cnki",
+                "paper_title": "Algo LLM Rewrite Test",
+                "authors": "Tester",
+            },
+            files={
+                "paper": (
+                    "sample.docx",
+                    _make_docx_bytes(
+                        "This paragraph validates the combined pipeline where the rewrite task "
+                        "runs the algorithm package first and then the local mock LLM."
+                    ),
+                    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                )
+            },
+        )
+        assert submit_resp.status_code == 200
+        task_id = submit_resp.json()["data"]["id"]
+    finally:
+        app.dependency_overrides.pop(current_user, None)
+
+    task = db_session.get(Task, task_id)
+    assert task is not None
+    assert task.status == TaskStatus.PENDING
+    assert task.processing_mode == "LLM_PLUS_ALGO"
+
+    @contextmanager
+    def _db_session_override():
+        try:
+            yield db_session
+            db_session.commit()
+        except Exception:
+            db_session.rollback()
+            raise
+
+    monkeypatch.setattr(worker_tasks, "db_session", _db_session_override)
+
+    result = worker_tasks.process_task_async(task_id)
+    assert result["ok"] is True
+
+    db_session.refresh(task)
+    assert task.status == TaskStatus.COMPLETED
+    assert task.processing_mode == "LLM_PLUS_ALGO"
+    assert task.output_path is not None
+    assert Path(task.output_path).exists()
+    assert isinstance(task.result_json, dict)
+    assert task.result_json["type"] == "rewrite"
+    assert task.result_json["mode"] == "LLM_PLUS_ALGO"
+    assert task.result_json["llm_used"] is True
+    assert task.result_json["algo_package_used"] is True
+    assert task.result_json["paper_title"] == "Algo LLM Rewrite Test"
+    assert task.result_json["authors"] == "Tester"
 
 
 def test_task_submit_requires_active_package_for_enabled_strategy(

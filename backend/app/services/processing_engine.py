@@ -885,6 +885,78 @@ class ProcessingEngine:
         }
         return profiles.get(key, profiles["cnki"])
 
+    def _platform_detect_profile(self, platform: str) -> dict:
+        key = (platform or "").strip().lower()
+        profiles = {
+            "cnki": {
+                "name": "cnki_like",
+                "provider_label": "知网AIGC检测仿真",
+                "score_label": "AI特征值",
+                "baseline_weight": 0.56,
+                "style_weight": 0.14,
+                "repeat_weight": 0.12,
+                "template_weight": 0.10,
+                "context_weight": 0.08,
+                "opening_weight": 0.06,
+                "offset": 0.0,
+                "high": 0.67,
+                "medium": 0.42,
+                "coverage_weight": 0.06,
+                "section_weight": 0.08,
+                "streak_weight": 0.03,
+                "opening_similarity_weight": 0.02,
+                "evidence_relief_weight": 0.06,
+                "colloquial_relief_weight": 0.42,
+                "specificity_relief_weight": 0.30,
+                "fragment_display_thresholds": {"mild": 0.70, "moderate": 0.80, "severe": 0.90},
+            },
+            "vip": {
+                "name": "vip_like",
+                "provider_label": "维普AIGC检测仿真",
+                "score_label": "全文疑似AIGC生成",
+                "baseline_weight": 0.52,
+                "style_weight": 0.16,
+                "repeat_weight": 0.12,
+                "template_weight": 0.11,
+                "context_weight": 0.09,
+                "opening_weight": 0.07,
+                "offset": -0.02,
+                "high": 0.64,
+                "medium": 0.40,
+                "coverage_weight": 0.08,
+                "section_weight": 0.08,
+                "streak_weight": 0.03,
+                "opening_similarity_weight": 0.02,
+                "evidence_relief_weight": 0.05,
+                "colloquial_relief_weight": 0.48,
+                "specificity_relief_weight": 0.34,
+                "fragment_display_thresholds": {"mild": 0.70, "moderate": 0.80, "severe": 0.90},
+            },
+            "paperpass": {
+                "name": "paperpass_like",
+                "provider_label": "PaperPass AIGC检测仿真",
+                "score_label": "AIGC总体疑似度",
+                "baseline_weight": 0.48,
+                "style_weight": 0.14,
+                "repeat_weight": 0.14,
+                "template_weight": 0.10,
+                "context_weight": 0.14,
+                "opening_weight": 0.05,
+                "offset": 0.03,
+                "high": 0.60,
+                "medium": 0.38,
+                "coverage_weight": 0.05,
+                "section_weight": 0.04,
+                "streak_weight": 0.05,
+                "opening_similarity_weight": 0.03,
+                "evidence_relief_weight": 0.04,
+                "colloquial_relief_weight": 0.16,
+                "specificity_relief_weight": 0.12,
+                "fragment_display_thresholds": {"mild": 0.70, "moderate": 0.80, "severe": 0.90},
+            },
+        }
+        return profiles.get(key, profiles["cnki"])
+
     def _legacy_template_signal_v1(self, text: str) -> tuple[float, list[str]]:
         hits: list[str] = []
         phrases = [
@@ -1773,31 +1845,37 @@ class ProcessingEngine:
         evidence_pct = float(breakdown.get("evidence_relief") or 0.0) * 100.0
         colloquial_pct = float(breakdown.get("colloquial_relief") or 0.0) * 100.0
         specificity_pct = float(breakdown.get("specificity_relief") or 0.0) * 100.0
+        algo_pct = float(breakdown.get("algo_package_score") or 0.0) * 100.0
         weighted_fragment_pct = float(fragment_distribution.get("weighted_score_pct") or 0.0)
         high_middle_text_pct = float(fragment_distribution.get("high_and_middle_suspected_text_ratio") or 0.0)
         high_ratio_pct = float(distribution.get("high_ratio") or 0.0)
-        section_coverage_pct = float(document_metrics.get("section_coverage_ratio") or 0.0)
         char_count = int(source_stats.get("char_count") or 0)
         long_doc_relief = max(0.0, min(8.0, (char_count - 4500) / 650.0)) if char_count >= 4500 else 0.0
 
         key = (platform or "").strip().lower()
         if key == "cnki":
             calibrated_pct = (
-                template_pct * 0.72
-                + context_pct * 0.38
-                + opening_pct * 0.48
-                + weighted_fragment_pct * 0.14
-                + high_ratio_pct * 0.40
-                - citation_pct * 0.18
-                - evidence_pct * 1.35
-                - colloquial_pct * 0.92
-                - specificity_pct * 1.10
-                - long_doc_relief * 0.80
-                - 2.20
+                raw_pct * 0.30
+                + template_pct * 0.50
+                + context_pct * 0.08
+                + opening_pct * 0.20
+                + weighted_fragment_pct * 0.08
+                + high_ratio_pct * 0.12
+                + algo_pct * 0.18
+                - citation_pct * 0.12
+                - evidence_pct * 0.60
+                - colloquial_pct * 0.40
+                - specificity_pct * 0.45
+                - long_doc_relief * 0.30
+                - 0.60
             )
-            if template_pct < 12.0 and high_ratio_pct < 3.0:
-                calibrated_pct -= 4.0
-            if calibrated_pct < 6.0 or (weighted_fragment_pct < 30.0 and template_pct < 16.0):
+            if template_pct < 8.0 and weighted_fragment_pct < 10.0 and algo_pct < 25.0:
+                calibrated_pct -= 1.5
+            if raw_pct >= 20.0:
+                calibrated_pct = max(calibrated_pct, raw_pct * 0.38)
+            if algo_pct >= 55.0:
+                calibrated_pct = max(calibrated_pct, algo_pct * 0.45)
+            if calibrated_pct < 2.0:
                 calibrated_pct = 0.0
         elif key == "vip":
             calibrated_pct = (
@@ -3829,7 +3907,7 @@ class ProcessingEngine:
         return payload.hex().upper() or "0020"
 
     # Override AIGC detection logic with the latest multi-signal rules.
-    def _platform_detect_profile(self, platform: str) -> dict:
+    def _platform_detect_profile_legacy_v2(self, platform: str) -> dict:
         key = (platform or "").strip().lower()
         profiles = {
             "cnki": {

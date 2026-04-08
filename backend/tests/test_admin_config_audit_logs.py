@@ -35,4 +35,6 @@ def test_config_audit_logs_include_changed_fields(
 
     readiness = client.get("/api/v1/admin/configs/readiness")
     assert readiness.status_code == 200
-    assert len(readiness.json()["data"]["items"]) == 7
+    readiness_items = readiness.json()["data"]["items"]
+    categories = {item["category"] for item in readiness_items}
+    assert {"llm", "payment", "billing", "login", "notice", "miniapp", "referral", "user_navigation"} <= categories
