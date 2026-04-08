@@ -1,7 +1,7 @@
 const TASK_PLATFORM_LABELS = Object.freeze({
-  cnki: "知网",
-  vip: "维普",
-  paperpass: "PaperPass",
+  cnki: "仿知网",
+  vip: "仿维普",
+  paperpass: "仿PaperPass",
 })
 
 export const TASK_PLATFORM_OPTIONS = Object.freeze([

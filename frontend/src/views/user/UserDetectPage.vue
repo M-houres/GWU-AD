@@ -1,7 +1,7 @@
 ﻿<template>
   <UserShell
     title="AIGC检测"
-    subtitle="上传文档后提交检测，系统将根据平台规则自动处理并生成报告记录。"
+    subtitle="上传文档后提交检测，系统将按仿知网、仿维普、仿PaperPass规则生成简洁报告与全文报告。"
     :credits="userCredits"
     :hide-topbar="true"
     :hide-header-title="true"
@@ -50,6 +50,7 @@
                       </div>
                     </label>
                     <p class="aigc-upload__ext">支持 .docx / .pdf / .txt，单文件上限 20MB</p>
+                    <p class="aigc-upload__note">基于大量数据训练，仿版与官方结果相差一般在10%以内</p>
                     <p v-if="paperFile" class="aigc-upload__file">
                       {{ paperFile.name }}（{{ humanSize(paperFile.size) }}）
                       <button type="button" @click="clearPaper">移除</button>
@@ -193,18 +194,18 @@ const platformCards = TASK_PLATFORM_OPTIONS
 const features = [
   {
     icon: "1",
-    title: "先进的检测技术",
-    desc: "使用最先进的自然语言处理(NLP)技术，包括深度学习和人工智能，有效识别文本是否部分或全部具有AI模型生成特征。算法模型经过大量训练，具备高效检测能力。",
+    title: "多平台仿真检测",
+    desc: "按仿知网、仿维普、仿PaperPass三套口径输出结果，重点覆盖常见学术论文与课程作业场景。",
   },
   {
     icon: "2",
-    title: "多格式类型检测",
-    desc: "支持期刊投稿、学位论文、会议论文以及图书专著、科研成果、课程作业等检测。",
+    title: "双报告输出",
+    desc: "每次任务同时整理简洁报告与全文报告，便于快速判断和继续人工复核。",
   },
   {
     icon: "3",
-    title: "多层次报告展示",
-    desc: "提供详细可视化检测报告，通过高亮和AI特征值标注，直观展示文本内容中的AI特征。",
+    title: "结果差异可控",
+    desc: "核心指标结合样本报告持续校准，仿版与参考平台的常见浮动一般控制在可接受范围内。",
   },
   {
     icon: "4",

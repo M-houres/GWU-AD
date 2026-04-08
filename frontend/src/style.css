@@ -1837,6 +1837,14 @@ h6 {
   color: #7a8794;
 }
 
+.aigc-upload__note {
+  margin: -2px 0 0;
+  font-size: 11px;
+  line-height: 1.6;
+  font-weight: 400;
+  color: #8b97a3;
+}
+
 .aigc-upload__file {
   margin: 0;
   display: flex;
@@ -2239,9 +2247,11 @@ h6 {
 }
 
 .aigc-record-retain {
-  margin: -6px 0 0;
+  margin: 4px 0 10px;
+  display: block;
   color: #70808a;
   font-size: 12px;
+  line-height: 1.6;
 }
 
 .aigc-record-list {

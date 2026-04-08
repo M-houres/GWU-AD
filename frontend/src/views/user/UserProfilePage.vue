@@ -70,6 +70,33 @@
               </article>
             </div>
 
+            <section class="profile-credit-panel">
+              <div class="profile-section-head">
+                <div>
+                  <div class="scholar-kicker">Credits Overview</div>
+                  <h3 class="scholar-subtitle">积分概览</h3>
+                </div>
+                <p class="profile-credit-note">任务记录与积分流水可通过上方页签查看。</p>
+              </div>
+
+              <div class="profile-credit-grid">
+                <div class="scholar-stat">
+                  <div class="scholar-stat__label">当前余额</div>
+                  <div class="scholar-stat__value" style="font-size: 26px">
+                    {{ typeof userCredits === "number" ? userCredits : 0 }} 积分
+                  </div>
+                </div>
+                <div class="scholar-stat">
+                  <div class="scholar-stat__label">累计入账</div>
+                  <div class="scholar-stat__value" style="font-size: 26px">{{ summary.income }} 积分</div>
+                </div>
+                <div class="scholar-stat">
+                  <div class="scholar-stat__label">累计支出</div>
+                  <div class="scholar-stat__value" style="font-size: 26px">{{ summary.outcome }} 积分</div>
+                </div>
+              </div>
+            </section>
+
             <label class="scholar-field profile-editor">
               <span class="scholar-field__label">昵称设置</span>
               <div class="profile-editor__row">
@@ -78,59 +105,6 @@
               </div>
               <p class="profile-editor__hint">昵称会展示在个人资料和部分任务结果页，用于区分不同账号。</p>
             </label>
-          </div>
-        </article>
-
-        <article class="scholar-panel scholar-panel--soft profile-card">
-          <div class="scholar-panel__body">
-            <div class="scholar-kicker">Credits Overview</div>
-            <h3 class="scholar-subtitle">积分概览</h3>
-            <div class="scholar-grid md:grid-cols-3" style="margin-top: 18px">
-              <div class="scholar-stat">
-                <div class="scholar-stat__label">当前余额</div>
-                <div class="scholar-stat__value" style="font-size: 26px">
-                  {{ typeof userCredits === "number" ? userCredits : 0 }} 积分
-                </div>
-              </div>
-              <div class="scholar-stat">
-                <div class="scholar-stat__label">累计入账</div>
-                <div class="scholar-stat__value" style="font-size: 26px">{{ summary.income }} 积分</div>
-              </div>
-              <div class="scholar-stat">
-                <div class="scholar-stat__label">累计支出</div>
-                <div class="scholar-stat__value" style="font-size: 26px">{{ summary.outcome }} 积分</div>
-              </div>
-            </div>
-            <div class="scholar-inline-actions" style="margin-top: 18px">
-              <button class="scholar-button" type="button" @click="goBuy">去充值</button>
-              <button class="scholar-button scholar-button--secondary" type="button" @click="switchTab('history')">
-                查看任务记录
-              </button>
-              <button class="scholar-button scholar-button--secondary" type="button" @click="switchTab('credits')">
-                查看积分流水
-              </button>
-            </div>
-          </div>
-        </article>
-
-        <article class="scholar-panel scholar-panel--soft profile-card">
-          <div class="scholar-panel__body">
-            <div class="scholar-kicker">Quick Entry</div>
-            <h3 class="scholar-subtitle">常用入口</h3>
-            <div class="profile-quick-list">
-              <button type="button" class="profile-quick-item" @click="switchTab('history')">
-                <span class="profile-quick-item__label">任务记录</span>
-                <span class="profile-quick-item__value">查看最近提交与结果下载</span>
-              </button>
-              <button type="button" class="profile-quick-item" @click="switchTab('credits')">
-                <span class="profile-quick-item__label">积分流水</span>
-                <span class="profile-quick-item__value">核对入账、消费和退款明细</span>
-              </button>
-              <button type="button" class="profile-quick-item" @click="goReferral">
-                <span class="profile-quick-item__label">推广福利</span>
-                <span class="profile-quick-item__value">查看邀请码、奖励通知与返利记录</span>
-              </button>
-            </div>
           </div>
         </article>
       </section>
@@ -557,10 +531,6 @@ function goLogin() {
   router.push(`/login?redirect=${redirect}`)
 }
 
-function goReferral() {
-  router.push("/app/referral")
-}
-
 function mapUserSource(source) {
   const mapping = {
     web: "Web 端",
@@ -575,12 +545,8 @@ function mapUserSource(source) {
 .profile-overview-grid {
   display: grid;
   gap: 18px;
-  grid-template-columns: minmax(0, 1.25fr) minmax(320px, 0.95fr);
+  grid-template-columns: minmax(0, 1fr);
   align-items: start;
-}
-
-.profile-card--account {
-  grid-row: span 2;
 }
 
 .profile-account-head {
@@ -620,7 +586,7 @@ function mapUserSource(source) {
   font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.08em;
-  color: #616161;
+  color: #465561;
   text-transform: uppercase;
 }
 
@@ -634,7 +600,38 @@ function mapUserSource(source) {
 .profile-data-card__hint {
   font-size: 13px;
   line-height: 1.7;
-  color: #555555;
+  color: #4d5963;
+}
+
+.profile-credit-panel {
+  margin-top: 18px;
+  padding: 20px;
+  border: 1px solid rgba(17, 17, 17, 0.08);
+  border-radius: 20px;
+  background: linear-gradient(180deg, #fcfcfc 0%, #f4f6f9 100%);
+}
+
+.profile-section-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.profile-credit-note {
+  margin: 0;
+  max-width: 260px;
+  font-size: 12px;
+  line-height: 1.7;
+  color: #56616b;
+  text-align: right;
+}
+
+.profile-credit-grid {
+  margin-top: 16px;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .profile-editor {
@@ -663,58 +660,15 @@ function mapUserSource(source) {
   color: #4f5a64;
 }
 
-.profile-quick-list {
-  margin-top: 18px;
-  display: grid;
-  gap: 12px;
-}
-
-.profile-quick-item {
-  width: 100%;
-  display: grid;
-  gap: 6px;
-  padding: 16px 18px;
-  text-align: left;
-  border: 1px solid rgba(17, 17, 17, 0.08);
-  border-radius: 18px;
-  background: linear-gradient(180deg, #ffffff 0%, #f8f8f8 100%);
-  cursor: pointer;
-  transition:
-    transform 0.16s ease,
-    border-color 0.16s ease,
-    box-shadow 0.16s ease;
-}
-
-.profile-quick-item:hover {
-  transform: translateY(-1px);
-  border-color: rgba(17, 17, 17, 0.18);
-  box-shadow: 0 12px 20px rgba(0, 0, 0, 0.06);
-}
-
-.profile-quick-item__label {
-  font-size: 15px;
-  font-weight: 700;
-  color: #111111;
-}
-
-.profile-quick-item__value {
-  font-size: 13px;
-  line-height: 1.7;
-  color: #4f5a64;
-}
-
 @media (max-width: 980px) {
   .profile-overview-grid {
     grid-template-columns: 1fr;
-  }
-
-  .profile-card--account {
-    grid-row: auto;
   }
 }
 
 @media (max-width: 640px) {
   .profile-account-head,
+  .profile-section-head,
   .profile-editor__row {
     flex-direction: column;
     align-items: stretch;
@@ -722,6 +676,15 @@ function mapUserSource(source) {
 
   .profile-summary-grid {
     grid-template-columns: 1fr;
+  }
+
+  .profile-credit-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .profile-credit-note {
+    max-width: none;
+    text-align: left;
   }
 }
 </style>

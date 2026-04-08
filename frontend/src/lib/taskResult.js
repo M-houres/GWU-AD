@@ -15,7 +15,8 @@ export function taskResultMetrics(task) {
   const result = task?.result_json || {}
   const metrics = []
   if (task?.task_type === "aigc_detect") {
-    if (typeof result.score_pct === "number") metrics.push({ label: "AIGC分值", value: `${result.score_pct}%` })
+    const primaryScoreLabel = result.score_label || "AIGC分值"
+    if (typeof result.score_pct === "number") metrics.push({ label: primaryScoreLabel, value: `${result.score_pct}%` })
     if (result.risk_band) metrics.push({ label: "风险等级", value: result.risk_band })
     if (result.source_stats?.char_count) metrics.push({ label: "字符数", value: result.source_stats.char_count })
     if (result.source_stats?.sentence_count) metrics.push({ label: "句子数", value: result.source_stats.sentence_count })

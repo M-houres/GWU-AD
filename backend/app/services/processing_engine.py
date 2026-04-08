@@ -1720,6 +1720,129 @@ class ProcessingEngine:
             hit_count += len(re.findall(pattern, content, flags=re.IGNORECASE))
         return round(min(0.16, hit_count * 0.018), 4)
 
+    def _colloquial_relief_signal(self, text: str) -> float:
+        content = str(text or "")
+        patterns = [
+            r"觉得",
+            r"就.{0,4}(?:而言|来看|来说|情况)",
+            r"还要|还需|还应|还会",
+            r"让(?:其|学生|教师|家长|学校)?",
+            r"能够",
+            r"很多|这样|不太|其实|并不是|不只是|很难",
+            r"给(?:予|出|足|全体|学生|孩子)?",
+            r"做法",
+        ]
+        hit_count = 0
+        for pattern in patterns:
+            hit_count += len(re.findall(pattern, content))
+        density = hit_count / max(len(content) / 120.0, 1.0)
+        return round(min(0.18, density * 0.12), 4)
+
+    def _specificity_relief_signal(self, text: str) -> float:
+        content = str(text or "")
+        patterns = [
+            r"(?:19|20)\d{2}年",
+            r"《[^》]{2,30}》",
+            r"国家|教育部|课程标准|指导意见|实施方案|条例|通知|文件|制度",
+            r"案例|问卷|调查|样本|统计|实验|访谈|观察记录",
+            r"表\d+|图\d+|\[\d+\]|（\d{4}）|\(\d{4}\)",
+            r"某市|某校|A公司|B公司",
+        ]
+        hit_count = 0
+        for pattern in patterns:
+            hit_count += len(re.findall(pattern, content, flags=re.IGNORECASE))
+        density = hit_count / max(len(content) / 150.0, 1.0)
+        return round(min(0.16, density * 0.08), 4)
+
+    def _calibrate_detect_score(
+        self,
+        *,
+        platform: str,
+        raw_score: float,
+        breakdown: dict,
+        distribution: dict,
+        fragment_distribution: dict,
+        document_metrics: dict,
+        source_stats: dict,
+    ) -> float:
+        raw_pct = round(float(raw_score or 0.0) * 100.0, 2)
+        template_pct = float(breakdown.get("template_signal") or 0.0) * 100.0
+        context_pct = float(breakdown.get("context_signal") or 0.0) * 100.0
+        opening_pct = float(breakdown.get("opening_signal") or 0.0) * 100.0
+        citation_pct = float(breakdown.get("citation_relief") or 0.0) * 100.0
+        evidence_pct = float(breakdown.get("evidence_relief") or 0.0) * 100.0
+        colloquial_pct = float(breakdown.get("colloquial_relief") or 0.0) * 100.0
+        specificity_pct = float(breakdown.get("specificity_relief") or 0.0) * 100.0
+        weighted_fragment_pct = float(fragment_distribution.get("weighted_score_pct") or 0.0)
+        high_middle_text_pct = float(fragment_distribution.get("high_and_middle_suspected_text_ratio") or 0.0)
+        high_ratio_pct = float(distribution.get("high_ratio") or 0.0)
+        section_coverage_pct = float(document_metrics.get("section_coverage_ratio") or 0.0)
+        char_count = int(source_stats.get("char_count") or 0)
+        long_doc_relief = max(0.0, min(8.0, (char_count - 4500) / 650.0)) if char_count >= 4500 else 0.0
+
+        key = (platform or "").strip().lower()
+        if key == "cnki":
+            calibrated_pct = (
+                template_pct * 0.72
+                + context_pct * 0.38
+                + opening_pct * 0.48
+                + weighted_fragment_pct * 0.14
+                + high_ratio_pct * 0.40
+                - citation_pct * 0.18
+                - evidence_pct * 1.35
+                - colloquial_pct * 0.92
+                - specificity_pct * 1.10
+                - long_doc_relief * 0.80
+                - 2.20
+            )
+            if template_pct < 12.0 and high_ratio_pct < 3.0:
+                calibrated_pct -= 4.0
+            if calibrated_pct < 6.0 or (weighted_fragment_pct < 30.0 and template_pct < 16.0):
+                calibrated_pct = 0.0
+        elif key == "vip":
+            calibrated_pct = (
+                template_pct * 0.42
+                + context_pct * 0.26
+                + opening_pct * 0.22
+                + weighted_fragment_pct * 0.08
+                + high_ratio_pct * 0.22
+                - citation_pct * 0.18
+                - evidence_pct * 1.45
+                - colloquial_pct * 0.88
+                - specificity_pct * 0.95
+                - long_doc_relief * 0.90
+                - 3.80
+            )
+            if template_pct < 10.0 and high_ratio_pct < 3.0:
+                calibrated_pct -= 2.0
+            if calibrated_pct < 3.0:
+                calibrated_pct = 0.0
+        elif key == "paperpass":
+            calibrated_pct = (
+                raw_pct * 0.72
+                + high_middle_text_pct * 0.22
+                + weighted_fragment_pct * 0.16
+                + template_pct * 0.42
+                + high_ratio_pct * 0.18
+                - citation_pct * 0.18
+                - evidence_pct * 0.45
+                - colloquial_pct * 0.65
+                - specificity_pct * 0.35
+                + 4.00
+            )
+            if high_middle_text_pct < 70.0 and template_pct < 8.0:
+                calibrated_pct -= 6.0
+        else:
+            calibrated_pct = raw_pct
+
+        return round(self._clamp_score(max(0.0, calibrated_pct) / 100.0), 4)
+
+    def _should_expand_detect_details(self, platform: str, score_pct: float) -> bool:
+        key = (platform or "").strip().lower()
+        if key == "paperpass":
+            return score_pct >= 18.0
+        return score_pct >= 8.0
+
     def _normalized_opening_key(self, paragraph: str) -> str:
         clean = " ".join(str(paragraph or "").split())
         if not clean:
@@ -1793,6 +1916,8 @@ class ProcessingEngine:
         opening_signal = self._opening_signal(clean)
         citation_relief = self._citation_relief_signal(clean)
         evidence_relief = self._evidence_relief_signal(clean)
+        colloquial_relief = self._colloquial_relief_signal(clean)
+        specificity_relief = self._specificity_relief_signal(clean)
 
         weighted = (
             float(base_score) * profile["baseline_weight"]
@@ -1803,6 +1928,8 @@ class ProcessingEngine:
             + opening_signal * profile["opening_weight"]
             - citation_relief
             - evidence_relief
+            - colloquial_relief * profile.get("colloquial_relief_weight", 0.0)
+            - specificity_relief * profile.get("specificity_relief_weight", 0.0)
             + profile["offset"]
         )
         score = round(self._clamp_score(weighted), 4)
@@ -1815,6 +1942,8 @@ class ProcessingEngine:
             "opening_signal": round(opening_signal, 4),
             "citation_relief": round(citation_relief, 4),
             "evidence_relief": round(evidence_relief, 4),
+            "colloquial_relief": round(colloquial_relief, 4),
+            "specificity_relief": round(specificity_relief, 4),
             "template_hits": template_hits,
             "weights": {
                 "baseline": profile["baseline_weight"],
@@ -1823,6 +1952,8 @@ class ProcessingEngine:
                 "template": profile["template_weight"],
                 "context": profile["context_weight"],
                 "opening": profile["opening_weight"],
+                "colloquial_relief": profile.get("colloquial_relief_weight", 0.0),
+                "specificity_relief": profile.get("specificity_relief_weight", 0.0),
                 "offset": profile["offset"],
             },
             "thresholds": {"high": profile["high"], "medium": profile["medium"]},
@@ -2468,6 +2599,7 @@ class ProcessingEngine:
         document_outline = self._build_document_outline(text)
         section_distribution = self._build_section_distribution(paragraph_details, document_outline=document_outline)
         suspicious_segments = self._collect_suspicious_segments(paragraph_details)
+        source_stats = self._text_stats(text)
         fragment_distribution = self._build_fragment_distribution(
             text,
             platform,
@@ -2555,6 +2687,18 @@ class ProcessingEngine:
         else:
             breakdown["llm_blended"] = False
 
+        raw_score = score
+        score = self._calibrate_detect_score(
+            platform=platform,
+            raw_score=raw_score,
+            breakdown=breakdown,
+            distribution=distribution,
+            fragment_distribution=fragment_distribution,
+            document_metrics=document_metrics,
+            source_stats=source_stats,
+        )
+        score_pct = round(score * 100, 2)
+
         if algo_label:
             label = algo_label
         elif llm_label:
@@ -2570,7 +2714,9 @@ class ProcessingEngine:
         )
 
         band = self._risk_band(score, high=profile["high"], medium=profile["medium"])
-        risk_paragraphs = sorted(paragraph_details, key=lambda item: item["score"], reverse=True)[:5]
+        detail_expanded = self._should_expand_detect_details(platform, score_pct)
+        display_segments = suspicious_segments if detail_expanded else []
+        risk_paragraphs = sorted(paragraph_details, key=lambda item: item["score"], reverse=True)[:5] if detail_expanded else []
         report_no = f"GW-AIGC-{platform.upper()}-{datetime.now().strftime('%Y%m%d%H%M%S')}-{self._current_task_id or 0}"
         generated_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         breakdown["paragraph_mean_score"] = mean_paragraph_ratio
@@ -2584,18 +2730,43 @@ class ProcessingEngine:
         breakdown["streak_ratio"] = streak_ratio
         breakdown["opening_similarity_ratio"] = opening_similarity_ratio
         breakdown["evidence_relief_ratio"] = evidence_relief_ratio
+        breakdown["raw_score_pct"] = round(raw_score * 100, 2)
+        breakdown["calibrated_score_pct"] = score_pct
 
         basis_titles = [str(item.get("title") or "").strip() for item in decision_basis if item.get("direction") == "risk"]
-        summary = (
-            f"{profile['provider_label']}全文检测完成，{profile['score_label']} {round(score * 100, 2)}%，"
-            f"高风险段落占比 {distribution.get('high_ratio', 0.0)}%，"
-            f"高中风险文字占比 {fragment_distribution.get('high_and_middle_suspected_text_ratio', 0.0)}%。"
-        )
-        if basis_titles:
-            summary += f" 主要依据：{'、'.join(basis_titles[:2])}。"
-        summary += " 结果用于内部研判与人工复核，不等同于官方报告。"
+        reported_ai_chars = round(int(source_stats.get("char_count") or 0) * score_pct / 100.0)
+        if platform == "cnki":
+            summary = (
+                f"{profile['provider_label']}检测完成，{profile['score_label']} {score_pct}%，"
+                f"AI特征字符数 {reported_ai_chars}，总字符数 {int(source_stats.get('char_count') or 0)}。"
+            )
+            if detail_expanded and basis_titles:
+                summary += f" 主要依据：{'、'.join(basis_titles[:2])}。"
+            elif not detail_expanded:
+                summary += " 当前未识别到稳定可计入的高置信片段。"
+            summary += " 结果用于内部研判与人工复核。"
+        elif platform == "vip":
+            summary = (
+                f"{profile['provider_label']}检测完成，{profile['score_label']} {score_pct}%，"
+                f"全文人写概率 {round(max(0.0, 100.0 - score_pct), 2)}%。"
+                f" AI生成文字 {reported_ai_chars}。"
+            )
+            if detail_expanded and basis_titles:
+                summary += f" 主要依据：{'、'.join(basis_titles[:2])}。"
+            elif not detail_expanded:
+                summary += " 当前报告侧重低风险结论提示。"
+            summary += " 结果用于内部研判与人工复核。"
+        else:
+            summary = (
+                f"{profile['provider_label']}全文检测完成，{profile['score_label']} {score_pct}%，"
+                f"片段加权结果 {fragment_distribution.get('weighted_score_pct', 0.0)}%，"
+                f"高风险段落占比 {distribution.get('high_ratio', 0.0)}%。"
+            )
+            if basis_titles:
+                summary += f" 主要依据：{'、'.join(basis_titles[:2])}。"
+            summary += " 结果用于内部研判与人工复核。"
 
-        return {
+        result = {
             "type": TaskType.AIGC_DETECT.value,
             "platform": platform,
             "provider_label": profile["provider_label"],
@@ -2607,11 +2778,11 @@ class ProcessingEngine:
             "llm_used": self._pipeline_usage["llm_used"],
             "algo_package_used": self._pipeline_usage["algo_package_used"],
             "ai_score": score,
-            "score_pct": round(score * 100, 2),
+            "score_pct": score_pct,
             "label": label,
             "risk_band": band,
             "summary": summary,
-            "source_stats": self._text_stats(text),
+            "source_stats": source_stats,
             "report_summary": report_summary,
             "score_breakdown": breakdown,
             "distribution": distribution,
@@ -2620,10 +2791,13 @@ class ProcessingEngine:
             "decision_basis": decision_basis,
             "document_outline": document_outline,
             "section_distribution": section_distribution,
+            "detail_expanded": detail_expanded,
             "risk_paragraphs": risk_paragraphs,
             "paragraph_details": paragraph_details,
-            "suspicious_segments": suspicious_segments,
+            "suspicious_segments": display_segments,
         }
+        result["report_view"] = self._build_detect_report_view(result)
+        return result
 
     def _risk_band(self, score: float, *, high: float = 0.65, medium: float = 0.35) -> str:
         if score >= high:
@@ -2848,6 +3022,112 @@ class ProcessingEngine:
             )
         return rows
 
+    def _build_detect_report_view(self, result: dict) -> dict:
+        platform = str(result.get("platform") or "").strip().lower()
+        stats = result.get("source_stats") or {}
+        fragment_distribution = result.get("fragment_distribution") or {}
+        document_metrics = result.get("document_metrics") or {}
+        paragraph_details = result.get("paragraph_details") or []
+        band_rows = self._build_detect_band_rows(paragraph_details)
+        score_pct = round(float(result.get("score_pct") or 0.0), 2)
+        total_chars = int(stats.get("char_count") or 0)
+        ai_chars = min(total_chars, int(round(total_chars * score_pct / 100.0)))
+        high_chars = min(
+            total_chars,
+            int(round(total_chars * float(fragment_distribution.get("high_suspected_text_ratio") or 0.0) / 100.0)),
+        )
+        middle_chars = min(
+            total_chars,
+            int(round(total_chars * float(fragment_distribution.get("middle_suspected_text_ratio") or 0.0) / 100.0)),
+        )
+        detail_expanded = bool(result.get("detail_expanded"))
+        display_segments = list(result.get("suspicious_segments") or [])
+        display_paragraphs = paragraph_details[:24] if detail_expanded else []
+        risk_paragraphs = list(result.get("risk_paragraphs") or [])
+
+        if platform == "cnki":
+            headline_metrics = [
+                {"label": "AI特征值", "value": f"{score_pct}%"},
+                {"label": "AI特征字符数", "value": str(ai_chars)},
+                {"label": "总字符数", "value": str(total_chars)},
+                {"label": "风险等级", "value": str(result.get("risk_band") or "-")},
+            ]
+            secondary_metrics = [
+                {"label": "AI特征显著", "value": str(min(ai_chars, high_chars))},
+                {"label": "AI特征疑似", "value": str(max(ai_chars - min(ai_chars, high_chars), 0))},
+                {"label": "未标识部分", "value": str(max(total_chars - ai_chars, 0))},
+            ]
+            distribution_metrics = [
+                {
+                    "label": item["label"],
+                    "value": f"{item['avg_score']}%",
+                    "detail": f"段落 {item['paragraph_count']} | 高风险 {item['high_count']}",
+                }
+                for item in band_rows
+            ]
+            detail_hint = "当前未形成稳定可标注的高置信片段，全文报告仅保留基础判定信息。"
+        elif platform == "vip":
+            human_pct = round(max(0.0, 100.0 - score_pct), 2)
+            headline_metrics = [
+                {"label": "全文疑似AIGC生成", "value": f"{score_pct}%"},
+                {"label": "全文人写概率", "value": f"{human_pct}%"},
+                {"label": "AI生成文字", "value": str(ai_chars)},
+                {"label": "风险等级", "value": str(result.get("risk_band") or "-")},
+            ]
+            secondary_metrics = [
+                {"label": "章节覆盖率", "value": f"{document_metrics.get('section_coverage_ratio', 0)}%"},
+                {"label": "最长连续风险段落", "value": str(document_metrics.get("longest_risk_streak", 0))},
+                {"label": "总字符数", "value": str(total_chars)},
+            ]
+            distribution_metrics = [
+                {"label": "高疑似文字占比", "value": f"{fragment_distribution.get('high_suspected_text_ratio', 0)}%"},
+                {"label": "中疑似文字占比", "value": f"{fragment_distribution.get('middle_suspected_text_ratio', 0)}%"},
+                {"label": "人工占比", "value": f"{human_pct}%"},
+            ]
+            detail_hint = "当前结果以低风险结论为主，未展开正文级疑似片段。"
+        else:
+            headline_metrics = [
+                {"label": "AIGC总体疑似度", "value": f"{score_pct}%"},
+                {
+                    "label": "片段加权结果",
+                    "value": f"{round(float(fragment_distribution.get('weighted_score_pct') or 0.0), 2)}%",
+                },
+                {"label": "高度疑似文字", "value": str(high_chars)},
+                {"label": "中度疑似文字", "value": str(middle_chars)},
+            ]
+            secondary_metrics = [
+                {"label": "总字符数", "value": str(total_chars)},
+                {"label": "高风险片段数", "value": str(fragment_distribution.get("high_fragment_count", 0))},
+                {"label": "中风险片段数", "value": str(fragment_distribution.get("middle_fragment_count", 0))},
+            ]
+            distribution_metrics = [
+                {"label": "高度疑似", "value": f"{fragment_distribution.get('high_suspected_text_ratio', 0)}%"},
+                {"label": "中度疑似", "value": f"{fragment_distribution.get('middle_suspected_text_ratio', 0)}%"},
+                {"label": "轻度疑似", "value": f"{fragment_distribution.get('low_suspected_text_ratio', 0)}%"},
+                {
+                    "label": "人工占比",
+                    "value": f"{round(max(0.0, 100.0 - float(fragment_distribution.get('total_suspected_text_ratio') or 0.0)), 2)}%",
+                },
+            ]
+            detail_hint = "当前报告保留重点疑似片段与段落级判定明细。"
+
+        return {
+            "brand_title": "格物学术 AIGC 检测报告",
+            "platform_badge": str(result.get("provider_label") or result.get("platform") or "-"),
+            "compact_title": "简洁报告",
+            "full_title": "全文报告",
+            "headline_metrics": headline_metrics,
+            "secondary_metrics": secondary_metrics,
+            "distribution_metrics": distribution_metrics,
+            "band_rows": band_rows,
+            "detail_expanded": detail_expanded,
+            "display_segments": display_segments,
+            "display_paragraphs": display_paragraphs,
+            "risk_paragraphs": risk_paragraphs,
+            "detail_hint": detail_hint,
+            "report_note": "本报告参考公开AIGC检测报告的栏目组织方式，由格物学术生成仿真结果，用于内部研判与人工复核。",
+        }
+
     def _escape_pdf_text(self, text: str) -> str:
         return (
             str(text or "")
@@ -2861,6 +3141,16 @@ class ProcessingEngine:
         output_path.write_bytes(self._render_detect_report_pdf(result))
 
     def _render_detect_report_pdf(self, result: dict) -> bytes:
+        try:
+            return self._render_detect_report_pdf_reportlab(result)
+        except Exception as exc:
+            if isinstance(exc, ModuleNotFoundError):
+                module_name = (getattr(exc, "name", "") or "").split(".", 1)[0]
+                if module_name != "reportlab":
+                    raise
+            return self._render_detect_report_pdf_fallback(result)
+
+    def _render_detect_report_pdf_reportlab(self, result: dict) -> bytes:
         from io import BytesIO
 
         from reportlab.lib import colors
@@ -3267,14 +3557,285 @@ class ProcessingEngine:
         doc.build(story, onFirstPage=draw_page, onLaterPages=draw_page)
         return buffer.getvalue()
 
+    def _render_detect_report_pdf_fallback(self, result: dict) -> bytes:
+        lines = self._build_detect_report_fallback_lines(result)
+        pages = self._paginate_pdf_lines(lines, lines_per_page=40)
+        return self._build_text_pdf_document(pages)
+
+    def _build_detect_report_fallback_lines(self, result: dict) -> list[str]:
+        meta = self._current_task_report_meta()
+        stats = result.get("source_stats") or {}
+        distribution = result.get("distribution") or {}
+        fragment_distribution = result.get("fragment_distribution") or {}
+        document_metrics = result.get("document_metrics") or {}
+        decision_basis = result.get("decision_basis") or []
+        view = result.get("report_view") or self._build_detect_report_view(result)
+        band_rows = view.get("band_rows") or self._build_detect_band_rows(result.get("paragraph_details") or [])
+        display_segments = view.get("display_segments") or []
+        display_paragraphs = view.get("display_paragraphs") or []
+        headline_metrics = view.get("headline_metrics") or []
+        secondary_metrics = view.get("secondary_metrics") or []
+        distribution_metrics = view.get("distribution_metrics") or []
+
+        lines: list[str] = []
+
+        def add_line(text: str = "") -> None:
+            if not text:
+                lines.append("")
+                return
+            lines.extend(self._wrap_pdf_line(text))
+
+        def add_kv(label: str, value) -> None:
+            value_text = str(value or "").strip()
+            if not value_text:
+                return
+            add_line(f"{label}: {value_text}")
+
+        add_line(str(view.get("brand_title") or "格物学术 AIGC 检测报告"))
+        add_line(f"{view.get('platform_badge') or result.get('provider_label') or result.get('platform')} | 简洁报告 + 全文报告")
+        add_line()
+
+        add_line("一、基本信息")
+        add_kv("报告编号", result.get("report_no"))
+        add_kv("生成时间", result.get("generated_at"))
+        add_kv("检测平台", result.get("provider_label") or result.get("platform"))
+        add_kv("处理模式", result.get("mode"))
+        add_kv("篇名", meta.get("paper_title"))
+        add_kv("作者", meta.get("authors"))
+        add_kv("文件名", meta.get("source_filename"))
+        add_line()
+
+        add_line("二、简洁报告")
+        for metric in headline_metrics:
+            add_kv(metric.get("label"), metric.get("value"))
+        add_kv("总段落数", stats.get("paragraph_count", 0))
+        add_line(str(result.get("summary") or "").strip())
+        add_line()
+
+        if secondary_metrics:
+            add_line("三、辅助指标")
+            for metric in secondary_metrics:
+                add_kv(metric.get("label"), metric.get("value"))
+            add_line()
+
+        add_line("四、区段与平台指标")
+        add_kv("高风险段落", f"{distribution.get('high_count', 0)}（{distribution.get('high_ratio', 0)}%）")
+        add_kv("中高风险文字占比", f"{fragment_distribution.get('high_and_middle_suspected_text_ratio', 0)}%")
+        add_kv("总疑似文字占比", f"{fragment_distribution.get('total_suspected_text_ratio', 0)}%")
+        add_kv("总疑似片段占比", f"{fragment_distribution.get('total_suspected_fragment_ratio', 0)}%")
+        for metric in distribution_metrics:
+            label = str(metric.get("label") or "-").strip()
+            value = str(metric.get("value") or "-").strip()
+            detail = str(metric.get("detail") or "").strip()
+            if detail:
+                add_line(f"- {label}: {value} | {detail}")
+            else:
+                add_line(f"- {label}: {value}")
+        for item in band_rows:
+            add_line(
+                f"- {item['label']}: 段落 {item['paragraph_count']} | 均值 {item['avg_score']}% | "
+                f"高风险 {item['high_count']} | 字符 {item['char_count']}"
+            )
+        add_line()
+
+        add_line("五、全文报告")
+        if decision_basis:
+            add_line("判定依据")
+            for item in decision_basis[:8]:
+                direction = str(item.get("direction") or "").strip().lower()
+                prefix = "减权" if direction == "relief" else "风险"
+                title = str(item.get("title") or "-").strip()
+                detail = self._clip_text(str(item.get("detail") or "-"), 120)
+                add_line(f"- {prefix} | {title}: {detail}")
+            add_line()
+
+        add_line("六、文档指标")
+        add_kv("中高风险段落占比", f"{document_metrics.get('high_medium_paragraph_ratio', 0)}%")
+        add_kv("中高风险文字占比", f"{document_metrics.get('high_medium_text_ratio', 0)}%")
+        add_kv("最长连续风险段落", document_metrics.get("longest_risk_streak", 0))
+        add_kv("段首相似度", f"{document_metrics.get('opening_similarity_ratio', 0)}%")
+        add_kv("可疑章节覆盖率", f"{document_metrics.get('section_coverage_ratio', 0)}%")
+        add_kv("实证减权", f"{document_metrics.get('evidence_relief_pct', 0)}%")
+        add_line()
+
+        add_line("七、重点疑似片段")
+        if display_segments:
+            for idx, item in enumerate(display_segments[:10], start=1):
+                reason_text = str(item.get("reason") or "综合风险偏高")
+                add_line(
+                    f"{idx}. P{int(item.get('paragraph_index') or 0):02d} | "
+                    f"风险 {item.get('score', 0)}% | "
+                    f"{reason_text}"
+                )
+                add_line(self._clip_text(str(item.get("text") or ""), 180))
+                add_line()
+        else:
+            add_line(str(view.get("detail_hint") or "当前未展开正文级疑似片段。"))
+            add_line()
+
+        add_line("八、段落明细")
+        if display_paragraphs:
+            for item in display_paragraphs[:24]:
+                reason_tags = " / ".join(item.get("reason_tags") or []) or "综合语义判定"
+                add_line(
+                    f"P{int(item.get('index') or 0):02d} | "
+                    f"{item.get('risk_band') or '-'} | "
+                    f"{item.get('score', 0)}% | "
+                    f"字符 {item.get('char_count', 0)} | "
+                    f"句子 {item.get('sentence_count', 0)}"
+                )
+                add_line(f"信号: {reason_tags}")
+                add_line(f"摘要: {self._clip_text(str(item.get('excerpt') or ''), 180)}")
+                add_line()
+        else:
+            add_line("当前报告未展开段落级明细。")
+            add_line()
+
+        add_line("九、说明")
+        add_line("1) 本报告为格物学术生成的仿真检测结果，参考公开报告的栏目结构组织，不等同于官方报告。")
+        add_line("2) 结果适用于内部研判、人工复核与版本对比，建议结合正式送检结果综合判断。")
+        add_line(f"3) {view.get('report_note') or '报告样式由格物学术统一设计。'}")
+        return lines
+
+    def _wrap_pdf_line(self, text: str, max_units: float = 34.0) -> list[str]:
+        compact = " ".join(str(text or "").split())
+        if not compact:
+            return [""]
+        lines: list[str] = []
+        current: list[str] = []
+        width = 0.0
+        for char in compact:
+            char_width = self._pdf_char_width(char)
+            if current and width + char_width > max_units:
+                lines.append("".join(current).rstrip())
+                current = []
+                width = 0.0
+                if char == " ":
+                    continue
+            current.append(char)
+            width += char_width
+        if current:
+            lines.append("".join(current).rstrip())
+        return lines or [""]
+
+    def _pdf_char_width(self, char: str) -> float:
+        if not char:
+            return 0.0
+        if char in " .,;:!'|`ilI[]()":
+            return 0.35
+        if ord(char) < 128:
+            return 0.62
+        return 1.0
+
+    def _paginate_pdf_lines(self, lines: list[str], lines_per_page: int) -> list[list[str]]:
+        if lines_per_page <= 0:
+            return [lines]
+        if not lines:
+            return [[""]]
+        pages: list[list[str]] = []
+        for start in range(0, len(lines), lines_per_page):
+            page = lines[start : start + lines_per_page]
+            pages.append(page if page else [""])
+        return pages or [[""]]
+
+    def _build_text_pdf_document(self, pages: list[list[str]]) -> bytes:
+        objects: dict[int, bytes] = {
+            1: b"<< /Type /Catalog /Pages 2 0 R >>",
+            3: (
+                b"<< /Type /Font /Subtype /Type0 /BaseFont /STSong-Light "
+                b"/Encoding /UniGB-UCS2-H /DescendantFonts [4 0 R] >>"
+            ),
+            4: (
+                b"<< /Type /Font /Subtype /CIDFontType0 /BaseFont /STSong-Light "
+                b"/CIDSystemInfo << /Registry (Adobe) /Ordering (GB1) /Supplement 4 >> "
+                b"/DW 1000 >>"
+            ),
+        }
+        page_ids: list[int] = []
+        next_id = 5
+        total_pages = max(len(pages), 1)
+
+        for page_number, page_lines in enumerate(pages or [[""]], start=1):
+            stream = self._build_text_pdf_page_stream(page_lines, page_number, total_pages)
+            objects[next_id] = b"<< /Length " + str(len(stream)).encode("ascii") + b" >>\nstream\n" + stream + b"\nendstream"
+            content_id = next_id
+            next_id += 1
+            objects[next_id] = (
+                b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] "
+                b"/Resources << /Font << /F1 3 0 R >> >> /Contents "
+                + str(content_id).encode("ascii")
+                + b" 0 R >>"
+            )
+            page_ids.append(next_id)
+            next_id += 1
+
+        kids = " ".join(f"{page_id} 0 R" for page_id in page_ids)
+        objects[2] = f"<< /Type /Pages /Count {len(page_ids)} /Kids [{kids}] >>".encode("ascii")
+
+        max_id = max(objects)
+        pdf = bytearray(b"%PDF-1.4\n%\xe2\xe3\xcf\xd3\n")
+        offsets = [0] * (max_id + 1)
+        for object_id in range(1, max_id + 1):
+            offsets[object_id] = len(pdf)
+            pdf.extend(f"{object_id} 0 obj\n".encode("ascii"))
+            pdf.extend(objects[object_id])
+            pdf.extend(b"\nendobj\n")
+
+        xref_offset = len(pdf)
+        pdf.extend(f"xref\n0 {max_id + 1}\n".encode("ascii"))
+        pdf.extend(b"0000000000 65535 f \n")
+        for object_id in range(1, max_id + 1):
+            pdf.extend(f"{offsets[object_id]:010d} 00000 n \n".encode("ascii"))
+        pdf.extend(
+            (
+                f"trailer\n<< /Size {max_id + 1} /Root 1 0 R >>\n"
+                f"startxref\n{xref_offset}\n%%EOF"
+            ).encode("ascii")
+        )
+        return bytes(pdf)
+
+    def _build_text_pdf_page_stream(self, lines: list[str], page_number: int, total_pages: int) -> bytes:
+        header = "\u683c\u7269\u5b66\u672f AIGC\u68c0\u6d4b\u62a5\u544a"
+        footer = f"\u7b2c {page_number}/{total_pages} \u9875"
+        body_lines = lines or [""]
+        stream_lines = [
+            "BT",
+            "/F1 9 Tf",
+            "1 0 0 1 42 818 Tm",
+            f"<{self._pdf_hex_text(header)}> Tj",
+            "ET",
+            "BT",
+            "/F1 10 Tf",
+            "14 TL",
+            "1 0 0 1 42 792 Tm",
+        ]
+        for line in body_lines:
+            stream_lines.append(f"<{self._pdf_hex_text(line or ' ')}> Tj")
+            stream_lines.append("T*")
+        stream_lines.extend(
+            [
+                "ET",
+                "BT",
+                "/F1 8 Tf",
+                "1 0 0 1 520 18 Tm",
+                f"<{self._pdf_hex_text(footer)}> Tj",
+                "ET",
+            ]
+        )
+        return "\n".join(stream_lines).encode("ascii")
+
+    def _pdf_hex_text(self, text: str) -> str:
+        payload = str(text or " ").encode("utf-16-be", errors="ignore")
+        return payload.hex().upper() or "0020"
+
     # Override AIGC detection logic with the latest multi-signal rules.
     def _platform_detect_profile(self, platform: str) -> dict:
         key = (platform or "").strip().lower()
         profiles = {
             "cnki": {
                 "name": "cnki_like",
-                "provider_label": "知网AIGC检测仿真",
-                "score_label": "AIGC值",
+                "provider_label": "仿知网",
+                "score_label": "AI特征值",
                 "baseline_weight": 0.56,
                 "style_weight": 0.14,
                 "repeat_weight": 0.12,
@@ -3289,12 +3850,14 @@ class ProcessingEngine:
                 "streak_weight": 0.03,
                 "opening_similarity_weight": 0.02,
                 "evidence_relief_weight": 0.06,
+                "colloquial_relief_weight": 0.42,
+                "specificity_relief_weight": 0.30,
                 "fragment_display_thresholds": {"mild": 0.70, "moderate": 0.80, "severe": 0.90},
             },
             "vip": {
                 "name": "vip_like",
-                "provider_label": "维普AIGC检测仿真",
-                "score_label": "AIGC疑似度",
+                "provider_label": "仿维普",
+                "score_label": "全文疑似AIGC生成",
                 "baseline_weight": 0.52,
                 "style_weight": 0.16,
                 "repeat_weight": 0.12,
@@ -3309,12 +3872,14 @@ class ProcessingEngine:
                 "streak_weight": 0.03,
                 "opening_similarity_weight": 0.02,
                 "evidence_relief_weight": 0.05,
+                "colloquial_relief_weight": 0.48,
+                "specificity_relief_weight": 0.34,
                 "fragment_display_thresholds": {"mild": 0.70, "moderate": 0.80, "severe": 0.90},
             },
             "paperpass": {
                 "name": "paperpass_like",
-                "provider_label": "PaperPass AIGC检测仿真",
-                "score_label": "AIGC风险值",
+                "provider_label": "仿PaperPass",
+                "score_label": "AIGC总体疑似度",
                 "baseline_weight": 0.48,
                 "style_weight": 0.14,
                 "repeat_weight": 0.14,
@@ -3329,6 +3894,8 @@ class ProcessingEngine:
                 "streak_weight": 0.05,
                 "opening_similarity_weight": 0.03,
                 "evidence_relief_weight": 0.04,
+                "colloquial_relief_weight": 0.16,
+                "specificity_relief_weight": 0.12,
                 "fragment_display_thresholds": {"mild": 0.70, "moderate": 0.80, "severe": 0.90},
             },
         }
