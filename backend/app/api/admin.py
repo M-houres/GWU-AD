@@ -73,6 +73,7 @@ from app.services.process_strategy_service import (
     update_process_strategy,
 )
 from app.services.referral_service import get_referral_rules, update_referral_rules
+from app.services.user_navigation_service import default_user_navigation_config, normalize_user_navigation_config
 
 router = APIRouter()
 settings = get_settings()
@@ -83,7 +84,7 @@ SOURCE_BUCKETS = ("web", "miniapp", "other")
 _SOURCE_WEB_ALIASES = {"web", "h5", "site"}
 _SOURCE_MINIAPP_ALIASES = {"miniapp", "miniprogram", "mini_program", "wxapp", "wechat_miniprogram", "wechat_mini_program"}
 
-CONFIG_CATEGORIES = {"llm", "payment", "billing", "login", "notice", "miniapp", "referral"}
+CONFIG_CATEGORIES = {"llm", "payment", "billing", "login", "notice", "miniapp", "referral", "user_navigation"}
 CONFIG_LABELS = {
     "llm": "大模型配置",
     "payment": "支付配置",
@@ -92,6 +93,7 @@ CONFIG_LABELS = {
     "notice": "公告配置",
     "miniapp": "小程序配置",
     "referral": "推广规则",
+    "user_navigation": "前台导航",
 }
 CONFIG_FIELD_LABELS = {
     "llm": {
@@ -197,6 +199,9 @@ CONFIG_FIELD_LABELS = {
         "recurring_ratio": "复购返佣比例",
         "ip_limit_24h": "同IP注册上限",
     },
+    "user_navigation": {
+        "items": "前台导航编排",
+    },
 }
 CONFIG_DEFAULTS = {
     "llm": {
@@ -287,6 +292,7 @@ CONFIG_DEFAULTS = {
         "recurring_ratio": 0.05,
         "ip_limit_24h": 3,
     },
+    "user_navigation": default_user_navigation_config(),
 }
 
 _LLM_PROVIDERS = set(SUPPORTED_LLM_PROVIDERS)
@@ -904,6 +910,9 @@ def _normalize_category_payload(category: str, payload: dict) -> dict:
         base["ip_limit_24h"] = _as_int(raw.get("ip_limit_24h", base["ip_limit_24h"]), default=3, min_value=1, max_value=10_000, field="ip_limit_24h")
         return base
 
+    if category == "user_navigation":
+        return normalize_user_navigation_config(raw)
+
     if category == "llm":
         base["enabled"] = _as_bool(raw.get("enabled", base["enabled"]), default=False)
         provider = normalize_llm_provider(_as_text(raw.get("provider", base["provider"]), default="openai", max_len=64))
@@ -1162,6 +1171,13 @@ def _category_readiness(category: str, value: dict) -> dict:
         ip_ok = int(value.get("ip_limit_24h", 0)) >= 1
         ok = ratio_ok and ip_ok
         return {"category": category, "status": "ready" if ok else "error", "message": "推广规则已就绪" if ok else "推广规则范围异常"}
+    if category == "user_navigation":
+        navigation = normalize_user_navigation_config(value)
+        items = navigation.get("items", [])
+        visible_count = sum(1 for item in items if item.get("visible"))
+        if visible_count <= 0:
+            return {"category": category, "status": "error", "message": "前台导航至少需展示 1 个功能"}
+        return {"category": category, "status": "ready", "message": f"前台导航已编排（展示 {visible_count} 个功能）"}
     if category == "llm":
         enabled = bool(value.get("enabled"))
         if not enabled:
@@ -1296,6 +1312,8 @@ def _get_category_config(db: Session, category: str) -> dict:
     if category == "referral":
         return get_referral_rules(db)
     source = _read_system_config_raw(db, category)
+    if category == "user_navigation":
+        return normalize_user_navigation_config(source)
     if category == "notice" and (not source):
         source = _notice_to_notice_fields(_extract_notice_payload(_read_system_config_raw(db, "login")))
     if category == "miniapp" and (not source):
@@ -2544,7 +2562,7 @@ def get_config_readiness(
     db: Session = Depends(db_dep),
 ) -> APIResp:
     items = []
-    for c in ("llm", "payment", "billing", "login", "notice", "miniapp", "referral"):
+    for c in ("llm", "payment", "billing", "login", "notice", "miniapp", "referral", "user_navigation"):
         value = _get_category_config(db, c)
         items.append(_category_readiness(c, value))
     return ok(data={"items": items})

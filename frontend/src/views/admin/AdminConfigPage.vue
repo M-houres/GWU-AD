@@ -391,6 +391,55 @@
               <label class="space-y-1 text-sm md:col-span-2"><span>同 IP 24 小时注册上限</span><input v-model.number="forms.referral.ip_limit_24h" type="number" min="1" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" /></label>
             </div>
           </template>
+
+          <template v-else-if="activeTab === 'user_navigation'">
+            <section class="rounded-2xl border border-[#dce4eb] bg-white p-4">
+              <div class="text-sm font-semibold text-[#1f2c35]">左侧导航编排</div>
+              <div class="mt-1 text-xs leading-5 text-[#5f6d79]">控制前台左侧功能顺序与显示状态。个人中心已从左侧移除，保留顶部入口。</div>
+              <div class="mt-3 space-y-3">
+                <article
+                  v-for="(item, index) in forms.user_navigation.items"
+                  :key="item.key"
+                  class="rounded-2xl border border-[#d6dfe7] bg-[#fbfcfd] p-4"
+                >
+                  <div class="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <div class="text-sm font-semibold text-[#21303a]">{{ index + 1 }}. {{ item.label }}</div>
+                      <div class="mt-1 text-xs leading-5 text-[#5f6d79]">{{ navGroupLabel(item.group) }} · {{ item.path }}</div>
+                      <div v-if="item.badge || item.disabled" class="mt-2 inline-flex rounded-full bg-[#eef2f5] px-2 py-1 text-[11px] text-[#4e5b67]">
+                        {{ item.badge || "受限功能" }}
+                      </div>
+                    </div>
+                    <div class="flex flex-wrap items-center gap-2">
+                      <label class="inline-flex items-center gap-2 rounded-xl border border-[#d6dee6] bg-white px-3 py-2 text-sm text-[#30404d]">
+                        <input v-model="item.visible" type="checkbox" />
+                        前台显示
+                      </label>
+                      <button
+                        type="button"
+                        class="rounded-lg bg-[#edf2f6] px-3 py-2 text-xs text-[#344250] disabled:opacity-50"
+                        :disabled="index === 0"
+                        @click="moveUserNavItem(index, -1)"
+                      >
+                        上移
+                      </button>
+                      <button
+                        type="button"
+                        class="rounded-lg bg-[#edf2f6] px-3 py-2 text-xs text-[#344250] disabled:opacity-50"
+                        :disabled="index === forms.user_navigation.items.length - 1"
+                        @click="moveUserNavItem(index, 1)"
+                      >
+                        下移
+                      </button>
+                    </div>
+                  </div>
+                </article>
+              </div>
+            </section>
+            <div class="rounded-xl border border-[#dce4eb] bg-white px-3 py-3 text-sm leading-6 text-[#4f5d69]">
+              “格物学术”品牌位于左侧导航顶部，固定展示，不参与功能隐藏。
+            </div>
+          </template>
         </fieldset>
 
         <div class="mt-5 flex flex-wrap gap-2 border-t border-[#e6ebef] pt-4">
@@ -433,12 +482,14 @@ import { useRoute, useRouter } from "vue-router"
 import AdminShell from "../../components/AdminShell.vue"
 import { adminHttp } from "../../lib/http"
 import { adminHasPermission } from "../../lib/session"
+import { normalizeUserNavigationConfig, USER_NAV_GROUP_LABELS } from "../../lib/userNavigation"
 
 const tabs = [
   { key: "login", label: "登录配置", desc: "短信与微信登录" },
   { key: "payment", label: "支付配置", desc: "微信支付 / 支付宝" },
   { key: "billing", label: "计费规则", desc: "按字符扣费" },
   { key: "referral", label: "推广规则", desc: "奖励与返佣" },
+  { key: "user_navigation", label: "前台导航", desc: "左侧功能编排" },
   { key: "llm", label: "大模型配置", desc: "国内外主流模型" },
   { key: "miniapp", label: "小程序配置", desc: "参数与域名" },
 ]
@@ -597,6 +648,17 @@ const guideMap = {
     ],
     docs: [{ label: "运营配置参考", href: "https://help.openai.com/en/articles/5112595-best-practices-for-api-key-safety" }],
   },
+  user_navigation: {
+    code: "Frontend Navigation",
+    lead: "在后台直接控制左侧功能顺序与是否展示，前台刷新后立即生效。",
+    title: "前台导航统一编排",
+    desc: "这里只控制左侧导航展示，不会删除页面路由。个人中心入口已固定从顶部进入。",
+    checklist: [
+      "至少保留 1 个前台功能可见，避免用户进入后无导航可用。",
+      "“开发中”功能可以保留展示，也可以直接隐藏。",
+    ],
+    docs: [],
+  },
   llm: {
     code: "Model Setup",
     lead: "支持 OpenAI、Anthropic、Gemini、DeepSeek、Qwen、豆包、Kimi、智谱和自定义兼容接口。",
@@ -671,6 +733,7 @@ const forms = ref({
     recurring_ratio: 0.05,
     ip_limit_24h: 3,
   },
+  user_navigation: normalizeUserNavigationConfig(),
   miniapp: normalizeMiniappConfig(defaultMiniappConfig),
 })
 
@@ -755,6 +818,9 @@ async function loadTab(category) {
   if (category === "miniapp") {
     forms.value.miniapp = normalizeMiniappConfig(forms.value.miniapp)
   }
+  if (category === "user_navigation") {
+    forms.value.user_navigation = normalizeUserNavigationConfig(forms.value.user_navigation)
+  }
 }
 
 async function loadReadiness() {
@@ -813,6 +879,12 @@ function validateCurrent() {
       return "复购返佣比例必须在 0~100%"
     }
   }
+  if (activeTab.value === "user_navigation") {
+    const items = normalizeUserNavigationConfig(forms.value.user_navigation).items
+    if (!items.some((item) => item.visible)) {
+      return "前台导航至少需要展示 1 个功能"
+    }
+  }
   if (activeTab.value === "payment" && isWechatPay.value && forms.value.payment.api_v3_key && String(forms.value.payment.api_v3_key).length !== 32) {
     return "微信支付 APIv3 Key 必须是 32 位"
   }
@@ -860,6 +932,16 @@ function validateCurrent() {
 }
 
 function payloadFor(category) {
+  if (category === "user_navigation") {
+    const normalized = normalizeUserNavigationConfig(forms.value.user_navigation)
+    return {
+      items: normalized.items.map((item, index) => ({
+        key: item.key,
+        visible: Boolean(item.visible),
+        order: index + 1,
+      })),
+    }
+  }
   const payload = { ...(forms.value[category] || {}) }
   if (category === "referral") {
     payload.first_pay_ratio = Number((Number(referralFirstPayPct.value || 0) / 100).toFixed(4))
@@ -974,6 +1056,27 @@ function removeBillingPackage(index) {
     return
   }
   forms.value.billing.packages.splice(index, 1)
+}
+
+function navGroupLabel(group) {
+  return USER_NAV_GROUP_LABELS[group] || group || "未分组"
+}
+
+function moveUserNavItem(index, delta) {
+  const items = forms.value.user_navigation?.items
+  if (!Array.isArray(items)) {
+    return
+  }
+  const nextIndex = index + delta
+  if (nextIndex < 0 || nextIndex >= items.length) {
+    return
+  }
+  const [current] = items.splice(index, 1)
+  items.splice(nextIndex, 0, current)
+  forms.value.user_navigation.items = items.map((item, order) => ({
+    ...item,
+    order: order + 1,
+  }))
 }
 
 function resolvePaymentNotifyPreview() {

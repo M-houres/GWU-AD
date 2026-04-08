@@ -25,6 +25,7 @@ from app.security import create_token
 from app.services.credit_service import change_credits
 from app.services.referral_service import bind_referral_relation
 from app.services.referral_service import get_referral_rules
+from app.services.user_navigation_service import default_user_navigation_config, normalize_user_navigation_config
 from app.utils import gen_code, is_phone_valid, make_invite_code
 
 router = APIRouter()
@@ -189,6 +190,13 @@ def _get_login_config(db: Session) -> dict:
         if mini_app_secret:
             merged["wechat_miniprogram_app_secret"] = mini_app_secret[:256]
     return merged
+
+
+def _get_user_navigation_config(db: Session) -> dict:
+    raw = _read_system_config_raw(db, "user_navigation")
+    if not raw:
+        return default_user_navigation_config()
+    return normalize_user_navigation_config(raw)
 
 
 def _normalize_notice_level(value) -> str:
@@ -569,6 +577,7 @@ def auth_options(db: Session = Depends(db_dep)) -> APIResp:
     debug_enabled = bool(login_cfg.get("debug_code_enabled"))
     phone_login_enabled = _sms_provider_ready(login_cfg) or (settings.app_env != "prod" and debug_enabled)
     notice = _build_notice_payload(login_cfg)
+    user_navigation = _get_user_navigation_config(db)
     return ok(
         data={
             "wechat_login_enabled": _wechat_login_enabled(login_cfg),
@@ -581,6 +590,7 @@ def auth_options(db: Session = Depends(db_dep)) -> APIResp:
             "new_user_initial_credits": _int_from_login_cfg(login_cfg, "new_user_initial_credits", settings.initial_credits, min_value=0, max_value=1_000_000),
             "header_notice_text": notice["header_text"],
             "notice": notice,
+            "user_navigation": user_navigation,
         }
     )
 

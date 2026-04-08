@@ -1,80 +1,65 @@
 <template>
-  <div class="app-wrapper">
-    <header class="header-wrap">
-      <div class="header-left">
-        <div class="brand-block">
-          <div class="brand-home" role="img" aria-label="格物学术">
-            <span class="brand-mark">GW</span>
-            <div class="brand-copy">
-              <strong>格物学术</strong>
-            </div>
+  <div class="app-shell">
+    <aside class="sider-wrap">
+      <div class="sider-brand">
+        <RouterLink to="/app/detect" class="brand-home" aria-label="格物学术首页">
+          <span class="brand-mark">GW</span>
+          <div class="brand-copy">
+            <strong>格物学术</strong>
+            <span>Academic Workspace</span>
           </div>
-        </div>
+        </RouterLink>
       </div>
 
-      <div class="header-title" :class="{ 'header-title--hidden': shouldHideHeaderTitle }">{{ activeMenu?.label || "工作台" }}</div>
-
-      <div class="header-right">
-        <button type="button" class="header-notice-btn" @click="isNoticeDialogOpen = true">公告</button>
-        <button type="button" class="header-topup" @click="hasUserToken ? goBuy() : goLogin()">充值</button>
-        <button type="button" class="header-link" @click="hasUserToken ? goProfile() : goLogin()">
-          {{ hasUserToken ? "个人中心" : "登录" }}
-        </button>
-        <button type="button" class="header-link header-link--muted" @click="hasUserToken ? logout() : goRegister()">
-          {{ hasUserToken ? "退出" : "注册" }}
-        </button>
-      </div>
-    </header>
-
-    <div class="content-wrap">
-      <aside class="sider-wrap">
-        <div class="scrollbar-wrapper">
-          <ul class="el-menu">
-            <li v-for="item in coreMenus" :key="item.path" class="menu-wrapper">
-              <RouterLink :to="item.path" class="menu-link">
-                <div class="el-menu-item" :class="{ 'is-active': isMenuActive(item.path) }">
-                  <i class="siderIcon">
-                    <component :is="item.icon" :size="14" />
-                  </i>
-                  <span class="subMenu_title_box">{{ item.label }}</span>
-                </div>
-              </RouterLink>
-            </li>
-
-            <li class="nav-divider" aria-hidden="true"></li>
-
-            <li v-for="item in labMenus" :key="item.path" class="menu-wrapper">
-              <div class="el-menu-item is-disabled" aria-disabled="true">
+      <div class="scrollbar-wrapper">
+        <ul class="el-menu">
+          <template v-for="(group, groupIndex) in visibleMenuGroups" :key="group.key">
+            <li v-for="item in group.items" :key="item.path" class="menu-wrapper">
+              <div v-if="item.disabled" class="el-menu-item is-disabled" aria-disabled="true">
                 <i class="siderIcon">
-                  <component :is="item.icon" :size="14" />
+                  <component :is="item.icon" :size="16" />
                 </i>
                 <span class="subMenu_title_box">{{ item.label }}</span>
-                <span class="menu-beta-badge">开发中</span>
+                <span v-if="item.badge" class="menu-beta-badge">{{ item.badge }}</span>
               </div>
-            </li>
-
-            <li class="nav-divider" aria-hidden="true"></li>
-
-            <li v-for="item in accountMenus" :key="item.path" class="menu-wrapper">
-              <RouterLink :to="item.path" class="menu-link">
+              <RouterLink v-else :to="item.path" class="menu-link">
                 <div class="el-menu-item" :class="{ 'is-active': isMenuActive(item.path) }">
                   <i class="siderIcon">
-                    <component :is="item.icon" :size="14" />
+                    <component :is="item.icon" :size="16" />
                   </i>
                   <span class="subMenu_title_box">{{ item.label }}</span>
+                  <span v-if="item.badge" class="menu-beta-badge">{{ item.badge }}</span>
                 </div>
               </RouterLink>
             </li>
-          </ul>
-        </div>
-      </aside>
+            <li v-if="groupIndex < visibleMenuGroups.length - 1" class="nav-divider" aria-hidden="true"></li>
+          </template>
+        </ul>
+      </div>
+    </aside>
 
-      <div class="main-wrap">
+    <div class="shell-main">
+      <header class="header-wrap">
+        <div class="header-title" :class="{ 'header-title--hidden': shouldHideHeaderTitle }">{{ routeTitle }}</div>
+
+        <div class="header-right">
+          <button type="button" class="header-notice-btn" @click="isNoticeDialogOpen = true">公告</button>
+          <button type="button" class="header-topup" @click="hasUserToken ? goBuy() : goLogin()">充值</button>
+          <button type="button" class="header-link" @click="hasUserToken ? goProfile() : goLogin()">
+            {{ hasUserToken ? "个人中心" : "登录" }}
+          </button>
+          <button type="button" class="header-link header-link--muted" @click="hasUserToken ? logout() : goRegister()">
+            {{ hasUserToken ? "退出" : "注册" }}
+          </button>
+        </div>
+      </header>
+
+      <main class="main-wrap">
         <div class="main-content">
           <div v-if="!shouldHideTopbar" class="navbarCon">
             <div class="app-breadcrumb">
-              <span>{{ activeMenu?.label || "工作台" }}</span>
-              <span class="no-redirect">{{ title || activeMenu?.label || "页面" }}</span>
+              <span>{{ breadcrumbTitle }}</span>
+              <span class="no-redirect">{{ routeTitle }}</span>
             </div>
             <div class="navbarCon_right">
               <button type="button" @click="router.back()">返回</button>
@@ -87,7 +72,7 @@
             </div>
           </div>
         </div>
-      </div>
+      </main>
     </div>
 
     <div v-if="isNoticeDialogOpen" class="notice-dialog-mask" @click.self="isNoticeDialogOpen = false">
@@ -104,12 +89,13 @@
 </template>
 
 <script setup>
-import { Bot, FilePenLine, FileSearch2, Gift, ScanSearch, ShieldCheck, UserRound } from "lucide-vue-next"
+import { Bot, FilePenLine, FileSearch2, Gift, ScanSearch, ShieldCheck } from "lucide-vue-next"
 import { computed, onMounted, onUnmounted, ref, watch } from "vue"
 import { RouterLink, useRoute, useRouter } from "vue-router"
 
 import { userHttp } from "../lib/http"
 import { clearUserSession, getUserToken } from "../lib/session"
+import { normalizeUserNavigationConfig } from "../lib/userNavigation"
 
 const props = defineProps({
   title: {
@@ -136,11 +122,22 @@ const props = defineProps({
 
 const emit = defineEmits(["buy"])
 
+const DEFAULT_HEADER_NOTICE_TEXT = "平台系统持续优化中，任务提交后请在个人中心查看处理进度。"
+const GROUP_ORDER = ["core", "lab", "account"]
+const MENU_ICON_MAP = {
+  rewrite: FilePenLine,
+  dedup: FileSearch2,
+  detect: ScanSearch,
+  review: Bot,
+  defense: ShieldCheck,
+  referral: Gift,
+}
+
 const router = useRouter()
 const route = useRoute()
 const hasUserToken = ref(false)
 const isNoticeDialogOpen = ref(false)
-const DEFAULT_HEADER_NOTICE_TEXT = "平台系统持续优化中，任务提交后请在个人中心查看处理进度。"
+const navigationState = ref(normalizeUserNavigationConfig())
 const noticeState = ref({
   enabled: true,
   title: "系统公告",
@@ -152,25 +149,23 @@ const noticeState = ref({
 })
 let noticePollTimer = null
 
-const coreMenus = [
-  { path: "/app/rewrite", label: "学术润色", icon: FilePenLine },
-  { path: "/app/dedup", label: "降重复率", icon: FileSearch2 },
-  { path: "/app/detect", label: "AIGC检测", icon: ScanSearch },
-]
-
-const labMenus = [
-  { path: "/app/review", label: "智能审稿", icon: Bot },
-  { path: "/app/defense", label: "答辩服务", icon: ShieldCheck },
-]
-
-const accountMenus = [
-  { path: "/app/referral", label: "推广福利", icon: Gift },
-  { path: "/app/profile", label: "个人中心", icon: UserRound },
-]
-
-const menus = [...coreMenus, ...labMenus, ...accountMenus]
-
-const activeMenu = computed(() => menus.find((item) => isRouteMatch(route.path, item.path)) || menus[0])
+const allMenuItems = computed(() =>
+  navigationState.value.items.map((item) => ({
+    ...item,
+    icon: MENU_ICON_MAP[item.key] || FilePenLine,
+  }))
+)
+const visibleMenuGroups = computed(() =>
+  GROUP_ORDER.map((key) => ({
+    key,
+    items: allMenuItems.value.filter((item) => item.group === key && item.visible),
+  })).filter((group) => group.items.length)
+)
+const visibleMenus = computed(() => visibleMenuGroups.value.flatMap((group) => group.items))
+const matchedMenu = computed(() => allMenuItems.value.find((item) => isRouteMatch(route.path, item.path)) || null)
+const activeMenu = computed(() => matchedMenu.value || visibleMenus.value[0] || allMenuItems.value[0] || null)
+const routeTitle = computed(() => props.title || String(route.meta?.title || "").trim() || activeMenu.value?.label || "工作台")
+const breadcrumbTitle = computed(() => matchedMenu.value?.label || routeTitle.value || "工作台")
 const shouldHideHeaderTitle = computed(() => {
   if (props.hideHeaderTitle) return true
   return isRouteMatch(route.path, "/app/profile") || isRouteMatch(route.path, "/app/referral")
@@ -192,13 +187,24 @@ onMounted(() => {
   syncTokenState()
   startNoticeSync()
 })
+
 onUnmounted(() => {
   stopNoticeSync()
 })
+
 watch(
   () => route.fullPath,
   () => syncTokenState()
 )
+
+async function loadShellOptions() {
+  try {
+    const data = await userHttp.get("/auth/options")
+    applyShellOptions(data)
+  } catch {
+    applyNavigation()
+  }
+}
 
 async function loadAnnouncement() {
   try {
@@ -207,11 +213,20 @@ async function loadAnnouncement() {
   } catch {
     try {
       const data = await userHttp.get("/auth/options")
-      applyNotice(data?.notice || { header_text: data?.header_notice_text })
+      applyShellOptions(data)
     } catch {
       applyNotice({})
     }
   }
+}
+
+function applyShellOptions(raw) {
+  applyNotice(raw?.notice || raw)
+  applyNavigation(raw?.user_navigation)
+}
+
+function applyNavigation(raw) {
+  navigationState.value = normalizeUserNavigationConfig(raw)
 }
 
 function applyNotice(raw) {
@@ -234,6 +249,7 @@ function applyNotice(raw) {
 
 function startNoticeSync() {
   stopNoticeSync()
+  loadShellOptions()
   loadAnnouncement()
   noticePollTimer = window.setInterval(loadAnnouncement, 45000)
   document.addEventListener("visibilitychange", handleVisibilityChange)
@@ -302,243 +318,76 @@ function isRouteMatch(currentPath, targetPath) {
 </script>
 
 <style scoped>
-.app-wrapper {
-  --sider-width: 196px;
+.app-shell {
   min-height: 100vh;
-  display: flex;
-  flex-direction: column;
-  background: var(--bg-page);
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr);
+  background: linear-gradient(180deg, #fafafa 0%, #ffffff 100%);
   color: var(--text-main);
 }
 
-.header-wrap {
+.sider-wrap {
   position: sticky;
   top: 0;
-  z-index: 100;
-  height: 58px;
-  display: grid;
-  grid-template-columns: var(--sider-width) minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 14px;
-  padding: 0 18px;
-  background: var(--header-gradient-deep);
-  border-bottom: 1px solid var(--header-border-deep);
-  box-shadow: var(--header-shadow-deep);
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid #e3e3e3;
+  background:
+    linear-gradient(180deg, #ffffff 0%, #fbfbfb 46%, #f6f6f6 100%);
+  box-shadow: 12px 0 28px rgba(0, 0, 0, 0.04);
 }
 
-.header-left {
-  min-width: 0;
-  display: inline-flex;
-  align-items: center;
-  gap: 0;
+.sider-brand {
+  padding: 22px 18px 18px;
+  border-bottom: 1px solid #ececec;
 }
 
-.brand-block {
+.brand-home {
   display: inline-flex;
   align-items: center;
-  gap: 9px;
-  min-width: 0;
+  gap: 12px;
+  text-decoration: none;
 }
 
 .brand-mark {
-  width: 28px;
-  height: 28px;
-  border-radius: 8px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(255, 255, 255, 0.96);
-  color: #165dff;
-  border: 1px solid #d8e6ff;
-  font-size: 14px;
-  font-weight: 700;
-  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
+  border-radius: 14px;
+  display: grid;
+  place-items: center;
+  background: #111111;
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
 }
 
 .brand-copy {
-  display: flex;
-  flex-direction: column;
+  display: grid;
   gap: 2px;
-  min-width: 0;
 }
 
 .brand-copy strong {
-  font-size: 16px;
+  font-size: 18px;
   line-height: 1.2;
-  color: var(--header-ink-deep);
+  font-weight: 700;
+  color: #111111;
   letter-spacing: 0.02em;
 }
 
 .brand-copy span {
   font-size: 11px;
   line-height: 1.2;
-  color: #7e6aa8;
-  letter-spacing: 0.03em;
-  display: none;
-}
-
-.header-topup {
-  height: 31px;
-  padding: 0 13px;
-  border-radius: 10px;
-  border: 1px solid #c6d9ff;
-  background: #ffffff;
-  color: #1d5cdd;
-  font-size: 12.5px;
-  font-weight: 600;
-  letter-spacing: 0.01em;
-  box-shadow: 0 1px 0 rgba(34, 90, 201, 0.09);
-  cursor: pointer;
-  transition: background-color 0.16s ease, border-color 0.16s ease, transform 0.16s ease, box-shadow 0.16s ease;
-}
-
-.header-topup:hover {
-  background: #edf4ff;
-  border-color: #9fbfff;
-  color: #134fcb;
-  transform: translateY(-1px);
-  box-shadow: 0 5px 10px rgba(22, 93, 255, 0.16);
-}
-
-.header-topup:active {
-  transform: translateY(0);
-}
-
-.header-notice {
-  min-width: 0;
-  max-width: 340px;
-  height: 30px;
-  padding: 0 10px;
-  border-radius: 999px;
-  border: 1px solid #c5dafd;
-  background: rgba(255, 255, 255, 0.72);
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.header-notice__tag {
-  flex-shrink: 0;
-  height: 18px;
-  padding: 0 7px;
-  border-radius: 999px;
-  background: #e8f1ff;
-  color: #1f56d5;
-  font-size: 11px;
-  font-weight: 700;
-  line-height: 18px;
-}
-
-.header-notice__text {
-  min-width: 0;
-  color: #39598c;
-  font-size: 12px;
-  line-height: 1.2;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.header-title {
-  justify-self: center;
-  min-width: 0;
-  font-size: 16px;
-  font-weight: 600;
-  color: var(--header-ink-deep);
-  letter-spacing: 2px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.header-title--hidden {
-  visibility: hidden;
-}
-
-.header-right {
-  justify-self: end;
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-}
-
-.header-link {
-  height: 31px;
-  padding: 0 12px;
-  border-radius: 10px;
-  border: 1px solid #c6d9ff;
-  background: #ffffff;
-  color: #1d5cdd;
-  font-size: 12.5px;
-  font-weight: 600;
-  line-height: 1;
-  box-shadow: 0 1px 0 rgba(34, 90, 201, 0.09);
-  cursor: pointer;
-  transition: background-color 0.16s ease, color 0.16s ease, border-color 0.16s ease, transform 0.16s ease;
-}
-
-.header-link:hover {
-  background: #edf4ff;
-  color: #134fcb;
-  border-color: #9fbfff;
-  transform: translateY(-1px);
-}
-
-.header-link:active {
-  transform: translateY(0);
-}
-
-.header-link--muted {
-  background: #ffffff;
-  color: #1d5cdd;
-  border: 1px solid #c6d9ff;
-  box-shadow: 0 1px 0 rgba(34, 90, 201, 0.09);
-}
-
-.header-link--muted:hover {
-  background: #edf4ff;
-  color: #134fcb;
-  border-color: #9fbfff;
-}
-
-.header-live-credits {
-  height: 31px;
-  padding: 0 12px;
-  border-radius: 10px;
-  border: 1px solid #c6d9ff;
-  background: #ffffff;
-  color: #1d5cdd;
-  font-size: 12.5px;
-  font-weight: 600;
-  line-height: 1;
-  display: inline-flex;
-  align-items: center;
-  white-space: nowrap;
-  box-shadow: 0 1px 0 rgba(34, 90, 201, 0.09);
-}
-
-.content-wrap {
-  flex: 1;
-  min-height: 0;
-  display: grid;
-  grid-template-columns: var(--sider-width) minmax(0, 1fr);
-  background: linear-gradient(180deg, #eef4ff 0%, #f8fbff 100%);
-}
-
-.sider-wrap {
-  display: flex;
-  flex-direction: column;
-  border-right: 1px solid var(--sider-border-deep);
-  background: var(--sider-gradient-deep);
-  overflow: hidden;
-  box-shadow: inset -1px 0 0 rgba(255, 255, 255, 0.18);
+  color: #6c6c6c;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
 .scrollbar-wrapper {
   flex: 1;
   overflow: auto;
-  padding: 10px 0;
+  padding: 16px 0 18px;
 }
 
 .el-menu {
@@ -557,8 +406,8 @@ function isRouteMatch(currentPath, targetPath) {
 }
 
 .nav-divider {
-  margin: 6px 16px;
-  border-top: 1px solid rgba(255, 255, 255, 0.24);
+  margin: 10px 18px;
+  border-top: 1px solid #e7e7e7;
   list-style: none;
 }
 
@@ -566,42 +415,48 @@ function isRouteMatch(currentPath, targetPath) {
   list-style: none;
   display: flex;
   align-items: center;
-  gap: 8px;
-  width: calc(100% - 16px);
-  margin: 0 8px;
-  min-height: 42px;
-  padding: 11px 20px;
-  border-radius: 10px;
-  border-left: 3px solid transparent;
-  font-size: 14px;
-  font-weight: 600;
-  line-height: 1.45;
-  color: rgba(255, 255, 255, 0.92);
+  gap: 10px;
+  width: calc(100% - 24px);
+  margin: 0 12px;
+  min-height: 46px;
+  padding: 11px 14px;
+  border-radius: 14px;
+  border: 1px solid transparent;
+  color: #1a1a1a;
   background: transparent;
-  transition: background-color 0.16s ease, color 0.16s ease, border-color 0.16s ease, box-shadow 0.16s ease;
+  transition:
+    background-color 0.16s ease,
+    border-color 0.16s ease,
+    color 0.16s ease,
+    transform 0.16s ease,
+    box-shadow 0.16s ease;
 }
 
 .el-menu-item:hover {
-  background: rgba(255, 255, 255, 0.18);
-  color: #ffffff;
+  background: #f3f3f3;
+  border-color: #e1e1e1;
+  transform: translateY(-1px);
 }
 
 .el-menu-item.is-active {
-  background: #ffffff;
-  color: #165dff;
-  font-weight: 600;
-  border-left-color: #ffffff;
-  box-shadow: 0 8px 18px rgba(8, 52, 151, 0.22);
+  background: #111111;
+  border-color: #111111;
+  color: #ffffff;
+  box-shadow: 0 12px 20px rgba(0, 0, 0, 0.12);
 }
 
 .el-menu-item.is-disabled {
+  background: #ffffff;
+  border-color: #ededed;
+  color: #505050;
+  opacity: 0.88;
   cursor: default;
-  opacity: 0.86;
 }
 
 .el-menu-item.is-disabled:hover {
-  background: transparent;
-  color: rgba(255, 255, 255, 0.82);
+  transform: none;
+  background: #ffffff;
+  border-color: #ededed;
 }
 
 .siderIcon {
@@ -615,306 +470,71 @@ function isRouteMatch(currentPath, targetPath) {
   min-width: 0;
   flex: 1;
   color: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.4;
 }
 
 .menu-beta-badge {
   flex-shrink: 0;
-  background: #fff3e0;
-  color: #f57c00;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.08);
+  color: currentColor;
   font-size: 11px;
-  padding: 1px 6px;
-  border-radius: 10px;
-  line-height: 1.4;
+  line-height: 1;
+  padding: 5px 8px;
 }
 
-.main-wrap {
+.shell-main {
   min-width: 0;
-  padding: 24px;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.34) 0%, rgba(255, 255, 255, 0) 32%);
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
 }
 
-.main-content {
-  min-width: 0;
-  max-width: 1280px;
-  margin: 0 auto;
-  display: grid;
-  gap: 12px;
-}
-
-.navbarCon {
-  min-height: 48px;
+.header-wrap {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  min-height: 64px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
-  padding: 10px 14px;
-  background: #ffffff;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-card);
+  gap: 16px;
+  padding: 12px 24px;
+  background: rgba(255, 255, 255, 0.92);
+  border-bottom: 1px solid #e7e7e7;
+  backdrop-filter: blur(12px);
 }
 
-.app-breadcrumb {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
+.header-title {
   min-width: 0;
-  font-size: 13px;
-  color: var(--text-sub);
-}
-
-.app-breadcrumb .no-redirect {
-  min-width: 0;
-  font-size: 15px;
-  color: var(--text-main);
-  font-weight: 600;
+  font-size: 18px;
+  font-weight: 700;
+  color: #111111;
+  letter-spacing: 0.04em;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-.navbarCon_right button {
-  height: 32px;
-  border: 1px solid var(--btn-ghost-border);
-  border-radius: 10px;
-  background: var(--btn-ghost-bg);
-  color: var(--btn-ghost-ink);
-  font-weight: 600;
-  font-size: 12px;
-  cursor: pointer;
-  padding: 0 12px;
-  transition: border-color 0.16s ease, background-color 0.16s ease, color 0.16s ease, transform 0.16s ease;
+.header-title--hidden {
+  visibility: hidden;
 }
 
-.navbarCon_right button:hover {
-  background: var(--btn-ghost-hover-bg);
-  border-color: #bcc8e6;
-  color: #3e4b6e;
-  transform: translateY(-1px);
-}
-
-.navbarCon_right button:active {
-  transform: translateY(0);
-}
-
-.app-main,
-.app-main-con {
-  min-width: 0;
-}
-
-/* Monochrome shell overrides */
-.app-wrapper {
-  background: linear-gradient(180deg, #ffffff 0%, #f9f9f9 100%);
-}
-
-.header-wrap {
-  height: 62px;
-  padding: 0 20px;
-  border-bottom-color: rgba(255, 255, 255, 0.16);
-  box-shadow: 0 12px 24px rgba(0, 0, 0, 0.2);
-  backdrop-filter: saturate(140%) blur(8px);
-}
-
-.brand-mark {
-  border-color: rgba(0, 0, 0, 0.28);
-  color: #111111;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.14);
-}
-
-.brand-copy strong {
-  letter-spacing: 0.01em;
-}
-
-.header-title {
-  letter-spacing: 0.08em;
-}
-
-.header-notice {
-  border-color: rgba(255, 255, 255, 0.48);
-  background: rgba(255, 255, 255, 0.18);
-}
-
-.header-notice__tag {
-  background: rgba(255, 255, 255, 0.22);
-  color: #f2f2f2;
-}
-
-.header-notice__text {
-  color: #f2f2f2;
-}
-
-.header-topup,
-.header-link,
-.header-live-credits {
-  border-color: #d0d0d0;
-  color: #1f1f1f;
-}
-
-.header-topup,
-.header-link {
-  transition:
-    background-color var(--motion-fast, 180ms) var(--ease-standard, ease),
-    border-color var(--motion-fast, 180ms) var(--ease-standard, ease),
-    transform var(--motion-fast, 180ms) var(--ease-standard, ease),
-    box-shadow var(--motion-fast, 180ms) var(--ease-standard, ease);
-}
-
-.header-topup:hover,
-.header-link:hover,
-.header-link--muted:hover {
-  background: #f2f2f2;
-  color: #111111;
-  border-color: #a9a9a9;
-}
-
-.header-live-credits {
-  background: linear-gradient(180deg, #ffffff, #f3f3f3);
-}
-
-.content-wrap {
-  background: linear-gradient(180deg, #fafafa 0%, #ffffff 100%);
-}
-
-.sider-wrap {
-  box-shadow:
-    inset -1px 0 0 rgba(255, 255, 255, 0.2),
-    8px 0 24px rgba(0, 0, 0, 0.08);
-}
-
-.el-menu-item {
-  border-radius: 12px;
-  line-height: 1.5;
-}
-
-.el-menu-item:hover {
-  background: rgba(255, 255, 255, 0.24);
-}
-
-.el-menu-item.is-active {
-  color: #111111;
-  box-shadow: 0 10px 20px rgba(0, 0, 0, 0.16);
-}
-
-.main-wrap {
-  padding: 26px;
-}
-
-.main-content {
-  gap: 14px;
-}
-
-.navbarCon {
-  min-height: 52px;
-  border-color: rgba(0, 0, 0, 0.18);
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.97), rgba(247, 247, 247, 0.95)),
-    linear-gradient(135deg, rgba(0, 0, 0, 0.03), transparent 46%);
-  box-shadow: 0 10px 22px rgba(0, 0, 0, 0.07);
-}
-
-.navbarCon_right button {
-  border-color: #c5c5c5;
-  color: #222222;
-}
-
-.navbarCon_right button:hover {
-  background: #f1f1f1;
-  border-color: #9e9e9e;
-  color: #111111;
-}
-
-.header-topup:focus-visible,
-.header-link:focus-visible,
-.navbarCon_right button:focus-visible,
-.menu-link:focus-visible .el-menu-item {
-  outline: 2px solid rgba(0, 0, 0, 0.55);
-  outline-offset: 2px;
-}
-
-@media (max-width: 980px) {
-  .header-wrap {
-    grid-template-columns: minmax(0, 1fr);
-    height: auto;
-    min-height: 56px;
-    padding: 8px 12px;
-    gap: 8px;
-  }
-
-  .header-title {
-    justify-self: start;
-  }
-
-  .header-left {
-    width: auto;
-    flex-wrap: nowrap;
-    gap: 0;
-  }
-
-  .header-notice {
-    width: 100%;
-    max-width: none;
-    height: auto;
-    min-height: 30px;
-    border-radius: 8px;
-    padding: 6px 10px;
-  }
-
-  .header-notice__text {
-    white-space: normal;
-  }
-
-  .header-right {
-    justify-self: start;
-    flex-wrap: wrap;
-  }
-
-  .content-wrap {
-    grid-template-columns: 1fr;
-  }
-
-  .sider-wrap {
-    display: block;
-    border-right: 0;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.28);
-    overflow: auto;
-  }
-
-  .scrollbar-wrapper {
-    overflow-x: auto;
-    padding: 8px 0;
-    flex: none;
-  }
-
-  .el-menu {
-    display: flex;
-    min-width: max-content;
-  }
-
-  .nav-divider {
-    display: none;
-  }
-
-  .el-menu-item {
-    min-height: 38px;
-    padding: 10px 14px;
-    border-left: 0;
-    border-bottom: 3px solid transparent;
-  }
-
-  .el-menu-item.is-active {
-    border-left: 0;
-    border-bottom-color: var(--primary);
-  }
-
-  .main-wrap {
-    padding: 16px;
-  }
+.header-right {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 .header-notice-btn,
 .header-topup,
 .header-link {
-  height: 31px;
-  padding: 0 12px;
+  min-height: 34px;
+  padding: 0 13px;
   border-radius: 10px;
   border: 1px solid #111111;
   background: #111111;
@@ -949,96 +569,89 @@ function isRouteMatch(currentPath, targetPath) {
   transform: translateY(0);
 }
 
-.sider-wrap .menu-link,
-.sider-wrap .menu-link:visited,
-.sider-wrap .menu-link:hover,
-.sider-wrap .menu-link:active {
-  color: #111111;
+.main-wrap {
+  flex: 1;
+  min-width: 0;
+  padding: 24px;
 }
 
-.sider-wrap .el-menu-item {
-  background: #ffffff;
-  color: #111111;
-  border: 1px solid #d0d0d0;
-}
-
-.sider-wrap .el-menu-item:hover {
-  background: #f7f7f7;
-  color: #111111;
-  border-color: #b7b7b7;
-}
-
-.sider-wrap .el-menu-item.is-active {
-  background: #111111;
-  color: #ffffff;
-  border-color: #111111;
-}
-
-.sider-wrap .el-menu-item *,
-.sider-wrap .el-menu-item:hover * {
-  color: currentColor;
-  fill: currentColor;
-  stroke: currentColor;
-}
-
-.sider-wrap .el-menu-item.is-active * {
-  color: #ffffff;
-  fill: #ffffff;
-  stroke: #ffffff;
-}
-
-.brand-block {
-  background: transparent;
-}
-
-.brand-home {
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-  text-decoration: none;
-}
-
-.brand-mark {
-  width: 34px;
-  height: 34px;
-  border-radius: 10px;
+.main-content {
+  min-width: 0;
+  max-width: 1280px;
+  margin: 0 auto;
   display: grid;
-  place-items: center;
-  border: 0;
-  background: #111111;
-  color: #ffffff;
-  font-size: 11px;
-  font-weight: 800;
-  letter-spacing: 0.08em;
-  box-shadow: none;
+  gap: 14px;
 }
 
-.brand-copy {
+.navbarCon {
+  min-height: 52px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 14px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(247, 247, 247, 0.94)),
+    linear-gradient(135deg, rgba(0, 0, 0, 0.03), transparent 46%);
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  border-radius: var(--radius-card);
+  box-shadow: 0 10px 22px rgba(0, 0, 0, 0.06);
+}
+
+.app-breadcrumb {
   display: inline-flex;
   align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-size: 13px;
+  color: #5d5d5d;
+}
+
+.app-breadcrumb .no-redirect {
+  min-width: 0;
+  font-size: 15px;
+  color: #111111;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.navbarCon_right button {
+  min-height: 34px;
+  padding: 0 12px;
+  border-radius: 10px;
+  border: 1px solid #d0d0d0;
+  background: #ffffff;
+  color: #1f1f1f;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    background-color 0.16s ease,
+    border-color 0.16s ease,
+    color 0.16s ease,
+    transform 0.16s ease;
+}
+
+.navbarCon_right button:hover {
+  background: #f3f3f3;
+  border-color: #9e9e9e;
+  transform: translateY(-1px);
+}
+
+.app-main,
+.app-main-con {
   min-width: 0;
 }
 
-.brand-copy strong {
-  margin: 0;
-  font-size: 18px;
-  min-height: auto;
-  padding: 0;
-  border-radius: 0;
-  border: 0;
-  background: transparent;
-  color: #111111;
-  font-weight: 700;
-  letter-spacing: 0.02em;
-  display: block;
-}
-
-.brand-home:hover .brand-copy strong,
-.brand-home:focus .brand-copy strong,
-.brand-home:active .brand-copy strong,
-.brand-home:visited .brand-copy strong {
-  background: transparent;
-  color: #111111;
+.header-notice-btn:focus-visible,
+.header-topup:focus-visible,
+.header-link:focus-visible,
+.navbarCon_right button:focus-visible,
+.menu-link:focus-visible .el-menu-item {
+  outline: 2px solid rgba(0, 0, 0, 0.55);
+  outline-offset: 2px;
 }
 
 .notice-dialog-mask {
@@ -1053,7 +666,7 @@ function isRouteMatch(currentPath, targetPath) {
 
 .notice-dialog {
   width: min(560px, 100%);
-  border-radius: 12px;
+  border-radius: 14px;
   border: 1px solid #d9d9d9;
   background: #ffffff;
   box-shadow: 0 16px 40px rgba(0, 0, 0, 0.16);
@@ -1061,7 +674,7 @@ function isRouteMatch(currentPath, targetPath) {
 }
 
 .notice-dialog__head {
-  min-height: 52px;
+  min-height: 54px;
   padding: 0 14px;
   border-bottom: 1px solid #e5e5e5;
   display: flex;
@@ -1090,7 +703,7 @@ function isRouteMatch(currentPath, targetPath) {
   margin: 0;
   padding: 10px 14px 0;
   font-size: 12px;
-  color: #6b6b6b;
+  color: #666666;
 }
 
 .notice-dialog__body {
@@ -1107,7 +720,64 @@ function isRouteMatch(currentPath, targetPath) {
   }
 }
 
+@media (max-width: 980px) {
+  .app-shell {
+    display: block;
+  }
+
+  .sider-wrap {
+    position: static;
+    height: auto;
+    border-right: 0;
+    border-bottom: 1px solid #e7e7e7;
+    box-shadow: none;
+  }
+
+  .scrollbar-wrapper {
+    overflow-x: auto;
+    padding: 10px 0 12px;
+  }
+
+  .el-menu {
+    display: flex;
+    min-width: max-content;
+    padding: 0 8px;
+  }
+
+  .nav-divider {
+    width: 1px;
+    margin: 10px 8px;
+    border-top: 0;
+    border-left: 1px solid #e7e7e7;
+  }
+
+  .el-menu-item {
+    width: auto;
+    min-width: 140px;
+    margin: 0 4px;
+  }
+
+  .header-wrap {
+    min-height: auto;
+    padding: 10px 12px;
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .header-right {
+    width: 100%;
+  }
+
+  .main-wrap {
+    padding: 14px 12px;
+  }
+}
+
 @media (max-width: 768px) {
+  .brand-copy span {
+    display: none;
+  }
+
   .header-right {
     gap: 6px;
   }
@@ -1118,10 +788,6 @@ function isRouteMatch(currentPath, targetPath) {
     min-height: 32px;
     padding: 0 10px;
     font-size: 12px;
-  }
-
-  .main-wrap {
-    padding: 12px;
   }
 
   .navbarCon {

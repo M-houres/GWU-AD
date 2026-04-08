@@ -35,26 +35,53 @@
         </div>
       </section>
 
-      <section v-if="activeTab === 'overview'" class="scholar-grid scholar-grid--halves">
-        <article class="scholar-panel scholar-panel--soft">
+      <section v-if="activeTab === 'overview'" class="profile-overview-grid">
+        <article class="scholar-panel scholar-panel--soft profile-card profile-card--account">
           <div class="scholar-panel__body">
-            <div class="scholar-kicker">Account</div>
-            <h3 class="scholar-subtitle">账户信息</h3>
-            <div class="scholar-stack" style="margin-top: 18px">
-              <div class="scholar-note">手机号：{{ user.value?.phone || "-" }}</div>
-              <div class="scholar-note">注册时间：{{ formatTime(user.value?.created_at) }}</div>
-              <label class="scholar-field">
-                <span class="scholar-field__label">昵称</span>
-                <div class="scholar-inline-actions">
-                  <input v-model.trim="nickname" class="scholar-input" style="flex: 1" />
-                  <button class="scholar-button" type="button" @click="saveNickname">保存昵称</button>
-                </div>
-              </label>
+            <div class="profile-account-head">
+              <div>
+                <div class="scholar-kicker">Account Center</div>
+                <h3 class="scholar-subtitle">账户信息</h3>
+                <p class="scholar-lead">统一管理昵称、联系方式和账户状态，当前页面仅展示你自己的账户资料。</p>
+              </div>
+              <div class="profile-status-chip">已登录</div>
             </div>
+
+            <div class="profile-summary-grid">
+              <article class="profile-data-card">
+                <span class="profile-data-card__label">手机号</span>
+                <strong class="profile-data-card__value">{{ user.value?.phone || "-" }}</strong>
+                <span class="profile-data-card__hint">登录与通知默认使用该手机号</span>
+              </article>
+              <article class="profile-data-card">
+                <span class="profile-data-card__label">注册时间</span>
+                <strong class="profile-data-card__value">{{ formatTime(user.value?.created_at) }}</strong>
+                <span class="profile-data-card__hint">按系统记录时间展示</span>
+              </article>
+              <article class="profile-data-card">
+                <span class="profile-data-card__label">账户编号</span>
+                <strong class="profile-data-card__value">#{{ user.value?.id || "-" }}</strong>
+                <span class="profile-data-card__hint">用于后台对账与问题排查</span>
+              </article>
+              <article class="profile-data-card">
+                <span class="profile-data-card__label">注册来源</span>
+                <strong class="profile-data-card__value">{{ mapUserSource(user.value?.source) }}</strong>
+                <span class="profile-data-card__hint">用于区分 Web 与小程序入口</span>
+              </article>
+            </div>
+
+            <label class="scholar-field profile-editor">
+              <span class="scholar-field__label">昵称设置</span>
+              <div class="profile-editor__row">
+                <input v-model.trim="nickname" class="scholar-input profile-editor__input" placeholder="请输入展示昵称" />
+                <button class="scholar-button" type="button" @click="saveNickname">保存昵称</button>
+              </div>
+              <p class="profile-editor__hint">昵称会展示在个人资料和部分任务结果页，用于区分不同账号。</p>
+            </label>
           </div>
         </article>
 
-        <article class="scholar-panel scholar-panel--soft">
+        <article class="scholar-panel scholar-panel--soft profile-card">
           <div class="scholar-panel__body">
             <div class="scholar-kicker">Credits Overview</div>
             <h3 class="scholar-subtitle">积分概览</h3>
@@ -81,6 +108,27 @@
               </button>
               <button class="scholar-button scholar-button--secondary" type="button" @click="switchTab('credits')">
                 查看积分流水
+              </button>
+            </div>
+          </div>
+        </article>
+
+        <article class="scholar-panel scholar-panel--soft profile-card">
+          <div class="scholar-panel__body">
+            <div class="scholar-kicker">Quick Entry</div>
+            <h3 class="scholar-subtitle">常用入口</h3>
+            <div class="profile-quick-list">
+              <button type="button" class="profile-quick-item" @click="switchTab('history')">
+                <span class="profile-quick-item__label">任务记录</span>
+                <span class="profile-quick-item__value">查看最近提交与结果下载</span>
+              </button>
+              <button type="button" class="profile-quick-item" @click="switchTab('credits')">
+                <span class="profile-quick-item__label">积分流水</span>
+                <span class="profile-quick-item__value">核对入账、消费和退款明细</span>
+              </button>
+              <button type="button" class="profile-quick-item" @click="goReferral">
+                <span class="profile-quick-item__label">推广福利</span>
+                <span class="profile-quick-item__value">查看邀请码、奖励通知与返利记录</span>
               </button>
             </div>
           </div>
@@ -508,4 +556,172 @@ function goLogin() {
   const redirect = encodeURIComponent(route.fullPath || "/app/profile")
   router.push(`/login?redirect=${redirect}`)
 }
+
+function goReferral() {
+  router.push("/app/referral")
+}
+
+function mapUserSource(source) {
+  const mapping = {
+    web: "Web 端",
+    miniapp: "小程序",
+    other: "其他来源",
+  }
+  return mapping[source] || source || "未记录"
+}
 </script>
+
+<style scoped>
+.profile-overview-grid {
+  display: grid;
+  gap: 18px;
+  grid-template-columns: minmax(0, 1.25fr) minmax(320px, 0.95fr);
+  align-items: start;
+}
+
+.profile-card--account {
+  grid-row: span 2;
+}
+
+.profile-account-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.profile-status-chip {
+  flex-shrink: 0;
+  padding: 7px 12px;
+  border-radius: 999px;
+  background: #111111;
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.profile-summary-grid {
+  margin-top: 18px;
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.profile-data-card {
+  display: grid;
+  gap: 8px;
+  padding: 18px;
+  border: 1px solid rgba(17, 17, 17, 0.08);
+  border-radius: 18px;
+  background: linear-gradient(180deg, #ffffff 0%, #f7f7f7 100%);
+}
+
+.profile-data-card__label {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  color: #616161;
+  text-transform: uppercase;
+}
+
+.profile-data-card__value {
+  font-size: 20px;
+  line-height: 1.35;
+  color: #111111;
+  word-break: break-word;
+}
+
+.profile-data-card__hint {
+  font-size: 13px;
+  line-height: 1.7;
+  color: #555555;
+}
+
+.profile-editor {
+  margin-top: 18px;
+  padding: 18px;
+  border: 1px solid rgba(17, 17, 17, 0.08);
+  border-radius: 18px;
+  background: #ffffff;
+}
+
+.profile-editor__row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.profile-editor__input {
+  flex: 1;
+  min-width: 0;
+}
+
+.profile-editor__hint {
+  margin: 10px 0 0;
+  font-size: 13px;
+  line-height: 1.7;
+  color: #4f5a64;
+}
+
+.profile-quick-list {
+  margin-top: 18px;
+  display: grid;
+  gap: 12px;
+}
+
+.profile-quick-item {
+  width: 100%;
+  display: grid;
+  gap: 6px;
+  padding: 16px 18px;
+  text-align: left;
+  border: 1px solid rgba(17, 17, 17, 0.08);
+  border-radius: 18px;
+  background: linear-gradient(180deg, #ffffff 0%, #f8f8f8 100%);
+  cursor: pointer;
+  transition:
+    transform 0.16s ease,
+    border-color 0.16s ease,
+    box-shadow 0.16s ease;
+}
+
+.profile-quick-item:hover {
+  transform: translateY(-1px);
+  border-color: rgba(17, 17, 17, 0.18);
+  box-shadow: 0 12px 20px rgba(0, 0, 0, 0.06);
+}
+
+.profile-quick-item__label {
+  font-size: 15px;
+  font-weight: 700;
+  color: #111111;
+}
+
+.profile-quick-item__value {
+  font-size: 13px;
+  line-height: 1.7;
+  color: #4f5a64;
+}
+
+@media (max-width: 980px) {
+  .profile-overview-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .profile-card--account {
+    grid-row: auto;
+  }
+}
+
+@media (max-width: 640px) {
+  .profile-account-head,
+  .profile-editor__row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .profile-summary-grid {
+    grid-template-columns: 1fr;
+  }
+}
+</style>
