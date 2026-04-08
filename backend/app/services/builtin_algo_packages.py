@@ -339,11 +339,11 @@ def _build_template_readme(spec: BuiltinPackageSpec) -> str:
     ).strip() + "\n"
 
 
-_AIGC_VERSION = "1.2.0"
+_AIGC_VERSION = "1.4.0"
 _AIGC_VERSION_TAG = _AIGC_VERSION.replace(".", "_")
 
 
-def _aigc_detect_code_v2(*, profile: str, score_offset: float) -> str:
+def _legacy_aigc_detect_code_v2(*, profile: str, score_offset: float) -> str:
     return (
         dedent(
             f"""
@@ -391,6 +391,7 @@ def _aigc_detect_code_v2(*, profile: str, score_offset: float) -> str:
                 "不难发现",
             ]
             RELIEF_PATTERNS = [r"\\[\\d+\\]", r"（\\d{{4}}）", r"\\(\\d{{4}}\\)", r"表\\d+", r"图\\d+", r"\\d+%"]
+            SPECIAL_HEADINGS = ["摘要", "关键词", "引言", "绪论", "前言", "结语", "结论", "参考文献", "附录", "致谢"]
 
 
             def _clamp(value):
@@ -442,6 +443,18 @@ def _aigc_detect_code_v2(*, profile: str, score_offset: float) -> str:
                 return "low"
 
 
+            def _detect_heading(paragraph):
+                clean = " ".join(str(paragraph or "").split())
+                normalized = re.sub(r"\\s+", "", clean).strip("：:.。;；")
+                if not normalized or len(normalized) > 36:
+                    return None
+                if normalized in SPECIAL_HEADINGS:
+                    return clean
+                if re.match(r"^(第[一二三四五六七八九十百零0-9]+[章节部分篇]|[一二三四五六七八九十百零]+[、.．]|\\d+(?:\\.\\d+){{0,3}}[、.．]?|[（(][一二三四五六七八九十百零0-9]+[)）])", normalized):
+                    return clean
+                return None
+
+
             def _sentence_payload(sentence, settings):
                 sentences = _split_sentences(sentence)
                 template_signal, template_hits = _template_signal(sentence)
@@ -456,6 +469,7 @@ def _aigc_detect_code_v2(*, profile: str, score_offset: float) -> str:
                 return {{
                     "text": sentence[:76],
                     "score": round(score * 100, 2),
+                    "label": _score_to_label(score, settings),
                     "reason": "、".join(template_hits[:2]) if template_hits else "综合风险偏高",
                 }}
 
@@ -505,6 +519,101 @@ def _aigc_detect_code_v2(*, profile: str, score_offset: float) -> str:
                 }}
 
 
+            def _build_outline(paragraphs):
+                outline = []
+                seen = set()
+                for index, paragraph in enumerate(paragraphs, start=1):
+                    heading = _detect_heading(paragraph)
+                    if not heading:
+                        continue
+                    key = re.sub(r"\\s+", "", heading)
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    outline.append({{"section": heading[:32], "start_index": index}})
+                for pos, item in enumerate(outline):
+                    next_start = outline[pos + 1]["start_index"] if pos + 1 < len(outline) else len(paragraphs) + 1
+                    item["end_index"] = max(item["start_index"], next_start - 1)
+                return outline[:20]
+
+
+            def _fragment_distribution(paragraph_payloads, paragraphs, settings):
+                count_map = {{"high": 0, "medium": 0, "low": 0, "no_ai": 0}}
+                char_map = {{"high": 0, "medium": 0, "low": 0, "no_ai": 0}}
+                weighted_scores = []
+                for paragraph_payload, paragraph in zip(paragraph_payloads, paragraphs):
+                    paragraph_ratio = paragraph_payload["score"] / 100.0
+                    for sentence in _split_sentences(paragraph):
+                        clean = " ".join(str(sentence or "").split())
+                        if not clean:
+                            continue
+                        char_count = len(clean)
+                        if not char_count:
+                            continue
+                        if _detect_heading(clean) or (_citation_relief(clean) >= 0.08 and len(clean) <= 90):
+                            label = "no_ai"
+                            score_ratio = 0.0
+                        else:
+                            sentence_payload = _sentence_payload(clean, settings)
+                            score_ratio = _clamp(sentence_payload["score"] / 100.0 * 0.74 + paragraph_ratio * 0.26)
+                            label = _score_to_label(score_ratio, settings)
+                            weighted_scores.append(score_ratio)
+                        count_map[label] += 1
+                        char_map[label] += char_count
+
+                total_fragments = sum(count_map.values())
+                total_chars = sum(char_map.values())
+                if not total_fragments or not total_chars:
+                    return {{
+                        "fragment_count": 0,
+                        "high_fragment_count": 0,
+                        "middle_fragment_count": 0,
+                        "low_fragment_count": 0,
+                        "no_ai_fragment_count": 0,
+                        "high_suspected_fragment_ratio": 0.0,
+                        "middle_suspected_fragment_ratio": 0.0,
+                        "low_suspected_fragment_ratio": 0.0,
+                        "no_ai_fragment_ratio": 0.0,
+                        "high_and_middle_suspected_fragment_ratio": 0.0,
+                        "total_suspected_fragment_ratio": 0.0,
+                        "high_suspected_text_ratio": 0.0,
+                        "middle_suspected_text_ratio": 0.0,
+                        "low_suspected_text_ratio": 0.0,
+                        "no_ai_suspected_text_ratio": 0.0,
+                        "high_and_middle_suspected_text_ratio": 0.0,
+                        "total_suspected_text_ratio": 0.0,
+                        "weighted_score_pct": 0.0,
+                    }}
+
+                def _ratio(part, whole):
+                    return round(part / max(whole, 1) * 100, 2)
+
+                high_middle_fragments = count_map["high"] + count_map["medium"]
+                suspected_fragments = high_middle_fragments + count_map["low"]
+                high_middle_chars = char_map["high"] + char_map["medium"]
+                suspected_chars = high_middle_chars + char_map["low"]
+                return {{
+                    "fragment_count": total_fragments,
+                    "high_fragment_count": count_map["high"],
+                    "middle_fragment_count": count_map["medium"],
+                    "low_fragment_count": count_map["low"],
+                    "no_ai_fragment_count": count_map["no_ai"],
+                    "high_suspected_fragment_ratio": _ratio(count_map["high"], total_fragments),
+                    "middle_suspected_fragment_ratio": _ratio(count_map["medium"], total_fragments),
+                    "low_suspected_fragment_ratio": _ratio(count_map["low"], total_fragments),
+                    "no_ai_fragment_ratio": _ratio(count_map["no_ai"], total_fragments),
+                    "high_and_middle_suspected_fragment_ratio": _ratio(high_middle_fragments, total_fragments),
+                    "total_suspected_fragment_ratio": _ratio(suspected_fragments, total_fragments),
+                    "high_suspected_text_ratio": _ratio(char_map["high"], total_chars),
+                    "middle_suspected_text_ratio": _ratio(char_map["medium"], total_chars),
+                    "low_suspected_text_ratio": _ratio(char_map["low"], total_chars),
+                    "no_ai_suspected_text_ratio": _ratio(char_map["no_ai"], total_chars),
+                    "high_and_middle_suspected_text_ratio": _ratio(high_middle_chars, total_chars),
+                    "total_suspected_text_ratio": _ratio(suspected_chars, total_chars),
+                    "weighted_score_pct": round(sum(weighted_scores) / max(len(weighted_scores), 1) * 100, 2) if weighted_scores else 0.0,
+                }}
+
+
             def process(input_data):
                 text = input_data.get("text", "") if isinstance(input_data, dict) else str(input_data)
                 clean = str(text or "").strip()
@@ -516,6 +625,8 @@ def _aigc_detect_code_v2(*, profile: str, score_offset: float) -> str:
                         "algorithm": f"{{PROFILE}}_aigc_sim_v{_AIGC_VERSION_TAG}",
                         "text_stats": {{"chars": 0, "sentences": 0, "paragraphs": 0}},
                         "distribution": {{"high": 0, "medium": 0, "low": 0, "high_ratio": 0.0}},
+                        "fragment_distribution": {{"fragment_count": 0, "weighted_score_pct": 0.0}},
+                        "outline": [],
                         "paragraphs": [],
                         "suspicious_segments": [],
                     }}
@@ -525,6 +636,8 @@ def _aigc_detect_code_v2(*, profile: str, score_offset: float) -> str:
                 if not paragraphs:
                     paragraphs = [clean]
                 paragraph_payloads = [_paragraph_payload(index, paragraph, settings) for index, paragraph in enumerate(paragraphs, start=1)]
+                outline = _build_outline(paragraphs)
+                fragment_distribution = _fragment_distribution(paragraph_payloads, paragraphs, settings)
                 paragraph_scores = [item["score"] / 100.0 for item in paragraph_payloads]
                 suspicious_segments = []
                 for item in paragraph_payloads:
@@ -572,6 +685,233 @@ def _aigc_detect_code_v2(*, profile: str, score_offset: float) -> str:
                         "low": low_count,
                         "high_ratio": round(high_count / max(len(paragraph_payloads), 1) * 100, 2),
                     }},
+                    "fragment_distribution": fragment_distribution,
+                    "outline": outline,
+                    "paragraphs": paragraph_payloads,
+                    "suspicious_segments": suspicious_segments[:10],
+                }}
+            """
+        ).strip()
+        + "\n"
+    )
+
+
+def _aigc_detect_code_v3(*, profile: str, score_offset: float) -> str:
+    return (
+        dedent(
+            f"""
+            import hashlib
+            import re
+
+            PROFILE = "{profile}"
+            SCORE_OFFSET = {score_offset}
+            PROFILE_SETTINGS = {{
+                "cnki_like": {{"high": 0.67, "medium": 0.42, "coverage_weight": 0.06, "streak_weight": 0.03}},
+                "vip_like": {{"high": 0.64, "medium": 0.40, "coverage_weight": 0.08, "streak_weight": 0.03}},
+                "paperpass_like": {{"high": 0.60, "medium": 0.38, "coverage_weight": 0.05, "streak_weight": 0.05}},
+            }}
+            TEMPLATE_PHRASES = [
+                "研究表明", "本研究旨在", "本文基于", "在此背景下", "可以看出", "由此可见", "综上所述",
+                "总而言之", "值得注意的是", "首先", "其次", "再次", "最后", "此外", "与此同时",
+                "另一方面", "进一步而言", "从整体上看", "不难发现", "基于此"
+            ]
+            CITATION_PATTERNS = [r"\\[\\d+\\]", r"（\\d{{4}}）", r"\\(\\d{{4}}\\)", r"表\\d+", r"图\\d+", r"\\d+%"]
+            EVIDENCE_PATTERNS = [r"\\bN\\s*=\\s*\\d+", r"样本量", r"问卷", r"访谈", r"实验", r"受访者", r"标准差", r"均值", r"统计", r"案例"]
+            HEADING_PATTERNS = [r"^(第[一二三四五六七八九十百零0-9]+[章节部分篇])", r"^[一二三四五六七八九十百零]+[、.．]", r"^\\d+(?:\\.\\d+){{0,3}}[、.．]?", r"^[（(][一二三四五六七八九十百零0-9]+[)）]"]
+
+
+            def _clamp(value):
+                return max(0.0, min(1.0, float(value)))
+
+
+            def _split_sentences(text):
+                return [seg.strip() for seg in re.split(r"[。！？!?；;\\n]+", str(text or "")) if seg.strip()]
+
+
+            def _split_paragraphs(text):
+                parts = [part.strip() for part in re.split(r"\\n+", str(text or "")) if part.strip()]
+                return parts or [str(text or "").strip()]
+
+
+            def _template_signal(text):
+                content = str(text or "")
+                hits = [phrase for phrase in TEMPLATE_PHRASES if phrase in content]
+                density = len(hits) / max(len(content) / 85.0, 1.0)
+                return _clamp(density), hits[:4]
+
+
+            def _repeat_signal(text):
+                content = " ".join(str(text or "").split())
+                if not content:
+                    return 0.0
+                return _clamp(1.0 - len(set(content)) / max(len(content), 1))
+
+
+            def _uniformity_signal(sentences):
+                lengths = [len(item) for item in sentences if item]
+                if not lengths:
+                    return 0.0
+                if len(lengths) == 1:
+                    return 0.5
+                avg_len = sum(lengths) / len(lengths)
+                variance = sum((value - avg_len) ** 2 for value in lengths) / len(lengths)
+                return _clamp(1.0 - min(1.0, variance / max(avg_len * 14.0, 1.0)))
+
+
+            def _opening_signal(text):
+                clean = re.sub(r"^(?:第[一二三四五六七八九十百零0-9]+[章节部分篇]|[一二三四五六七八九十百零]+[、.．]|\\d+(?:\\.\\d+){{0,3}}[、.．]?|[（(][一二三四五六七八九十百零0-9]+[)）])", "", " ".join(str(text or "").split())).lstrip("：:.。;；、，, ")
+                starters = ("本研究", "本文", "研究表明", "综上所述", "总而言之", "值得注意的是", "首先", "其次", "再次", "此外", "另一方面", "由此可见", "基于此")
+                signal = 0.48 if any(clean.startswith(token) for token in starters) else 0.0
+                if re.search(r"^在.{{0,8}}背景下", clean):
+                    signal += 0.18
+                return _clamp(signal)
+
+
+            def _citation_relief(text):
+                return min(0.18, sum(len(re.findall(pattern, str(text or ""))) for pattern in CITATION_PATTERNS) * 0.025)
+
+
+            def _evidence_relief(text):
+                return min(0.16, sum(len(re.findall(pattern, str(text or ""), flags=re.IGNORECASE)) for pattern in EVIDENCE_PATTERNS) * 0.018)
+
+
+            def _score_to_label(score, settings):
+                if score >= settings["high"]:
+                    return "high"
+                if score >= settings["medium"]:
+                    return "medium"
+                return "low"
+
+
+            def _fragment_band(score):
+                if score >= 0.9:
+                    return "severe"
+                if score >= 0.8:
+                    return "moderate"
+                if score >= 0.7:
+                    return "mild"
+                return ""
+
+
+            def _is_heading(text):
+                clean = re.sub(r"\\s+", "", str(text or "")).strip("：:.。;；")
+                if not clean or len(clean) > 36:
+                    return False
+                return any(re.match(pattern, clean) for pattern in HEADING_PATTERNS) or clean in ["摘要", "关键词", "引言", "绪论", "前言", "结语", "结论", "参考文献", "附录", "致谢"]
+
+
+            def process(input_data):
+                text = input_data.get("text", "") if isinstance(input_data, dict) else str(input_data)
+                clean = str(text or "").strip()
+                if not clean:
+                    return {{"ai_score": 0.1, "label": "low", "profile": PROFILE, "algorithm": f"{{PROFILE}}_aigc_sim_v{_AIGC_VERSION_TAG}", "paragraphs": [], "fragment_distribution": {{"fragment_count": 0}}, "outline": [], "decision_basis": [], "document_metrics": {{"paragraph_count": 0}}}}
+
+                settings = PROFILE_SETTINGS.get(PROFILE, PROFILE_SETTINGS["cnki_like"])
+                paragraphs = _split_paragraphs(clean)
+                paragraph_payloads = []
+                suspicious_segments = []
+                opening_keys = []
+                for index, paragraph in enumerate(paragraphs, start=1):
+                    sentences = _split_sentences(paragraph)
+                    template_signal, template_hits = _template_signal(paragraph)
+                    repeat_signal = _repeat_signal(paragraph)
+                    uniformity_signal = _uniformity_signal(sentences)
+                    opening_signal = _opening_signal(paragraph)
+                    citation_relief = _citation_relief(paragraph)
+                    evidence_relief = _evidence_relief(paragraph)
+                    avg_len = sum(len(seg) for seg in sentences) / max(len(sentences), 1)
+                    seed = int(hashlib.md5(paragraph.encode("utf-8")).hexdigest()[:8], 16)
+                    jitter = ((seed % 11) - 5) / 1000.0
+                    score = _clamp(0.34 + max(0.0, (avg_len - 18.0) / 55.0) * 0.18 + template_signal * 0.18 + repeat_signal * 0.16 + uniformity_signal * 0.12 + opening_signal * 0.06 - citation_relief - evidence_relief + SCORE_OFFSET + jitter)
+                    label = _score_to_label(score, settings)
+                    opening_key = re.sub(r"\\s+", "", paragraph)[:12]
+                    if opening_key and not _is_heading(paragraph):
+                        opening_keys.append(opening_key)
+                    seg_rows = []
+                    for sentence in sentences:
+                        if len(sentence) < 8:
+                            continue
+                        seg_score = _clamp(0.28 + _template_signal(sentence)[0] * 0.28 + _repeat_signal(sentence) * 0.18 + _uniformity_signal(_split_sentences(sentence)) * 0.12 + _opening_signal(sentence) * 0.06 - _citation_relief(sentence) - _evidence_relief(sentence) + SCORE_OFFSET)
+                        if seg_score >= settings["medium"] or len(template_hits) >= 2:
+                            reason_bits = []
+                            if _template_signal(sentence)[0] >= 0.22:
+                                reason_bits.append("模板连接词偏多")
+                            if _repeat_signal(sentence) >= 0.32:
+                                reason_bits.append("重复表达偏多")
+                            if _uniformity_signal(_split_sentences(sentence)) >= 0.58:
+                                reason_bits.append("句式波动偏小")
+                            seg_rows.append({{"text": sentence[:76], "score": round(seg_score * 100, 2), "label": _score_to_label(seg_score, settings), "reason": "、".join(reason_bits[:2]) or "综合风险偏高"}})
+                    seg_rows.sort(key=lambda item: item["score"], reverse=True)
+                    for segment in seg_rows[:3]:
+                        suspicious_segments.append({{"paragraph_index": index, "text": segment["text"], "score": segment["score"], "reason": segment["reason"]}})
+                    paragraph_payloads.append({{"index": index, "score": round(score * 100, 2), "label": label, "excerpt": paragraph[:110], "char_count": len(paragraph), "sentence_count": len(sentences), "suspicious_segments": seg_rows[:3], "signals": {{"template_signal": round(template_signal, 4), "repeat_signal": round(repeat_signal, 4), "uniformity_signal": round(uniformity_signal, 4), "opening_signal": round(opening_signal, 4)}}}})
+
+                suspicious_segments.sort(key=lambda item: item["score"], reverse=True)
+                count_map = {{"high": 0, "medium": 0, "low": 0, "no_ai": 0}}
+                char_map = {{"high": 0, "medium": 0, "low": 0, "no_ai": 0}}
+                display_count = {{"mild": 0, "moderate": 0, "severe": 0}}
+                for item, paragraph in zip(paragraph_payloads, paragraphs):
+                    paragraph_ratio = item["score"] / 100.0
+                    for sentence in _split_sentences(paragraph):
+                        clean_sentence = " ".join(sentence.split())
+                        if not clean_sentence:
+                            continue
+                        if _is_heading(clean_sentence) or (_citation_relief(clean_sentence) >= 0.08 and len(clean_sentence) <= 90):
+                            label = "no_ai"
+                            score_ratio = 0.0
+                        else:
+                            score_ratio = _clamp((item["score"] / 100.0) * 0.28 + paragraph_ratio * 0.72)
+                            label = _score_to_label(score_ratio, settings)
+                            band = _fragment_band(score_ratio)
+                            if band:
+                                display_count[band] += 1
+                        count_map[label] += 1
+                        char_map[label] += len(clean_sentence)
+
+                def _ratio(part, whole):
+                    return round(part / max(whole, 1) * 100, 2)
+
+                total_fragments = sum(count_map.values())
+                total_chars = sum(char_map.values())
+                high_medium_count = sum(1 for item in paragraph_payloads if item["label"] in ("high", "medium"))
+                longest_streak = 0
+                current_streak = 0
+                for item in paragraph_payloads:
+                    if item["label"] in ("high", "medium"):
+                        current_streak += 1
+                        longest_streak = max(longest_streak, current_streak)
+                    else:
+                        current_streak = 0
+                opening_similarity = _clamp(max(0, len(opening_keys) - len(set(opening_keys))) / max(len(opening_keys), 1)) if opening_keys else 0.0
+                mean_score = sum(item["score"] / 100.0 for item in paragraph_payloads) / max(len(paragraph_payloads), 1)
+                peak_score = max((item["score"] / 100.0 for item in paragraph_payloads), default=0.0)
+                segment_score = sum(item["score"] for item in suspicious_segments[:5]) / max(len(suspicious_segments[:5]), 1) / 100.0 if suspicious_segments else 0.0
+                coverage_ratio = high_medium_count / max(len(paragraph_payloads), 1)
+                score = _clamp(mean_score * 0.48 + peak_score * 0.18 + segment_score * 0.12 + coverage_ratio * settings["coverage_weight"] + (longest_streak / max(len(paragraph_payloads), 1)) * settings["streak_weight"] + opening_similarity * 0.03)
+
+                decision_basis = []
+                first_para_signals = (paragraph_payloads[0].get("signals") or {{}}) if paragraph_payloads else {{}}
+                if float(first_para_signals.get("template_signal") or 0.0) >= 0.2:
+                    decision_basis.append({{"title": "模板连接词密度偏高", "direction": "risk"}})
+                if opening_similarity >= 0.2:
+                    decision_basis.append({{"title": "段首表达重复度较高", "direction": "risk"}})
+                if longest_streak >= 3:
+                    decision_basis.append({{"title": "存在连续风险片段带", "direction": "risk"}})
+                if _ratio(char_map["high"] + char_map["medium"], total_chars) >= 20:
+                    decision_basis.append({{"title": "高中风险文字占比较高", "direction": "risk"}})
+
+                outline = [{{"section": paragraph[:32], "start_index": index}} for index, paragraph in enumerate(paragraphs, start=1) if _is_heading(paragraph)][:20]
+                return {{
+                    "ai_score": round(score, 4),
+                    "label": _score_to_label(score, settings),
+                    "profile": PROFILE,
+                    "algorithm": f"{{PROFILE}}_aigc_sim_v{_AIGC_VERSION_TAG}",
+                    "text_stats": {{"chars": len(clean), "sentences": len(_split_sentences(clean)), "paragraphs": len(paragraph_payloads)}},
+                    "distribution": {{"high": sum(1 for item in paragraph_payloads if item["label"] == "high"), "medium": sum(1 for item in paragraph_payloads if item["label"] == "medium"), "low": sum(1 for item in paragraph_payloads if item["label"] == "low"), "high_ratio": _ratio(sum(1 for item in paragraph_payloads if item["label"] == "high"), len(paragraph_payloads))}},
+                    "fragment_distribution": {{"fragment_count": total_fragments, "high_fragment_count": count_map["high"], "middle_fragment_count": count_map["medium"], "low_fragment_count": count_map["low"], "no_ai_fragment_count": count_map["no_ai"], "high_and_middle_suspected_text_ratio": _ratio(char_map["high"] + char_map["medium"], total_chars), "total_suspected_text_ratio": _ratio(char_map["high"] + char_map["medium"] + char_map["low"], total_chars), "weighted_score_pct": round(sum(item["score"] for item in paragraph_payloads) / max(len(paragraph_payloads), 1), 2), "mild_fragment_count": display_count["mild"], "moderate_fragment_count": display_count["moderate"], "severe_fragment_count": display_count["severe"]}},
+                    "document_metrics": {{"paragraph_count": len(paragraph_payloads), "high_medium_paragraph_ratio": _ratio(high_medium_count, len(paragraph_payloads)), "longest_risk_streak": longest_streak, "opening_similarity_ratio": round(opening_similarity * 100, 2)}},
+                    "decision_basis": decision_basis[:4],
+                    "outline": outline,
                     "paragraphs": paragraph_payloads,
                     "suspicious_segments": suspicious_segments[:10],
                 }}
@@ -599,7 +939,7 @@ def _upgrade_builtin_specs() -> tuple[BuiltinPackageSpec, ...]:
                 function_type=spec.function_type,
                 name=spec.name,
                 version=_AIGC_VERSION,
-                main_py=_aigc_detect_code_v2(profile=profile, score_offset=score_offset),
+                main_py=_aigc_detect_code_v3(profile=profile, score_offset=score_offset),
             )
         )
     return tuple(upgraded)

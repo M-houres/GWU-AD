@@ -55,6 +55,8 @@
 </template>
 
 <script setup>
+import { mapTaskPlatform } from "../lib/taskPlatform"
+
 defineProps({
   title: { type: String, default: "近期任务" },
   description: { type: String, default: "" },
@@ -70,12 +72,7 @@ function formatTime(value) {
 }
 
 function platformLabel(platform) {
-  const mapping = {
-    cnki: "格物学术标准版",
-    vip: "格物学术专业版",
-    paperpass: "格物学术极速版",
-  }
-  return mapping[platform] || platform || "-"
+  return mapTaskPlatform(platform)
 }
 
 function statusLabel(status) {

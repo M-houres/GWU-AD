@@ -77,6 +77,7 @@
           <div class="aigc-record-item__meta">
             <div>作者：{{ safeText(item.result_json?.authors) }}</div>
             <div>提交时间：{{ formatTime(item.created_at) }}</div>
+            <div>平台：{{ mapTaskPlatform(item.platform) }}</div>
             <div>文档字数：{{ item.char_count || 0 }}</div>
             <div>消耗积分：{{ item.cost_credits || 0 }} 积分</div>
             <div>AIGC报告：{{ item.has_report ? "已上传" : "未上传" }}</div>
@@ -182,6 +183,7 @@ import { useUserProfile } from "../../composables/useUserProfile"
 import { downloadAxiosBlobResponse } from "../../lib/download"
 import { userHttp } from "../../lib/http"
 import { getUserToken } from "../../lib/session"
+import { mapTaskPlatform } from "../../lib/taskPlatform"
 import { taskResultMetrics, taskResultSummary } from "../../lib/taskResult"
 
 const router = useRouter()
@@ -232,7 +234,7 @@ const filteredTasks = computed(() => {
     if (!text) {
       return true
     }
-    const searchText = `${item.id} ${taskLabel(item)}`.toLowerCase()
+    const searchText = `${item.id} ${taskLabel(item)} ${mapTaskPlatform(item.platform)}`.toLowerCase()
     return searchText.includes(text)
   })
 })
@@ -314,7 +316,7 @@ function startPolling() {
     if (tasks.value.some((item) => item.status === "pending" || item.status === "running")) {
       loadTasks()
     }
-  }, 15000)
+  }, 4000)
 }
 
 function stopPolling() {

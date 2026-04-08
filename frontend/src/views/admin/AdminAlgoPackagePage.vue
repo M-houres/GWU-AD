@@ -273,6 +273,7 @@ import { computed, onMounted, ref } from "vue"
 import AdminShell from "../../components/AdminShell.vue"
 import { downloadAxiosBlobResponse } from "../../lib/download"
 import { adminHttp } from "../../lib/http"
+import { TASK_PLATFORM_OPTIONS, mapTaskPlatform } from "../../lib/taskPlatform"
 import { adminHasPermission } from "../../lib/session"
 
 const rows = ref([])
@@ -297,11 +298,7 @@ const downloadingGuide = ref(false)
 
 const canManageAlgo = computed(() => adminHasPermission("algo:manage"))
 
-const platformOptions = [
-  { value: "cnki", label: "知网" },
-  { value: "vip", label: "维普" },
-  { value: "paperpass", label: "PaperPass" },
-]
+const platformOptions = TASK_PLATFORM_OPTIONS
 
 const functionTypeOptions = [
   { value: "aigc_detect", label: "AIGC检测" },
@@ -520,12 +517,7 @@ function mapStrategyPlatform(platform) {
 }
 
 function mapPlatform(platform) {
-  const mapping = {
-    cnki: "知网",
-    vip: "维普",
-    paperpass: "PaperPass",
-  }
-  return mapping[platform] || platform
+  return mapTaskPlatform(platform)
 }
 
 function mapFunctionType(type) {

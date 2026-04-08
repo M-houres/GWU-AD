@@ -308,6 +308,7 @@ import { useUserProfile } from "../../composables/useUserProfile"
 import { downloadAxiosBlobResponse } from "../../lib/download"
 import { userHttp } from "../../lib/http"
 import { ensureUserLogin } from "../../lib/requireLogin"
+import { mapTaskPlatform } from "../../lib/taskPlatform"
 import { getUserToken } from "../../lib/session"
 import {
   taskResultMetrics,
@@ -461,12 +462,7 @@ function mapStatus(status) {
 }
 
 function mapPlatform(platform) {
-  const mapping = {
-    cnki: "格物学术标准版",
-    vip: "格物学术专业版",
-    paperpass: "格物学术极速版",
-  }
-  return mapping[platform] || platform
+  return mapTaskPlatform(platform)
 }
 
 function resultSummary(task) {

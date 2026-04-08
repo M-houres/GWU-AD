@@ -320,6 +320,7 @@ import { useRoute, useRouter } from "vue-router"
 import AdminShell from "../../components/AdminShell.vue"
 import { downloadAxiosBlobResponse } from "../../lib/download"
 import { adminHttp } from "../../lib/http"
+import { mapTaskPlatform } from "../../lib/taskPlatform"
 import {
   taskResultMetrics,
   taskResultOutputPreview,
@@ -472,12 +473,7 @@ function mapTaskType(type) {
 }
 
 function mapPlatform(platform) {
-  const map = {
-    cnki: "格物学术标准版",
-    vip: "格物学术专业版",
-    paperpass: "格物学术极速版",
-  }
-  return map[platform] || platform || "-"
+  return mapTaskPlatform(platform)
 }
 
 function mapStatus(status) {

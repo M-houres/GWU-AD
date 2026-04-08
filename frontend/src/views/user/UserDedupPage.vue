@@ -186,6 +186,7 @@ import BuyCreditsPanel from "../../components/BuyCreditsPanel.vue"
 import UserShell from "../../components/UserShell.vue"
 import { useUserProfile } from "../../composables/useUserProfile"
 import { userHttp } from "../../lib/http"
+import { TASK_PLATFORM_OPTIONS } from "../../lib/taskPlatform"
 import { ensureUserLogin } from "../../lib/requireLogin"
 import { getUserToken } from "../../lib/session"
 
@@ -205,11 +206,7 @@ const form = reactive({
   authors: "",
 })
 
-const platformCards = [
-  { value: "cnki", label: "知网" },
-  { value: "vip", label: "维普" },
-  { value: "paperpass", label: "PaperPass" },
-]
+const platformCards = TASK_PLATFORM_OPTIONS
 
 const features = [
   {

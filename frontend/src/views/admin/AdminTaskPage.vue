@@ -188,6 +188,7 @@ import { useRoute, useRouter } from "vue-router"
 import AdminShell from "../../components/AdminShell.vue"
 import { downloadAxiosBlobResponse } from "../../lib/download"
 import { adminHttp } from "../../lib/http"
+import { TASK_PLATFORM_OPTIONS, mapTaskPlatform } from "../../lib/taskPlatform"
 import {
   taskResultMetrics,
   taskResultOutputPreview,
@@ -221,9 +222,7 @@ const taskTypeOptions = [
 ]
 const platformOptions = [
   { value: "", label: "全部" },
-  { value: "cnki", label: "知网" },
-  { value: "vip", label: "维普" },
-  { value: "paperpass", label: "PaperPass" },
+  ...TASK_PLATFORM_OPTIONS,
 ]
 const statusOptions = [
   { value: "", label: "全部" },
@@ -329,12 +328,7 @@ function mapTaskType(type) {
 }
 
 function mapPlatform(platform) {
-  const mapping = {
-    cnki: "知网",
-    vip: "维普",
-    paperpass: "PaperPass",
-  }
-  return mapping[platform] || platform
+  return mapTaskPlatform(platform)
 }
 
 function mapSource(source) {

@@ -200,6 +200,7 @@ import { useUserProfile } from "../../composables/useUserProfile"
 import { downloadAxiosBlobResponse } from "../../lib/download"
 import { userHttp } from "../../lib/http"
 import { getUserToken } from "../../lib/session"
+import { mapTaskPlatform } from "../../lib/taskPlatform"
 import { taskResultMetrics, taskResultRiskParagraphs, taskResultSummary } from "../../lib/taskResult"
 
 const router = useRouter()
@@ -250,7 +251,7 @@ const filteredTasks = computed(() => {
     if (!text) {
       return true
     }
-    const searchText = `${item.id} ${taskLabel(item)} ${mapPlatform(item.platform)}`.toLowerCase()
+    const searchText = `${item.id} ${taskLabel(item)} ${mapTaskPlatform(item.platform)}`.toLowerCase()
     return searchText.includes(text)
   })
 })
@@ -332,7 +333,7 @@ function startPolling() {
     if (tasks.value.some((item) => item.status === "pending" || item.status === "running")) {
       loadTasks()
     }
-  }, 15000)
+  }, 4000)
 }
 
 function stopPolling() {
@@ -343,12 +344,7 @@ function stopPolling() {
 }
 
 function mapPlatform(platform) {
-  const mapping = {
-    cnki: "格物学术标准版",
-    vip: "格物学术专业版",
-    paperpass: "格物学术极速版",
-  }
-  return mapping[platform] || platform || "-"
+  return mapTaskPlatform(platform)
 }
 
 function taskLabel(item) {

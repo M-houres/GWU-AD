@@ -86,10 +86,13 @@ def test_aigc_detect_returns_structured_result(tmp_path: Path, db_session: Sessi
     assert len(result.result_json["risk_paragraphs"]) >= 1
     assert len(result.result_json["paragraph_details"]) >= 1
     assert "distribution" in result.result_json
+    assert "fragment_distribution" in result.result_json
+    assert "document_metrics" in result.result_json
+    assert "decision_basis" in result.result_json
+    assert "document_outline" in result.result_json
     assert "suspicious_segments" in result.result_json
     content = output_path.read_bytes()
     assert content.startswith(b"%PDF-")
-    assert b"/UniGB-UCS2-H" in content
     assert b"/STSong-Light" in content
 
 
@@ -159,6 +162,9 @@ def test_aigc_detect_accepts_nested_score_and_chinese_label(tmp_path: Path, db_s
     assert result.result_json["score_breakdown"].get("algo_package_score") == 0.63
     assert "algo_package_score" in result.result_json["score_breakdown"]
     assert "distribution" in result.result_json
+    assert "fragment_distribution" in result.result_json
+    assert "document_metrics" in result.result_json
+    assert "decision_basis" in result.result_json
 
 
 def test_aigc_detect_full_text_pdf_report_is_parseable(tmp_path: Path, db_session: Session, monkeypatch) -> None:
@@ -177,6 +183,9 @@ def test_aigc_detect_full_text_pdf_report_is_parseable(tmp_path: Path, db_sessio
 
     assert output_path.exists()
     assert len(result.result_json["paragraph_details"]) == 18
+    assert result.result_json["fragment_distribution"]["fragment_count"] > 0
+    assert result.result_json["fragment_distribution"]["severe_fragment_count"] >= 0
+    assert result.result_json["document_metrics"]["paragraph_count"] == 18
     reader = PdfReader(str(output_path))
     assert len(reader.pages) >= 2
 

@@ -12,7 +12,7 @@
           <div class="scholar-panel__body">
             <div class="scholar-step-head">
               <h3 class="scholar-step-head__title">第一步 选择目标平台</h3>
-              <span class="scholar-pill">默认推荐格物学术标准版</span>
+              <span class="scholar-pill">默认推荐知网</span>
             </div>
 
             <div class="scholar-option-grid lg:grid-cols-3" style="margin-top: 18px">
@@ -193,6 +193,7 @@ import { computed, ref } from "vue"
 import { useRoute, useRouter } from "vue-router"
 
 import { userHttp } from "../lib/http"
+import { mapTaskPlatform } from "../lib/taskPlatform"
 import { ensureUserLogin } from "../lib/requireLogin"
 
 const props = defineProps({
@@ -237,22 +238,22 @@ const confirmationStepLabel = computed(() => (props.needReport ? "第四步" : "
 const platformOptions = computed(() => {
   if (props.taskType === "dedup") {
     return [
-      { value: "cnki", label: "格物学术标准版", desc: "适合学位论文与毕业论文提交前的自查降重。", badge: "论文" },
-      { value: "vip", label: "格物学术专业版", desc: "适合期刊稿件与项目文稿的表达规整和句式优化。", badge: "期刊" },
-      { value: "paperpass", label: "格物学术极速版", desc: "适合初筛与快速预审场景。", badge: "预审" },
+      { value: "cnki", label: "知网", desc: "适合学位论文与毕业论文提交前的自查降重。", badge: "论文" },
+      { value: "vip", label: "维普", desc: "适合期刊稿件与项目文稿的表达规整和句式优化。", badge: "期刊" },
+      { value: "paperpass", label: "PaperPass", desc: "适合初筛与快速预审场景。", badge: "预审" },
     ]
   }
   if (props.taskType === "rewrite") {
     return [
-      { value: "cnki", label: "格物学术标准版", desc: "控制表达痕迹并尽量保持论点稳定。", badge: "学术" },
-      { value: "vip", label: "格物学术专业版", desc: "适合投稿前的语言整理与段落优化。", badge: "投稿" },
-      { value: "paperpass", label: "格物学术极速版", desc: "偏向快速学术润色处理。", badge: "效率" },
+      { value: "cnki", label: "知网", desc: "控制表达痕迹并尽量保持论点稳定。", badge: "学术" },
+      { value: "vip", label: "维普", desc: "适合投稿前的语言整理与段落优化。", badge: "投稿" },
+      { value: "paperpass", label: "PaperPass", desc: "偏向快速学术润色处理。", badge: "效率" },
     ]
   }
   return [
-    { value: "cnki", label: "格物学术标准版", desc: "适合提交前排查 AI 风险。", badge: "推荐" },
-    { value: "vip", label: "格物学术专业版", desc: "适合期刊稿件和研究文本预检。", badge: "期刊" },
-    { value: "paperpass", label: "格物学术极速版", desc: "适合快速发现高风险段落。", badge: "快速" },
+    { value: "cnki", label: "知网", desc: "适合提交前排查 AI 风险。", badge: "推荐" },
+    { value: "vip", label: "维普", desc: "适合期刊稿件和研究文本预检。", badge: "期刊" },
+    { value: "paperpass", label: "PaperPass", desc: "适合快速发现高风险段落。", badge: "快速" },
   ]
 })
 
@@ -272,7 +273,7 @@ const displayCredits = computed(() => {
 })
 const platformLabel = computed(() => {
   const row = platformOptions.value.find((item) => item.value === platform.value)
-  return row ? row.label : platform.value
+  return row ? row.label : mapTaskPlatform(platform.value)
 })
 const chargeExplainText = computed(() => {
   if (props.taskType === "aigc_detect") {
