@@ -2,7 +2,7 @@
 set -euo pipefail
 
 REPO_OWNER="${REPO_OWNER:-M-houres}"
-REPO_NAME="${REPO_NAME:-gewuxueshu}"
+REPO_NAME="${REPO_NAME:-GWU-AD}"
 BRANCH="${BRANCH:-main}"
 
 APP_DIR="${APP_DIR:-/opt/gewuxueshu}"

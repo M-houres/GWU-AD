@@ -10,5 +10,5 @@ if (-not (Test-Path $KeyPath)) {
   throw "SSH key not found: $KeyPath"
 }
 
-$remoteCmd = "sudo sed -i 's/\r$//' /opt/gewuxueshu/scripts/update_prod_server.sh && sudo bash /opt/gewuxueshu/scripts/update_prod_server.sh"
+$remoteCmd = "sudo sed -i 's/\r$//' /opt/gewuxueshu/scripts/update_prod_server.sh && sudo env REPO_OWNER=M-houres REPO_NAME=GWU-AD BRANCH=main bash /opt/gewuxueshu/scripts/update_prod_server.sh"
 ssh -i "$KeyPath" "$User@$ServerHost" $remoteCmd
