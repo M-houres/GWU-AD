@@ -31,6 +31,7 @@ class ProcessingEngine:
         self.db = db
         self._current_switch: SystemSwitch | None = None
         self._current_task_id: int | None = None
+        self._current_detect_source_text = ""
         self._pipeline_usage = {"llm_used": False, "algo_package_used": False}
         self._effective_mode = MODE_ALGO_ONLY
 
@@ -90,6 +91,7 @@ class ProcessingEngine:
         switch = self._get_or_init_switch()
         self._current_switch = switch
         self._current_task_id = task_id
+        self._current_detect_source_text = ""
         self._pipeline_usage = {"llm_used": False, "algo_package_used": False}
 
         llm_cfg = load_llm_config(self.db)
@@ -107,6 +109,7 @@ class ProcessingEngine:
         report_summary = self._extract_report_summary(task_type, report_text)
 
         if task_type == TaskType.AIGC_DETECT:
+            self._current_detect_source_text = source_text
             algo_result = self._run_algo_package(normalized_platform, task_type, source_text)
             llm_detect_text = self._build_detect_llm_excerpt(source_text, normalized_platform)
             llm_detect_result = self._parse_llm_detect_result(self._run_llm(task_type, llm_detect_text))
@@ -3220,7 +3223,9 @@ class ProcessingEngine:
 
     def _render_detect_report_pdf(self, result: dict) -> bytes:
         try:
-            return self._render_detect_report_pdf_reportlab(result)
+            from app.services.detect_report_renderer import render_detect_report_pdf_reportlab
+
+            return render_detect_report_pdf_reportlab(self, result)
         except Exception as exc:
             if isinstance(exc, ModuleNotFoundError):
                 module_name = (getattr(exc, "name", "") or "").split(".", 1)[0]
@@ -3978,4 +3983,3 @@ class ProcessingEngine:
             },
         }
         return profiles.get(key, profiles["cnki"])
-

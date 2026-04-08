@@ -190,6 +190,36 @@ def test_aigc_detect_full_text_pdf_report_is_parseable(tmp_path: Path, db_sessio
     assert len(reader.pages) >= 2
 
 
+def test_aigc_detect_pdf_uses_single_full_report_layout(tmp_path: Path, db_session: Session, monkeypatch) -> None:
+    source_path = tmp_path / "layout_text.txt"
+    output_path = tmp_path / "layout_report.pdf"
+    paragraphs = [
+        "Academic writing quality review sample title",
+        "Abstract",
+    ] + [
+        "This report layout validation paragraph keeps a stable academic tone and repeats enough structured "
+        "phrasing to trigger the full text report rendering path."
+        for _ in range(10)
+    ]
+    source_path.write_text("\n".join(paragraphs), encoding="utf-8")
+
+    monkeypatch.setattr(ProcessingEngine, "_run_algo_package", lambda self, *_args, **_kwargs: None)
+
+    engine = ProcessingEngine(db_session)
+    engine.process(TaskType.AIGC_DETECT, "cnki", source_path, output_path, task_id=9)
+
+    reader = PdfReader(str(output_path))
+    extracted = "\n".join(page.extract_text() or "" for page in reader.pages)
+    assert "AIGC检测" in extracted
+    assert "全文报告单" in extracted
+    assert "全文检测结果" in extracted
+    assert "AIGC片段分布图" in extracted
+    assert "片段指标列表" in extracted
+    assert "原文内容" in extracted
+    assert "说明" in extracted
+    assert len(reader.pages) >= 2
+
+
 def test_transform_text_combined_mode_runs_algo_then_llm(db_session: Session, monkeypatch) -> None:
     engine = ProcessingEngine(db_session)
     engine._effective_mode = "LLM_PLUS_ALGO"
