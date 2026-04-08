@@ -60,7 +60,7 @@ _LOGIN_CONFIG_DEFAULTS = {
     "notice_level": "info",
     "notice_version": 1,
     "notice_updated_at": "",
-    "new_user_initial_credits": 2000,
+    "new_user_initial_credits": 5000,
     "max_code_retry": 3,
     "phone_lock_minutes": 5,
     "send_code_ip_1h_limit": 30,

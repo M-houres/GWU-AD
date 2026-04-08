@@ -237,7 +237,7 @@ def test_task_submit_requires_active_package_for_enabled_strategy(
         app.dependency_overrides.pop(current_user, None)
 
 
-def test_user_task_result_hides_processing_mode_fields(
+def test_user_task_result_keeps_visible_pipeline_summary_and_hides_internal_breakdown(
     client: TestClient,
     db_session: Session,
 ) -> None:
@@ -279,10 +279,10 @@ def test_user_task_result_hides_processing_mode_fields(
         assert list_resp.status_code == 200
         list_item = list_resp.json()["data"]["items"][0]
         result = list_item["result_json"]
-        assert "mode" not in result
+        assert result["mode"] == "LLM_PLUS_ALGO"
         assert "processing_mode" not in result
-        assert "llm_used" not in result
-        assert "algo_package_used" not in result
+        assert result["llm_used"] is True
+        assert result["algo_package_used"] is True
         assert "llm_score" not in result.get("score_breakdown", {})
         assert "algo_package_score" not in result.get("score_breakdown", {})
         assert "pipeline_mode" not in result.get("score_breakdown", {})
@@ -290,9 +290,9 @@ def test_user_task_result_hides_processing_mode_fields(
         detail_resp = client.get(f"/api/v1/tasks/{task.id}")
         assert detail_resp.status_code == 200
         detail_result = detail_resp.json()["data"]["result_json"]
-        assert "mode" not in detail_result
-        assert "llm_used" not in detail_result
-        assert "algo_package_used" not in detail_result
+        assert detail_result["mode"] == "LLM_PLUS_ALGO"
+        assert detail_result["llm_used"] is True
+        assert detail_result["algo_package_used"] is True
     finally:
         app.dependency_overrides.pop(current_user, None)
 

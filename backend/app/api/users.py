@@ -1,12 +1,16 @@
+from datetime import datetime, timedelta
+
 from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy import desc, func
 from sqlalchemy.orm import Session
 
 from app.deps import current_user, db_dep
-from app.models import CreditTransaction, Notification, ReferralRelation, ReferralReward, User, UserInviteCode
+from app.models import CreditTransaction, Notification, ReferralRelation, ReferralReward, Task, TaskStatus, TaskType, User, UserInviteCode
 from app.pagination import paginate
 from app.responses import ok
 from app.schemas import APIResp
+from app.services.aigc_quota_service import get_aigc_daily_quota
+from app.services.process_strategy_service import sanitize_user_result_json
 from app.services.referral_service import mask_phone
 from app.utils_qrcode import build_qrcode_data_url
 
@@ -46,10 +50,9 @@ def update_me(
     user: User = Depends(current_user),
     db: Session = Depends(db_dep),
 ) -> APIResp:
-    nickname = str(payload.get("nickname", "")).strip()
-    if nickname:
-        user.nickname = nickname[:64]
-        db.commit()
+    nickname = str(payload.get("nickname", "")).strip()[:64]
+    user.nickname = nickname
+    db.commit()
     return ok(
         data={
             "id": user.id,
@@ -58,6 +61,114 @@ def update_me(
             "credits": user.credits,
             "source": user.source,
             "created_at": user.created_at,
+        }
+    )
+
+
+@router.get("/me/summary", response_model=APIResp)
+def me_summary(user: User = Depends(current_user), db: Session = Depends(db_dep)) -> APIResp:
+    recent_window = datetime.now() - timedelta(days=7)
+    task_total = db.query(Task.id).filter(Task.user_id == user.id).count()
+    recent_task_count = (
+        db.query(Task.id)
+        .filter(Task.user_id == user.id, Task.created_at >= recent_window)
+        .count()
+    )
+    tx_total = db.query(CreditTransaction.id).filter(CreditTransaction.user_id == user.id).count()
+    income_total = (
+        db.query(func.coalesce(func.sum(CreditTransaction.delta), 0))
+        .filter(CreditTransaction.user_id == user.id, CreditTransaction.delta >= 0)
+        .scalar()
+        or 0
+    )
+    outcome_total = (
+        db.query(func.coalesce(func.sum(CreditTransaction.delta), 0))
+        .filter(CreditTransaction.user_id == user.id, CreditTransaction.delta < 0)
+        .scalar()
+        or 0
+    )
+
+    type_counts = {item.value: 0 for item in TaskType}
+    for task_type, count in (
+        db.query(Task.task_type, func.count(Task.id))
+        .filter(Task.user_id == user.id)
+        .group_by(Task.task_type)
+        .all()
+    ):
+        type_counts[task_type.value if isinstance(task_type, TaskType) else str(task_type)] = int(count)
+
+    status_counts = {item.value: 0 for item in TaskStatus}
+    for status, count in (
+        db.query(Task.status, func.count(Task.id))
+        .filter(Task.user_id == user.id)
+        .group_by(Task.status)
+        .all()
+    ):
+        status_counts[status.value if isinstance(status, TaskStatus) else str(status)] = int(count)
+
+    last_task = (
+        db.query(Task)
+        .filter(Task.user_id == user.id)
+        .order_by(desc(Task.created_at), desc(Task.id))
+        .first()
+    )
+    recent_tasks = (
+        db.query(Task)
+        .filter(Task.user_id == user.id)
+        .order_by(desc(Task.created_at), desc(Task.id))
+        .limit(6)
+        .all()
+    )
+    recent_transactions = (
+        db.query(CreditTransaction)
+        .filter(CreditTransaction.user_id == user.id)
+        .order_by(desc(CreditTransaction.created_at), desc(CreditTransaction.id))
+        .limit(6)
+        .all()
+    )
+
+    return ok(
+        data={
+            "task_counts": {
+                "total": int(task_total),
+                "recent_7d": int(recent_task_count),
+                "by_type": type_counts,
+                "by_status": status_counts,
+                "last_created_at": last_task.created_at if last_task else None,
+            },
+            "credit_overview": {
+                "transaction_count": int(tx_total),
+                "income_total": int(income_total),
+                "outcome_total": abs(int(outcome_total)),
+            },
+            "aigc_quota": get_aigc_daily_quota(db, user_id=user.id),
+            "recent_tasks": [
+                {
+                    "id": row.id,
+                    "task_type": row.task_type.value,
+                    "platform": row.platform,
+                    "status": row.status.value,
+                    "source_filename": row.source_filename,
+                    "char_count": row.char_count,
+                    "cost_credits": row.cost_credits,
+                    "result_json": sanitize_user_result_json(row.result_json),
+                    "created_at": row.created_at,
+                    "updated_at": row.updated_at,
+                }
+                for row in recent_tasks
+            ],
+            "recent_transactions": [
+                {
+                    "id": row.id,
+                    "tx_type": row.tx_type.value,
+                    "delta": row.delta,
+                    "balance_before": row.balance_before,
+                    "balance_after": row.balance_after,
+                    "reason": row.reason,
+                    "created_at": row.created_at,
+                }
+                for row in recent_transactions
+            ],
         }
     )
 

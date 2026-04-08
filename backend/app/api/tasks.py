@@ -17,6 +17,7 @@ from app.pagination import paginate
 from app.responses import ok
 from app.schemas import APIResp
 from app.services.credit_service import change_credits
+from app.services.aigc_quota_service import get_aigc_daily_quota
 from app.services.process_strategy_service import (
     normalize_platform,
     resolve_task_processing_mode,
@@ -150,6 +151,7 @@ def task_rates(db: Session = Depends(db_dep)) -> APIResp:
             "aigc_rate": _resolve_task_rate(db, TaskType.AIGC_DETECT),
             "dedup_rate": _resolve_task_rate(db, TaskType.DEDUP),
             "rewrite_rate": _resolve_task_rate(db, TaskType.REWRITE),
+            "aigc_daily_free_limit": max(int(settings.aigc_daily_free_limit or 0), 0),
         }
     )
 
@@ -204,7 +206,9 @@ def submit_task(
     text = extract_text_from_file(src_path)
     char_count = count_billable_chars(text)
     rate = _resolve_task_rate(db, t)
-    cost = rate * char_count
+    quota_before = get_aigc_daily_quota(db, user_id=user.id) if t == TaskType.AIGC_DETECT else None
+    free_applied = bool(quota_before and quota_before["free_remaining_today"] > 0)
+    cost = 0 if free_applied else rate * char_count
     if char_count <= 0:
         raise BizError(code=4107, message="文档字符数为0，无法处理")
     if user.credits < cost:
@@ -239,7 +243,7 @@ def submit_task(
         user,
         tx_type=CreditType.TASK_CONSUME,
         delta=-cost,
-        reason=f"{t.value}任务提交扣费",
+        reason="AIGC每日免费额度抵扣" if free_applied else f"{t.value}任务提交扣费",
         related_id=f"task:{task.id}",
         source=client_source,
     )
@@ -257,6 +261,10 @@ def submit_task(
         },
     )
 
+    quota_after = None
+    if quota_before is not None:
+        quota_after = get_aigc_daily_quota(db, user_id=user.id)
+
     from app.worker_tasks import dispatch_background_task, process_task_async
 
     dispatch_background_task(process_task_async, task.id)
@@ -266,6 +274,11 @@ def submit_task(
             "status": task.status.value,
             "cost_credits": cost,
             "estimated_time": int(strategy.get("timeout_sec", 300)),
+            "billing": {
+                "rate_per_char": rate,
+                "free_applied": free_applied,
+                "quota": quota_after,
+            },
         }
     )
 
@@ -273,7 +286,7 @@ def submit_task(
 @router.get("/my", response_model=APIResp)
 def my_tasks(
     page: int = Query(default=1, ge=1),
-    page_size: int = Query(default=20, ge=1, le=100),
+    page_size: int = Query(default=20, ge=1, le=500),
     task_type: str | None = Query(default=None),
     platform: str | None = Query(default=None),
     status: str | None = Query(default=None),
@@ -311,7 +324,7 @@ def my_tasks(
             raise BizError(code=4112, message="结束日期格式错误，应为YYYY-MM-DD")
     total = base_query.count()
     rows = (
-        base_query.order_by(desc(Task.created_at))
+        base_query.order_by(desc(Task.created_at), desc(Task.id))
         .offset((page - 1) * page_size)
         .limit(page_size)
         .all()

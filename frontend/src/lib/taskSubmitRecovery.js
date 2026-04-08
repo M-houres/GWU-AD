@@ -1,4 +1,4 @@
-import { userHttp } from "./http"
+import { fetchAllUserTasks } from "./userRecords"
 
 function normalizeText(value) {
   return String(value || "").trim().toLowerCase()
@@ -55,10 +55,10 @@ export async function recoverSubmittedTask({
   }
 
   try {
-    const data = await userHttp.get("/tasks/my", {
-      params: { page: 1, page_size: 20, task_type: taskType },
-    })
-    const items = Array.isArray(data?.items) ? data.items : []
+    const items = await fetchAllUserTasks(
+      { task_type: taskType },
+      { pageSize: 100, maxPages: 6 }
+    )
     const windowStart = submittedAt - 2 * 60 * 1000
     const windowEnd = Date.now() + 60 * 1000
 

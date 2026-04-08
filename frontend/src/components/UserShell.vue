@@ -43,7 +43,7 @@
         <div class="header-title" :class="{ 'header-title--hidden': shouldHideHeaderTitle }">{{ routeTitle }}</div>
 
         <div class="header-right">
-          <button type="button" class="header-notice-btn" @click="isNoticeDialogOpen = true">公告</button>
+          <button v-if="showNoticeEntry" type="button" class="header-notice-btn" @click="isNoticeDialogOpen = true">公告</button>
           <button type="button" class="header-topup" @click="hasUserToken ? goBuy() : goLogin()">充值</button>
           <button type="button" class="header-link" @click="hasUserToken ? goProfile() : goLogin()">
             {{ hasUserToken ? "个人中心" : "登录" }}
@@ -75,7 +75,7 @@
       </main>
     </div>
 
-    <div v-if="isNoticeDialogOpen" class="notice-dialog-mask" @click.self="isNoticeDialogOpen = false">
+    <div v-if="showNoticeEntry && isNoticeDialogOpen" class="notice-dialog-mask" @click.self="isNoticeDialogOpen = false">
       <div class="notice-dialog" role="dialog" aria-modal="true" aria-label="公告">
         <div class="notice-dialog__head">
           <h3>{{ noticeTitle }}</h3>
@@ -175,6 +175,7 @@ const shouldHideTopbar = computed(() => {
   return isRouteMatch(route.path, "/app/profile") || isRouteMatch(route.path, "/app/referral")
 })
 const noticeTitle = computed(() => String(noticeState.value.title || "公告"))
+const showNoticeEntry = computed(() => noticeState.value.enabled)
 const noticeBodyText = computed(() => {
   if (!noticeState.value.enabled) {
     return "当前暂无公告内容。"
@@ -244,6 +245,9 @@ function applyNotice(raw) {
     level,
     version: Math.floor(version),
     updated_at: String(raw?.updated_at || "").trim(),
+  }
+  if (!noticeState.value.enabled) {
+    isNoticeDialogOpen.value = false
   }
 }
 

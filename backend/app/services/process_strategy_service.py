@@ -236,10 +236,7 @@ def sanitize_user_result_json(result_json: Any) -> Any:
     if not isinstance(result_json, dict):
         return result_json
     data = dict(result_json)
-    data.pop("mode", None)
     data.pop("processing_mode", None)
-    data.pop("llm_used", None)
-    data.pop("algo_package_used", None)
     breakdown = data.get("score_breakdown")
     if isinstance(breakdown, dict):
         trimmed = dict(breakdown)

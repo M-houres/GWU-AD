@@ -13,6 +13,9 @@
 
       <section class="aigc-page-head">
         <h2 class="aigc-page-head__title">上传 AIGC 待检测文档</h2>
+        <p v-if="quotaInfo" class="aigc-page-head__quota">
+          今日免费检测剩余 {{ quotaInfo.free_remaining_today }} / {{ quotaInfo.daily_free_limit }} 篇，超出后按字数计费。
+        </p>
       </section>
       <div class="aigc-page-head__divider" aria-hidden="true"></div>
 
@@ -224,10 +227,11 @@ const dragActive = ref(false)
 const paperFile = ref(null)
 const errorText = ref("")
 const successText = ref("")
+const quotaInfo = ref(null)
 
 onMounted(async () => {
   if (getUserToken()) {
-    await refreshUser()
+    await Promise.all([refreshUser(), loadQuotaInfo()])
   }
   const platform = String(route.query.platform || "")
   if (platformCards.some((item) => item.value === platform)) {
@@ -320,6 +324,7 @@ async function submitTask() {
     const data = await userHttp.post("/tasks/submit", payload, {
       timeout: 120000,
     })
+    quotaInfo.value = data?.billing?.quota || quotaInfo.value
 
     successText.value = `提交成功，任务 #${data.id} 已创建`
     try {
@@ -365,6 +370,19 @@ async function submitTask() {
 
 async function afterPaid() {
   await refreshUser()
+}
+
+async function loadQuotaInfo() {
+  if (!getUserToken()) {
+    quotaInfo.value = null
+    return
+  }
+  try {
+    const data = await userHttp.get("/users/me/summary")
+    quotaInfo.value = data?.aigc_quota || null
+  } catch {
+    quotaInfo.value = null
+  }
 }
 </script>
 

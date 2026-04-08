@@ -1,6 +1,83 @@
 <template>
-  <AdminShell title="算法包与策略" subtitle="运营只维护 9 宫格策略与激活算法包，用户侧不暴露处理模式。">
+  <AdminShell title="算法包与策略" subtitle="把全局模式、策略模式和算法包版本分开展示，避免混淆。">
     <div class="algo-admin-page space-y-4">
+      <section class="rounded-2xl border border-[#d9dee4] bg-white p-5">
+        <div class="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h3 class="text-base font-semibold text-[#1f2d3a]">双层模式总览</h3>
+            <p class="mt-1 text-sm leading-6 text-[#5b6771]">
+              全局模式决定系统现在能不能走大模型链路，策略模式决定每个“平台 × 功能”希望采用哪种处理方式。
+            </p>
+          </div>
+          <button class="rounded-lg bg-[#edf2f6] px-3 py-2 text-sm text-[#344250]" @click="loadSystemContext">刷新总览</button>
+        </div>
+
+        <div class="mt-4 grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
+          <article class="rounded-2xl border border-[#dbe4eb] bg-[#fbfdff] p-4">
+            <div class="text-xs font-semibold tracking-[0.08em] text-[#6b7a86]">全局运行模式</div>
+            <div class="mt-2 flex flex-wrap items-center gap-2">
+              <span class="rounded-full px-3 py-1 text-sm font-semibold" :class="systemSwitch.current_mode === 'LLM_PLUS_ALGO' ? 'bg-[#e8f4ef] text-[#0f6c53]' : 'bg-[#fff4ef] text-[#b24b35]'">
+                {{ currentGlobalModeLabel }}
+              </span>
+              <span class="rounded-full bg-[#eef3f8] px-3 py-1 text-xs text-[#556470]">
+                LLM {{ systemSwitch.llm_enabled ? "已启用" : "未启用" }}
+              </span>
+              <span class="rounded-full bg-[#eef3f8] px-3 py-1 text-xs text-[#556470]">
+                失败计数 {{ systemSwitch.llm_fail_count }}/{{ systemSwitch.llm_fail_threshold }}
+              </span>
+            </div>
+            <p class="mt-3 rounded-xl border border-[#dde6ee] bg-white px-3 py-2 text-sm leading-6 text-[#4f5d69]">
+              {{ globalModeHint }}
+            </p>
+            <div v-if="canManageSystem" class="mt-3 flex flex-wrap gap-2">
+              <button
+                class="rounded-lg border px-3 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-60"
+                :class="systemSwitch.current_mode === 'LLM_PLUS_ALGO' ? 'border-[#0f7a5f] bg-[#0f7a5f] text-white' : 'border-[#cfd8e0] bg-white text-[#344250]'"
+                :disabled="switchingMode === 'LLM_PLUS_ALGO'"
+                @click="switchSystemMode('LLM_PLUS_ALGO')"
+              >
+                {{ switchingMode === 'LLM_PLUS_ALGO' ? "切换中..." : "切到大模型 + 算法包" }}
+              </button>
+              <button
+                class="rounded-lg border px-3 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-60"
+                :class="systemSwitch.current_mode === 'ALGO_ONLY' ? 'border-[#111111] bg-[#111111] text-white' : 'border-[#cfd8e0] bg-white text-[#344250]'"
+                :disabled="switchingMode === 'ALGO_ONLY'"
+                @click="switchSystemMode('ALGO_ONLY')"
+              >
+                {{ switchingMode === 'ALGO_ONLY' ? "切换中..." : "切到算法包模式" }}
+              </button>
+            </div>
+            <p v-else class="mt-3 text-xs leading-5 text-[#6b7782]">当前账号没有系统模式切换权限，仅可查看状态。</p>
+          </article>
+
+          <article class="rounded-2xl border border-[#dbe4eb] bg-white p-4">
+            <div class="text-xs font-semibold tracking-[0.08em] text-[#6b7a86]">四步判断顺序</div>
+            <div class="mt-3 space-y-3 text-sm text-[#33414d]">
+              <div class="rounded-xl border border-[#eef2f5] bg-[#fbfdff] px-3 py-2">1. 先看全局模式：系统是否允许走大模型链路。</div>
+              <div class="rounded-xl border border-[#eef2f5] bg-[#fbfdff] px-3 py-2">2. 再看策略模式：当前平台功能目标是“算法包”还是“算法包 + 大模型”。</div>
+              <div class="rounded-xl border border-[#eef2f5] bg-[#fbfdff] px-3 py-2">3. 再看槽位：没有激活算法包，策略无法真正对用户开放。</div>
+              <div class="rounded-xl border border-[#eef2f5] bg-[#fbfdff] px-3 py-2">4. 真正执行时若大模型异常，会自动回落到算法包模式。</div>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section class="rounded-2xl border border-[#d9dee4] bg-white p-5">
+        <h3 class="text-base font-semibold text-[#1f2d3a]">业务处理链路说明</h3>
+        <div class="mt-3 grid gap-3 md:grid-cols-3">
+          <article v-for="card in processGuides" :key="card.title" class="rounded-2xl border border-[#dbe4eb] bg-[#fbfdff] p-4">
+            <div class="text-sm font-semibold text-[#1f2d3a]">{{ card.title }}</div>
+            <p class="mt-2 text-xs leading-6 text-[#556470]">{{ card.summary }}</p>
+            <div class="mt-3 rounded-xl border border-[#eef2f5] bg-white px-3 py-2 text-xs leading-6 text-[#415160]">
+              {{ card.algoOnly }}
+            </div>
+            <div class="mt-2 rounded-xl border border-[#eef2f5] bg-white px-3 py-2 text-xs leading-6 text-[#415160]">
+              {{ card.algoLlm }}
+            </div>
+          </article>
+        </div>
+      </section>
+
       <section class="rounded-2xl border border-[#d9dee4] bg-white p-5">
         <div class="flex flex-wrap items-center justify-between gap-2">
           <h3 class="text-base font-semibold text-[#1f2d3a]">算法包操作</h3>
@@ -93,7 +170,7 @@
           <button class="rounded-lg bg-[#edf2f6] px-3 py-2 text-sm text-[#344250]" @click="loadStrategies">刷新</button>
         </div>
         <p class="mb-3 rounded-xl border border-[#dde6ee] bg-white px-3 py-2 text-xs text-[#4f5d69]">
-          每个“平台 × 功能”独立配置：处理模式、是否启用、超时时间。用户端不会看到这些内部策略。
+          每个“平台 × 功能”独立配置：目标策略、是否对用户开放、超时时间。真正执行时仍会先经过上面的全局模式判断。
         </p>
 
         <div class="grid gap-3 md:grid-cols-3">
@@ -134,6 +211,13 @@
               </button>
             </div>
 
+            <div class="mt-3 rounded-xl border border-[#dde6ee] bg-white px-3 py-2 text-xs leading-6 text-[#4f5d69]">
+              目标链路：{{ processModeSummary(cell.process_mode) }}
+            </div>
+            <div class="mt-2 rounded-xl border border-[#dde6ee] bg-white px-3 py-2 text-xs leading-6 text-[#4f5d69]">
+              实际判断：{{ effectiveModeHint(cell) }}
+            </div>
+
             <div class="mt-3 flex items-center justify-between gap-2">
               <label class="inline-flex items-center gap-2 text-xs text-[#4e5d69]">
                 <input v-model="cell.is_enabled" :disabled="!canManageAlgo" type="checkbox" class="h-4 w-4 rounded border-[#c7d0d8]" />
@@ -168,6 +252,7 @@
 
       <section class="rounded-2xl border border-[#d9dee4] bg-white p-5">
         <h3 class="text-base font-semibold text-[#1f2d3a]">槽位当前版本</h3>
+        <p class="mt-2 text-xs leading-5 text-[#5f6d79]">这里只看每个槽位当前真正生效的算法包版本。上传新包不会自动替换旧包，只有激活后才会切换。</p>
         <div class="mt-3 overflow-x-auto">
           <table class="min-w-full text-sm">
             <thead>
@@ -204,6 +289,7 @@
           <h3 class="text-base font-semibold text-[#1f2d3a]">已上传算法包</h3>
           <button class="rounded-lg bg-[#edf2f6] px-3 py-2 text-sm text-[#344250]" @click="loadPackages">刷新</button>
         </div>
+        <p class="mb-3 text-xs leading-5 text-[#5f6d79]">这是完整版本仓库，用于查看上传记录、下载历史包、把指定版本切到对应槽位。</p>
 
         <div class="overflow-x-auto">
           <table class="min-w-full text-sm">
@@ -279,10 +365,18 @@ import { adminHasPermission } from "../../lib/session"
 const rows = ref([])
 const slots = ref([])
 const strategyCards = ref([])
+const systemSwitch = ref({
+  current_mode: "LLM_PLUS_ALGO",
+  llm_enabled: false,
+  llm_fail_count: 0,
+  llm_fail_threshold: 3,
+  updated_at: "",
+})
 const selectedFile = ref(null)
 const uploading = ref(false)
 const togglingKey = ref("")
 const savingStrategyKey = ref("")
+const switchingMode = ref("")
 const activateAfterUpload = ref(true)
 const hintText = ref("")
 const errorText = ref("")
@@ -297,6 +391,34 @@ const uploadForm = ref({
 const downloadingGuide = ref(false)
 
 const canManageAlgo = computed(() => adminHasPermission("algo:manage"))
+const canManageSystem = computed(() => adminHasPermission("system:manage"))
+const currentGlobalModeLabel = computed(() => systemSwitch.value.current_mode === "LLM_PLUS_ALGO" ? "大模型 + 算法包" : "算法包模式")
+const globalModeHint = computed(() => {
+  if (systemSwitch.value.current_mode === "LLM_PLUS_ALGO") {
+    return "当前系统允许在策略为“算法包 + 大模型”的位置进入增强链路。若大模型连续异常，系统会自动回落到算法包模式。"
+  }
+  return "当前系统统一回落到算法包模式。即使某个策略配置为“算法包 + 大模型”，也只会执行算法包。"
+})
+const processGuides = [
+  {
+    title: "AIGC 检测",
+    summary: "检测链路必须先有对应平台的算法包，算法包负责平台口径、基础信号和结果骨架。",
+    algoOnly: "算法包模式：只运行平台算法包，直接产出检测结果与报告结构。",
+    algoLlm: "算法包 + 大模型：先跑算法包，再由大模型做语义校验、解释增强与风险综合；大模型异常时自动回落。",
+  },
+  {
+    title: "学术润色",
+    summary: "润色先由算法包完成基础改写、结构保留和规则性处理，再决定是否追加大模型增强。",
+    algoOnly: "算法包模式：只执行算法包改写，强调稳定、可控和规则一致性。",
+    algoLlm: "算法包 + 大模型：算法包先出基础版本，大模型再继续深度润色，重点降低 AI 痕迹和表达生硬感。",
+  },
+  {
+    title: "降重复率",
+    summary: "降重链路同样以算法包为锚点，先做基础改写，再决定是否追加大模型语义层降重。",
+    algoOnly: "算法包模式：只做算法包内的结构与措辞改写，适合追求稳定成本和稳定产出。",
+    algoLlm: "算法包 + 大模型：算法包先完成首轮降重，大模型再补充语义改写和语言顺滑度，进一步压低重复率。",
+  },
+]
 
 const platformOptions = TASK_PLATFORM_OPTIONS
 
@@ -319,7 +441,7 @@ const taskTypeOrder = {
 }
 
 onMounted(async () => {
-  await Promise.allSettled([loadPackages(), loadStrategies()])
+  await Promise.allSettled([loadPackages(), loadStrategies(), loadSystemContext()])
 })
 
 async function loadPackages() {
@@ -366,6 +488,14 @@ async function loadStrategies() {
   }
 }
 
+async function loadSystemContext() {
+  try {
+    systemSwitch.value = await adminHttp.get("/admin/switch/current")
+  } catch (error) {
+    errorText.value = error.message || "加载全局模式失败"
+  }
+}
+
 async function saveStrategy(cell) {
   const key = `${cell.task_type}:${cell.platform}`
   savingStrategyKey.value = key
@@ -391,6 +521,29 @@ async function saveStrategy(cell) {
     errorText.value = error.message || "保存策略失败"
   } finally {
     savingStrategyKey.value = ""
+  }
+}
+
+async function switchSystemMode(mode) {
+  if (!canManageSystem.value || switchingMode.value) {
+    return
+  }
+  const label = mode === "LLM_PLUS_ALGO" ? "大模型 + 算法包" : "算法包模式"
+  const ok = window.confirm(`确认把系统全局模式切换为“${label}”吗？`)
+  if (!ok) {
+    return
+  }
+  switchingMode.value = mode
+  hintText.value = ""
+  errorText.value = ""
+  try {
+    await adminHttp.post("/admin/switch/mode", { mode })
+    await loadSystemContext()
+    hintText.value = `全局模式已切换为：${label}`
+  } catch (error) {
+    errorText.value = error.message || "切换全局模式失败"
+  } finally {
+    switchingMode.value = ""
   }
 }
 
@@ -543,6 +696,26 @@ function selectCardClass(current, value) {
 
 function processModeClass(active) {
   return ["gw-mode-btn", active ? "is-selected" : ""]
+}
+
+function processModeSummary(mode) {
+  if (mode === "algo_llm") {
+    return "目标为“算法包 + 大模型”。会先跑当前算法包，再尝试进入大模型增强链路。"
+  }
+  return "目标为“算法包模式”。只运行当前激活算法包，不进入大模型链路。"
+}
+
+function effectiveModeHint(cell) {
+  if (!cell.active_package) {
+    return "当前槽位没有激活算法包。即使策略已保存，也无法真正对用户开放。"
+  }
+  if (cell.process_mode === "algo_llm" && systemSwitch.value.current_mode !== "LLM_PLUS_ALGO") {
+    return "该策略目标是“算法包 + 大模型”，但全局模式当前回落到了算法包模式，所以实际只会执行算法包。"
+  }
+  if (cell.process_mode === "algo_llm") {
+    return "当前具备进入大模型增强链路的条件；执行时若大模型异常，系统会自动回落到算法包。"
+  }
+  return "当前会直接执行算法包，不依赖大模型状态。"
 }
 
 function toggleSwitchClass(active) {

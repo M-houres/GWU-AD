@@ -118,7 +118,7 @@
           <template v-else-if="activeTab === 'billing'">
             <section class="rounded-2xl border border-[#dce4eb] bg-white p-4">
               <div class="text-sm font-semibold text-[#1f2c35]">任务计费（按字符）</div>
-              <div class="mt-1 text-xs leading-5 text-[#5f6d79]">计费口径：任务实际扣费 = 字符数 × 单价。建议按典型字数（1k/5k/8k）先做换算。</div>
+              <div class="mt-1 text-xs leading-5 text-[#5f6d79]">计费口径：任务实际扣费 = 字符数 × 单价。AIGC 检测每天前 6 篇免费，超出后按单价计费。建议按典型字数（1k/5k/8k）先做换算。</div>
               <div class="mt-3 grid gap-3 md:grid-cols-3">
                 <label class="space-y-1 text-sm"><span>AIGC 单价</span><input v-model.number="forms.billing.aigc_rate" type="number" min="1" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" /></label>
                 <label class="space-y-1 text-sm"><span>降重单价</span><input v-model.number="forms.billing.dedup_rate" type="number" min="1" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" /></label>
@@ -720,7 +720,7 @@ const forms = ref({
     wechat_app_id: "",
     wechat_app_secret: "",
     wechat_redirect_uri: "",
-    new_user_initial_credits: 2000,
+    new_user_initial_credits: 5000,
     max_code_retry: 3,
     phone_lock_minutes: 5,
     send_code_ip_1h_limit: 30,
@@ -805,7 +805,7 @@ async function loadTab(category) {
   if (category === "login") {
     forms.value.login.sms_region = forms.value.login.sms_region || "ap-guangzhou"
     forms.value.login.sms_aliyun_region_id = forms.value.login.sms_aliyun_region_id || "cn-hangzhou"
-    forms.value.login.new_user_initial_credits = Number(forms.value.login.new_user_initial_credits ?? 2000)
+    forms.value.login.new_user_initial_credits = Number(forms.value.login.new_user_initial_credits ?? 5000)
     forms.value.login.max_code_retry = Number(forms.value.login.max_code_retry ?? 3)
     forms.value.login.phone_lock_minutes = Number(forms.value.login.phone_lock_minutes ?? 5)
     forms.value.login.send_code_ip_1h_limit = Number(forms.value.login.send_code_ip_1h_limit ?? 30)

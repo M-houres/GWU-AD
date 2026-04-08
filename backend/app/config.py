@@ -30,7 +30,8 @@ class Settings(BaseSettings):
     celery_broker_url: str = "redis://127.0.0.1:6379/0"
     celery_result_backend: str = "redis://127.0.0.1:6379/0"
 
-    initial_credits: int = 2000
+    initial_credits: int = 5000
+    aigc_daily_free_limit: int = 6
     referral_register_inviter_credits: int = 500
     referral_register_invitee_bonus: int = 500
     max_code_retry: int = 3

@@ -199,6 +199,7 @@ import UserShell from "../../components/UserShell.vue"
 import { useUserProfile } from "../../composables/useUserProfile"
 import { downloadAxiosBlobResponse } from "../../lib/download"
 import { userHttp } from "../../lib/http"
+import { fetchAllUserTasks } from "../../lib/userRecords"
 import { getUserToken } from "../../lib/session"
 import { mapTaskPlatform } from "../../lib/taskPlatform"
 import { taskResultMetrics, taskResultRiskParagraphs, taskResultSummary } from "../../lib/taskResult"
@@ -315,10 +316,11 @@ async function loadTasks() {
   }
   loading.value = true
   try {
-    const data = await userHttp.get("/tasks/my", {
-      params: { page: 1, page_size: 100, task_type: "aigc_detect" },
-    })
-    tasks.value = (data.items || []).sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))
+    const data = await fetchAllUserTasks(
+      { task_type: "aigc_detect" },
+      { pageSize: 100, maxPages: 20 }
+    )
+    tasks.value = [...data].sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))
   } finally {
     loading.value = false
   }
