@@ -1,7 +1,3 @@
-import base64
-from io import BytesIO
-
-import qrcode
 from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy import desc, func
 from sqlalchemy.orm import Session
@@ -12,16 +8,13 @@ from app.pagination import paginate
 from app.responses import ok
 from app.schemas import APIResp
 from app.services.referral_service import mask_phone
+from app.utils_qrcode import build_qrcode_data_url
 
 router = APIRouter()
 
 
 def _build_invite_qrcode(link: str) -> str:
-    img = qrcode.make(link)
-    buffer = BytesIO()
-    img.save(buffer, format="PNG")
-    encoded = base64.b64encode(buffer.getvalue()).decode("ascii")
-    return f"data:image/png;base64,{encoded}"
+    return build_qrcode_data_url(link)
 
 
 def _frontend_base_url(request: Request) -> str:

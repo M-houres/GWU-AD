@@ -5,7 +5,6 @@ import logging
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse, PlainTextResponse
-import qrcode
 from sqlalchemy.orm import Session
 
 from app.client_source import DEFAULT_CLIENT_SOURCE, SYSTEM_CLIENT_SOURCE, get_client_source
@@ -28,6 +27,7 @@ from app.services.payment_service import (
     verify_payload_signature,
 )
 from app.utils import make_order_no
+from app.utils_qrcode import build_qrcode_data_url
 
 router = APIRouter()
 settings = get_settings()
@@ -211,11 +211,7 @@ def _settle_package_order(
 
 
 def _build_qrcode_data(pay_url: str) -> str:
-    img = qrcode.make(pay_url)
-    buffer = BytesIO()
-    img.save(buffer, format="PNG")
-    encoded = base64.b64encode(buffer.getvalue()).decode("ascii")
-    return f"data:image/png;base64,{encoded}"
+    return build_qrcode_data_url(pay_url)
 
 
 def _pay_pending_order(db: Session, order: Order) -> tuple[Order, bool]:

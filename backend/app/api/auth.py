@@ -11,7 +11,6 @@ import uuid
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse
 import httpx
-import qrcode
 from sqlalchemy.orm import Session
 
 from app.client_source import DEFAULT_CLIENT_SOURCE, get_client_source
@@ -27,6 +26,7 @@ from app.services.referral_service import bind_referral_relation
 from app.services.referral_service import get_referral_rules
 from app.services.user_navigation_service import default_user_navigation_config, normalize_user_navigation_config
 from app.utils import gen_code, is_phone_valid, make_invite_code
+from app.utils_qrcode import build_qrcode_data_url
 
 router = APIRouter()
 settings = get_settings()
@@ -955,14 +955,10 @@ def wx_qrcode(db: Session = Depends(db_dep), redis_client=Depends(get_redis)) ->
         qr_payload = _wechat_authorize_url(login_cfg, state)
     else:
         qr_payload = f"mock://wechat-login?state={quote(state, safe='')}"
-    img = qrcode.make(qr_payload)
-    buffer = BytesIO()
-    img.save(buffer, format="PNG")
-    encoded = base64.b64encode(buffer.getvalue()).decode("ascii")
     return ok(
         data={
             "key": key,
-            "qrcode_data_url": f"data:image/png;base64,{encoded}",
+            "qrcode_data_url": build_qrcode_data_url(qr_payload),
             "expire_seconds": WX_LOGIN_TTL_SECONDS,
             "poll_interval_seconds": 2,
         }

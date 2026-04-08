@@ -319,9 +319,10 @@ function isRouteMatch(currentPath, targetPath) {
 
 <style scoped>
 .app-shell {
+  --sider-width: 236px;
   min-height: 100vh;
   display: grid;
-  grid-template-columns: 220px minmax(0, 1fr);
+  grid-template-columns: var(--sider-width) minmax(0, 1fr);
   background: linear-gradient(180deg, #fafafa 0%, #ffffff 100%);
   color: var(--text-main);
 }
@@ -339,7 +340,7 @@ function isRouteMatch(currentPath, targetPath) {
 }
 
 .sider-brand {
-  padding: 22px 18px 18px;
+  padding: 24px 20px 18px;
   border-bottom: 1px solid #ececec;
 }
 
@@ -387,7 +388,7 @@ function isRouteMatch(currentPath, targetPath) {
 .scrollbar-wrapper {
   flex: 1;
   overflow: auto;
-  padding: 16px 0 18px;
+  padding: 18px 0 20px;
 }
 
 .el-menu {
@@ -406,7 +407,7 @@ function isRouteMatch(currentPath, targetPath) {
 }
 
 .nav-divider {
-  margin: 10px 18px;
+  margin: 10px 20px;
   border-top: 1px solid #e7e7e7;
   list-style: none;
 }
@@ -416,10 +417,10 @@ function isRouteMatch(currentPath, targetPath) {
   display: flex;
   align-items: center;
   gap: 10px;
-  width: calc(100% - 24px);
-  margin: 0 12px;
+  width: calc(100% - 28px);
+  margin: 0 14px;
   min-height: 46px;
-  padding: 11px 14px;
+  padding: 12px 16px;
   border-radius: 14px;
   border: 1px solid transparent;
   color: #1a1a1a;
