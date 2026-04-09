@@ -1,13 +1,13 @@
 <template>
   <UserShell
-    title="学术润色"
+    title="降AIGC"
     subtitle="任务按时间倒序展示，最新提交优先在顶部显示。"
     :credits="userCredits"
     :hide-topbar="true"
     @buy="showBuy = !showBuy"
   >
     <section class="aigc-record-head">
-      <div class="aigc-record-head__title">学术润色</div>
+      <div class="aigc-record-head__title">降AIGC</div>
       <p class="aigc-record-head__hint">
         <span>i</span>
         保留论点结构并降低AI痕迹，完成后可下载处理文档。
@@ -54,7 +54,7 @@
 
     <section v-else-if="pagedTasks.length === 0" class="aigc-empty">
       <div class="aigc-empty__icon">R</div>
-      <h3>暂无学术润色记录</h3>
+      <h3>暂无降AIGC记录</h3>
       <p>提交任务后，这里会显示处理进度与结果下载入口。</p>
       <button class="scholar-button" type="button" @click="goUpload">立即上传</button>
     </section>
@@ -77,7 +77,7 @@
           <div class="aigc-record-item__meta">
             <div>作者：{{ safeText(item.result_json?.authors) }}</div>
             <div>提交时间：{{ formatTime(item.created_at) }}</div>
-            <div>平台：{{ mapTaskPlatform(item.platform) }}</div>
+            <div>平台：{{ mapTaskPlatform(item.platform, item.task_type) }}</div>
             <div>文档字数：{{ item.char_count || 0 }}</div>
             <div>消耗积分：{{ item.cost_credits || 0 }} 积分</div>
             <div>AIGC报告：{{ item.has_report ? "已上传" : "未上传" }}</div>
@@ -88,7 +88,7 @@
           <template v-if="item.status === 'completed'">
             <span class="service-status-tag service-status-tag--success">已完成</span>
             <div class="aigc-record-item__score">{{ changeRate(item) }}</div>
-            <div class="aigc-record-item__score-note">学术润色幅度</div>
+            <div class="aigc-record-item__score-note">降AIGC幅度</div>
           </template>
           <template v-else-if="item.status === 'running' || item.status === 'pending'">
             <span class="service-status-tag service-status-tag--processing">处理中</span>
@@ -144,7 +144,7 @@
           <div class="flex flex-wrap items-start justify-between gap-3">
             <div>
               <div class="scholar-kicker">Task Result</div>
-              <h3 class="scholar-subtitle">学术润色结果详情</h3>
+              <h3 class="scholar-subtitle">降AIGC结果详情</h3>
               <p class="scholar-lead">{{ taskResultSummary(selectedTask) }}</p>
             </div>
             <button class="scholar-button scholar-button--secondary" type="button" @click="selectedTask = null">
@@ -235,7 +235,7 @@ const filteredTasks = computed(() => {
     if (!text) {
       return true
     }
-    const searchText = `${item.id} ${taskLabel(item)} ${mapTaskPlatform(item.platform)}`.toLowerCase()
+    const searchText = `${item.id} ${taskLabel(item)} ${mapTaskPlatform(item.platform, item.task_type)}`.toLowerCase()
     return searchText.includes(text)
   })
 })

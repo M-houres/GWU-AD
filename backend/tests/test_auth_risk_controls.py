@@ -306,3 +306,132 @@ def test_wx_miniprogram_login_calls_jscode2session_when_credentials_ready(
         assert called["ok"] is True
     finally:
         settings.app_env = old_env
+
+
+def test_wx_miniprogram_phone_login_accepts_mock_codes_in_non_prod(
+    client: TestClient,
+    db_session: Session,
+) -> None:
+    from app.config import get_settings
+
+    settings = get_settings()
+    old_env = settings.app_env
+    settings.app_env = "dev"
+    db_session.add(
+        SystemConfig(
+            category="system",
+            config_key="login",
+            config_value={
+                "wechat_miniprogram_login_enabled": True,
+                "wechat_miniprogram_app_id": "wx-mini-dev-001",
+                "wechat_miniprogram_app_secret": "mini-dev-secret-001",
+            },
+        )
+    )
+    db_session.commit()
+    try:
+        resp = client.post(
+            "/api/v1/auth/wx/mini-phone-login",
+            json={
+                "login_code": "mock_login_code_001",
+                "phone_code": "mock_phone_13800001234",
+            },
+            headers={"X-Client-Source": "miniprogram"},
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["code"] == 0
+        assert body["data"]["scene"] == "miniprogram"
+        assert body["data"]["login_type"] == "phone_quick"
+        assert body["data"]["token"]
+        assert body["data"]["user"]["phone"] == "13800001234"
+    finally:
+        settings.app_env = old_env
+
+
+def test_wx_miniprogram_phone_login_calls_phone_api_and_binds_real_phone(
+    client: TestClient,
+    db_session: Session,
+    monkeypatch,
+) -> None:
+    from app.api import auth as auth_api
+    from app.config import get_settings
+
+    class _FakeResp:
+        def __init__(self, payload):
+            self.status_code = 200
+            self._payload = payload
+
+        def json(self):
+            return self._payload
+
+    def _fake_get(url, params=None, timeout=0):
+        if "jscode2session" in url:
+            assert params["appid"] == "wx-mini-real-001"
+            assert params["secret"] == "mini-real-secret-001"
+            assert params["js_code"] == "real_login_code_001"
+            return _FakeResp({"openid": "mini_openid_phone_001", "unionid": "mini_union_phone_001"})
+        if "cgi-bin/token" in url:
+            assert params["appid"] == "wx-mini-real-001"
+            assert params["secret"] == "mini-real-secret-001"
+            return _FakeResp({"access_token": "mini_access_token_001", "expires_in": 7200})
+        raise AssertionError(url)
+
+    def _fake_post(url, params=None, json=None, timeout=0):
+        assert "getuserphonenumber" in url
+        assert params["access_token"] == "mini_access_token_001"
+        assert json["code"] == "real_phone_code_001"
+        return _FakeResp(
+            {
+                "errcode": 0,
+                "phone_info": {
+                    "phoneNumber": "13800006666",
+                    "purePhoneNumber": "13800006666",
+                    "countryCode": "86",
+                    "watermark": {"appid": "wx-mini-real-001", "timestamp": 1710000000},
+                },
+            }
+        )
+
+    monkeypatch.setattr(auth_api.httpx, "get", _fake_get)
+    monkeypatch.setattr(auth_api.httpx, "post", _fake_post)
+
+    settings = get_settings()
+    old_env = settings.app_env
+    settings.app_env = "prod"
+    db_session.add(
+        SystemConfig(
+            category="system",
+            config_key="login",
+            config_value={
+                "wechat_miniprogram_login_enabled": True,
+                "wechat_miniprogram_app_id": "wx-mini-real-001",
+                "wechat_miniprogram_app_secret": "mini-real-secret-001",
+            },
+        )
+    )
+    db_session.commit()
+
+    try:
+        resp = client.post(
+            "/api/v1/auth/wx/mini-phone-login",
+            json={
+                "login_code": "real_login_code_001",
+                "phone_code": "real_phone_code_001",
+            },
+            headers={"X-Client-Source": "miniprogram"},
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["code"] == 0
+        assert body["data"]["login_type"] == "phone_quick"
+        assert body["data"]["user"]["phone"] == "13800006666"
+
+        user = db_session.get(User, body["data"]["user"]["id"])
+        assert user is not None
+        assert user.wechat_openid_mp == "mini_openid_phone_001"
+        assert user.wechat_unionid == "mini_union_phone_001"
+        assert user.phone == "13800006666"
+        assert user.source == "miniprogram"
+    finally:
+        settings.app_env = old_env

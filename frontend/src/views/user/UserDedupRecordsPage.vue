@@ -77,7 +77,7 @@
           <div class="aigc-record-item__meta">
             <div>作者：{{ safeText(item.result_json?.authors) }}</div>
             <div>提交时间：{{ formatTime(item.created_at) }}</div>
-            <div>平台：{{ mapTaskPlatform(item.platform) }}</div>
+            <div>平台：{{ mapTaskPlatform(item.platform, item.task_type) }}</div>
             <div>文档字数：{{ item.char_count || 0 }}</div>
             <div>消耗积分：{{ item.cost_credits || 0 }} 积分</div>
             <div>查重报告：{{ item.has_report ? "已上传" : "未上传" }}</div>
@@ -235,7 +235,7 @@ const filteredTasks = computed(() => {
     if (!text) {
       return true
     }
-    const searchText = `${item.id} ${taskLabel(item)} ${mapTaskPlatform(item.platform)}`.toLowerCase()
+    const searchText = `${item.id} ${taskLabel(item)} ${mapTaskPlatform(item.platform, item.task_type)}`.toLowerCase()
     return searchText.includes(text)
   })
 })

@@ -2,6 +2,7 @@ const USER_TOKEN_KEY = "wuhong_user_token"
 const ADMIN_TOKEN_KEY = "wuhong_admin_token"
 const USER_INFO_KEY = "wuhong_user_info"
 const ADMIN_INFO_KEY = "wuhong_admin_info"
+const USER_NAVIGATION_KEY = "wuhong_user_navigation"
 
 export function getUserToken() {
   return localStorage.getItem(USER_TOKEN_KEY) || ""
@@ -18,6 +19,7 @@ export function setUserToken(token) {
 export function clearUserSession() {
   localStorage.removeItem(USER_TOKEN_KEY)
   localStorage.removeItem(USER_INFO_KEY)
+  localStorage.removeItem(USER_NAVIGATION_KEY)
 }
 
 export function getAdminToken() {
@@ -47,6 +49,26 @@ export function setUserInfo(user) {
 
 export function getUserInfo() {
   const raw = localStorage.getItem(USER_INFO_KEY)
+  if (!raw) {
+    return null
+  }
+  try {
+    return JSON.parse(raw)
+  } catch {
+    return null
+  }
+}
+
+export function setUserNavigationConfig(config) {
+  if (!config) {
+    localStorage.removeItem(USER_NAVIGATION_KEY)
+    return
+  }
+  localStorage.setItem(USER_NAVIGATION_KEY, JSON.stringify(config))
+}
+
+export function getUserNavigationConfig() {
+  const raw = localStorage.getItem(USER_NAVIGATION_KEY)
   if (!raw) {
     return null
   }

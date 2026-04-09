@@ -1,20 +1,194 @@
-<view class="container">
-  <view class="card">
-    <view class="title" style="font-size: 30rpx;">账号信息</view>
-    <view class="gap-16">
-      <view class="row"><view class="muted">昵称</view><view>{{ user.nickname || "-" }}</view></view>
-      <view class="row"><view class="muted">手机号</view><view>{{ user.phone || "-" }}</view></view>
-      <view class="row"><view class="muted">积分</view><view>{{ user.credits || 0 }}</view></view>
-      <view class="row"><view class="muted">来源</view><view>{{ user.source || "-" }}</view></view>
-    </view>
-  </view>
+<view class="page-shell page-shell--profile">
+  <view class="content-stack profile-stack">
+    <view class="hero-panel hero-panel--light profile-hero">
+      <view class="profile-head">
+        <view class="profile-avatar">{{ avatarText }}</view>
+        <view class="profile-copy">
+          <view class="profile-title">{{ displayName }}</view>
+          <view class="profile-subtitle">{{ guestMode ? "登录后可查看账户、权益和充值进度。" : "账户、充值、公告集中管理。" }}</view>
+        </view>
+      </view>
 
-  <view class="card gap-16">
-    <view class="title" style="font-size: 30rpx;">操作</view>
-    <view class="row gap-16">
-      <button class="btn-secondary" bindtap="onGoPay">积分充值</button>
-      <button class="btn-secondary" bindtap="onReload">刷新资料</button>
-      <button class="btn-primary" bindtap="onLogout">退出登录</button>
+    </view>
+
+    <view class="surface surface--compact guest-entry" wx:if="{{ guestMode }}">
+      <view class="section-head profile-section-head">
+        <view class="section-copy">
+          <view class="section-kicker">登录后可见</view>
+          <view class="section-title">登录后进入个人中心</view>
+          <view class="section-desc">账户信息、积分充值、订单进度和系统公告会在登录后显示。</view>
+        </view>
+      </view>
+
+      <view class="button-group button-group--single">
+        <view class="button-item">
+          <button class="primary-btn" hover-class="is-press-btn" bindtap="onTapGuestLogin">去登录</button>
+        </view>
+      </view>
+    </view>
+
+    <view class="surface surface--compact profile-section" wx:else>
+      <view class="section-head profile-section-head">
+        <view class="section-copy">
+          <view class="section-kicker">账户信息</view>
+          <view class="section-title">账户信息</view>
+        </view>
+      </view>
+
+      <view class="profile-facts">
+        <view class="profile-fact" wx:for="{{ profileItems }}" wx:key="label">
+          <view class="profile-fact-label">{{ item.label }}</view>
+          <view class="profile-fact-value">{{ item.value }}</view>
+        </view>
+      </view>
+
+    </view>
+
+    <view class="surface surface--soft billing-section" wx:if="{{ !guestMode }}">
+      <view class="section-head">
+        <view class="section-copy">
+          <view class="section-kicker">积分充值</view>
+          <view class="section-title">积分充值</view>
+          <view class="section-desc">套餐、支付方式和当前订单统一收在这里。</view>
+        </view>
+        <view class="billing-tag">{{ paymentTestMode ? "联调模式" : "微信支付" }}</view>
+      </view>
+
+      <view class="billing-note">{{ paymentMessage || (paymentTestMode ? "联调时可切换测试支付。" : "正式环境仅保留微信支付。") }}</view>
+
+      <view class="segment-row billing-provider-row" wx:if="{{ providers.length > 1 }}">
+        <view
+          class="segment-chip {{ selectedProvider === item.value ? 'active' : '' }}"
+          wx:for="{{ providers }}"
+          wx:key="value"
+          data-value="{{ item.value }}"
+          bindtap="onSelectProvider"
+          hover-class="is-press-pill"
+        >
+          {{ item.label }}
+        </view>
+      </view>
+      <view class="provider-note" wx:else>当前渠道：{{ selectedProviderLabel }}</view>
+
+      <view class="floating-panel package-loading" wx:if="{{ loadingPackages && !packages.length }}">
+        <view class="loading-inline">
+          <view class="loading-orbit">
+            <view class="loading-dot loading-dot--a"></view>
+            <view class="loading-dot loading-dot--b"></view>
+            <view class="loading-dot loading-dot--c"></view>
+          </view>
+          <view class="loading-copy">
+            <view class="loading-title">正在加载充值套餐</view>
+            <view class="loading-desc">正在同步支付渠道和当前可用套餐信息</view>
+          </view>
+        </view>
+        <view class="skeleton-row">
+          <view class="skeleton-card">
+            <view class="skeleton-line skeleton-line--mid"></view>
+            <view class="skeleton-line skeleton-line--short"></view>
+            <view class="skeleton-line"></view>
+          </view>
+          <view class="skeleton-card">
+            <view class="skeleton-line skeleton-line--mid"></view>
+            <view class="skeleton-line skeleton-line--short"></view>
+            <view class="skeleton-line"></view>
+          </view>
+        </view>
+      </view>
+
+      <view class="empty-state panel-gap" wx:if="{{ !packages.length && !loadingPackages }}">
+        <view class="empty-mark">充</view>
+        <view class="empty-title">当前暂无可用套餐</view>
+        <view class="empty-desc">请稍后刷新，或检查后台套餐配置是否已开启。</view>
+      </view>
+
+      <view class="package-board" wx:if="{{ packages.length }}">
+        <view class="package-grid">
+          <view class="package-card" wx:for="{{ packages }}" wx:key="name">
+            <view class="package-card-top">
+              <view class="package-name">{{ item.name }}</view>
+              <view class="package-badge">{{ item.badgeText }}</view>
+            </view>
+            <view class="package-credits">{{ item.credits }} 积分</view>
+            <view class="package-price-row">
+              <view class="package-price-symbol">￥</view>
+              <view class="package-price">{{ item.price }}</view>
+            </view>
+            <view class="package-desc">{{ item.descText }}</view>
+            <button
+              class="package-buy-btn"
+              loading="{{ creating && creatingPackageName === item.name }}"
+              disabled="{{ creating }}"
+              data-name="{{ item.name }}"
+              bindtap="onCreateOrder"
+              hover-class="is-press-btn"
+            >
+              立即充值
+            </button>
+          </view>
+        </view>
+      </view>
+
+      <view class="order-sheet panel-gap" wx:if="{{ orderNo }}">
+        <view class="order-sheet-head">
+          <view>
+            <view class="order-sheet-kicker">当前订单</view>
+            <view class="order-sheet-title">订单 {{ orderNo }}</view>
+          </view>
+          <view class="status-badge {{ orderStatusClass }}">{{ orderStatusText }}</view>
+        </view>
+
+        <view class="order-meta">
+          <view class="order-meta-item">
+            <view class="order-meta-label">支付渠道</view>
+            <view class="order-meta-value">{{ orderProviderLabel || "-" }}</view>
+          </view>
+          <view class="order-meta-item">
+            <view class="order-meta-label">剩余时间</view>
+            <view class="order-meta-value">{{ remainSeconds }} 秒</view>
+          </view>
+        </view>
+
+        <view class="qr-box" wx:if="{{ qrcodeDataUrl }}">
+          <image class="qr-image" src="{{ qrcodeDataUrl }}" mode="aspectFit" />
+        </view>
+
+        <view class="profile-actions order-actions">
+          <button class="profile-action-btn profile-action-btn--light" hover-class="is-press-btn" bindtap="onRefreshOrder">刷新订单</button>
+          <button
+            wx:if="{{ orderProvider === 'wechat' && paymentParams }}"
+            class="profile-action-btn profile-action-btn--primary"
+            loading="{{ paying }}"
+            bindtap="onStartWechatPay"
+            hover-class="is-press-btn"
+          >
+            继续支付
+          </button>
+          <button wx:else class="profile-action-btn profile-action-btn--primary" hover-class="is-press-btn" bindtap="onConfirmPaid">我已支付</button>
+        </view>
+      </view>
+    </view>
+
+    <view class="surface surface--compact system-section" wx:if="{{ !guestMode }}">
+      <view class="section-head profile-section-head">
+        <view class="section-copy">
+          <view class="section-kicker">系统公告</view>
+          <view class="section-title">公告与操作</view>
+        </view>
+      </view>
+
+      <view class="notice-panel" wx:if="{{ showNotice }}">
+        <view class="notice-top">
+          <view class="notice-title">{{ notice.title || "系统公告" }}</view>
+          <view class="notice-version">v{{ notice.version || 1 }}</view>
+        </view>
+        <view class="notice-copy">{{ notice.content || "当前暂无公告内容。" }}</view>
+      </view>
+
+      <view class="profile-actions">
+        <button class="profile-action-btn profile-action-btn--light" hover-class="is-press-btn" bindtap="onReload">刷新资料</button>
+        <button class="profile-action-btn profile-action-btn--primary" hover-class="is-press-btn" bindtap="onLogout">退出登录</button>
+      </view>
     </view>
   </view>
 </view>

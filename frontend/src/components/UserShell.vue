@@ -12,7 +12,8 @@
       </div>
 
       <div class="scrollbar-wrapper">
-        <ul class="el-menu">
+        <div v-if="!isNavigationReady" class="menu-loading-placeholder" aria-hidden="true"></div>
+        <ul v-else class="el-menu">
           <template v-for="(group, groupIndex) in visibleMenuGroups" :key="group.key">
             <li v-for="item in group.items" :key="item.path" class="menu-wrapper">
               <div v-if="item.disabled" class="el-menu-item is-disabled" aria-disabled="true">
@@ -94,21 +95,13 @@ import { computed, onMounted, onUnmounted, ref, watch } from "vue"
 import { RouterLink, useRoute, useRouter } from "vue-router"
 
 import { userHttp } from "../lib/http"
-import { clearUserSession, getUserToken } from "../lib/session"
+import { clearUserSession, getUserNavigationConfig, getUserToken, setUserNavigationConfig } from "../lib/session"
 import { normalizeUserNavigationConfig } from "../lib/userNavigation"
 
 const props = defineProps({
   title: {
     type: String,
     default: "",
-  },
-  subtitle: {
-    type: String,
-    default: "",
-  },
-  credits: {
-    type: Number,
-    default: null,
   },
   hideTopbar: {
     type: Boolean,
@@ -137,14 +130,13 @@ const router = useRouter()
 const route = useRoute()
 const hasUserToken = ref(false)
 const isNoticeDialogOpen = ref(false)
-const navigationState = ref(normalizeUserNavigationConfig())
+const cachedNavigation = getUserNavigationConfig()
+const navigationState = ref(cachedNavigation ? normalizeUserNavigationConfig(cachedNavigation) : normalizeUserNavigationConfig())
+const isNavigationReady = ref(Boolean(cachedNavigation))
 const noticeState = ref({
   enabled: true,
   title: "系统公告",
   content: DEFAULT_HEADER_NOTICE_TEXT,
-  header_text: DEFAULT_HEADER_NOTICE_TEXT,
-  level: "info",
-  version: 1,
   updated_at: "",
 })
 let noticePollTimer = null
@@ -227,23 +219,18 @@ function applyShellOptions(raw) {
 }
 
 function applyNavigation(raw) {
-  navigationState.value = normalizeUserNavigationConfig(raw)
+  const normalized = normalizeUserNavigationConfig(raw)
+  navigationState.value = normalized
+  setUserNavigationConfig(normalized)
+  isNavigationReady.value = true
 }
 
 function applyNotice(raw) {
-  const levelRaw = String(raw?.level || "").trim().toLowerCase()
-  const level = ["info", "important", "warning", "success"].includes(levelRaw) ? levelRaw : "info"
   const content = String(raw?.content || raw?.header_text || DEFAULT_HEADER_NOTICE_TEXT).trim() || DEFAULT_HEADER_NOTICE_TEXT
-  const headerText = String(raw?.header_text || content).trim() || DEFAULT_HEADER_NOTICE_TEXT
-  let version = Number(raw?.version || 1)
-  if (!Number.isFinite(version) || version < 1) version = 1
   noticeState.value = {
     enabled: raw?.enabled !== false,
     title: String(raw?.title || "系统公告").trim() || "系统公告",
     content,
-    header_text: headerText,
-    level,
-    version: Math.floor(version),
     updated_at: String(raw?.updated_at || "").trim(),
   }
   if (!noticeState.value.enabled) {
@@ -254,7 +241,6 @@ function applyNotice(raw) {
 function startNoticeSync() {
   stopNoticeSync()
   loadShellOptions()
-  loadAnnouncement()
   noticePollTimer = window.setInterval(loadAnnouncement, 45000)
   document.addEventListener("visibilitychange", handleVisibilityChange)
 }
@@ -323,12 +309,38 @@ function isRouteMatch(currentPath, targetPath) {
 
 <style scoped>
 .app-shell {
+  --shell-paper: #ffffff;
+  --shell-paper-soft: #f6f9ff;
+  --shell-paper-deep: #ebf2ff;
+  --shell-edge: rgba(172, 198, 244, 0.42);
+  --shell-edge-strong: rgba(30, 91, 223, 0.36);
+  --shell-ink: #1b3458;
+  --shell-ink-soft: #567195;
+  --shell-ink-faint: #8096b4;
+  --shell-accent: #1e5bdf;
+  --shell-accent-strong: #184ec8;
+  --shell-accent-deep: #143f9d;
+  --shell-shadow: 0 22px 46px rgba(30, 91, 223, 0.18);
+  --shell-shadow-soft: 0 14px 28px rgba(30, 91, 223, 0.12);
+  --shell-band:
+    linear-gradient(
+      135deg,
+      #3b82f6 0%,
+      #397ff5 12%,
+      #3478f3 24%,
+      #2d6ff0 38%,
+      #2563eb 52%,
+      #225be4 66%,
+      #1d4ed8 82%,
+      #2563eb 100%
+    );
   --sider-width: 236px;
   min-height: 100vh;
   display: grid;
   grid-template-columns: var(--sider-width) minmax(0, 1fr);
-  background: linear-gradient(180deg, #fafafa 0%, #ffffff 100%);
-  color: var(--text-main);
+  position: relative;
+  background: var(--shell-band);
+  color: var(--shell-ink);
 }
 
 .sider-wrap {
@@ -337,15 +349,14 @@ function isRouteMatch(currentPath, targetPath) {
   height: 100vh;
   display: flex;
   flex-direction: column;
-  border-right: 1px solid #e3e3e3;
-  background:
-    linear-gradient(180deg, #ffffff 0%, #fbfbfb 46%, #f6f6f6 100%);
-  box-shadow: 12px 0 28px rgba(0, 0, 0, 0.04);
+  border-right: 0;
+  background: transparent;
+  box-shadow: none;
 }
 
 .sider-brand {
   padding: 24px 20px 18px;
-  border-bottom: 1px solid #ececec;
+  border-bottom: 0;
 }
 
 .brand-home {
@@ -361,11 +372,14 @@ function isRouteMatch(currentPath, targetPath) {
   border-radius: 14px;
   display: grid;
   place-items: center;
-  background: #111111;
+  background: rgba(255, 255, 255, 0.18);
   color: #ffffff;
   font-size: 12px;
   font-weight: 800;
   letter-spacing: 0.1em;
+  box-shadow:
+    0 12px 24px rgba(13, 44, 119, 0.18),
+    inset 0 1px 0 rgba(255, 255, 255, 0.18);
 }
 
 .brand-copy {
@@ -377,14 +391,14 @@ function isRouteMatch(currentPath, targetPath) {
   font-size: 18px;
   line-height: 1.2;
   font-weight: 700;
-  color: #111111;
+  color: #ffffff;
   letter-spacing: 0.02em;
 }
 
 .brand-copy span {
   font-size: 11px;
   line-height: 1.2;
-  color: #6c6c6c;
+  color: rgba(239, 245, 255, 0.72);
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
@@ -397,8 +411,27 @@ function isRouteMatch(currentPath, targetPath) {
 
 .el-menu {
   margin: 0;
-  padding: 0;
+  padding: 0 14px;
   list-style: none;
+  display: grid;
+  gap: 14px;
+}
+
+.menu-loading-placeholder {
+  min-height: 248px;
+  margin: 0 14px;
+  border-radius: 24px;
+  border: 0;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.2), rgba(255, 255, 255, 0.12)),
+    repeating-linear-gradient(
+      180deg,
+      transparent 0,
+      transparent 22px,
+      rgba(255, 255, 255, 0.12) 22px,
+      rgba(255, 255, 255, 0.12) 34px
+    );
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16);
 }
 
 .menu-wrapper {
@@ -411,9 +444,7 @@ function isRouteMatch(currentPath, targetPath) {
 }
 
 .nav-divider {
-  margin: 10px 20px;
-  border-top: 1px solid #e7e7e7;
-  list-style: none;
+  display: none;
 }
 
 .el-menu-item {
@@ -421,14 +452,14 @@ function isRouteMatch(currentPath, targetPath) {
   display: flex;
   align-items: center;
   gap: 10px;
-  width: calc(100% - 28px);
-  margin: 0 14px;
+  width: 100%;
+  margin: 0;
   min-height: 46px;
   padding: 12px 16px;
   border-radius: 14px;
-  border: 1px solid transparent;
-  color: #1a1a1a;
-  background: transparent;
+  border: 0;
+  color: rgba(245, 249, 255, 0.9);
+  background: rgba(255, 255, 255, 0.12);
   transition:
     background-color 0.16s ease,
     border-color 0.16s ease,
@@ -438,30 +469,28 @@ function isRouteMatch(currentPath, targetPath) {
 }
 
 .el-menu-item:hover {
-  background: #f3f3f3;
-  border-color: #e1e1e1;
-  transform: translateY(-1px);
+  background: rgba(255, 255, 255, 0.22);
+  transform: translateY(-1px) scale(1.015);
+  box-shadow: 0 16px 28px rgba(12, 42, 112, 0.18);
 }
 
 .el-menu-item.is-active {
-  background: #111111;
-  border-color: #111111;
-  color: #ffffff;
-  box-shadow: 0 12px 20px rgba(0, 0, 0, 0.12);
+  background: rgba(255, 255, 255, 0.96);
+  color: var(--shell-accent);
+  box-shadow: 0 18px 30px rgba(12, 42, 112, 0.22);
 }
 
 .el-menu-item.is-disabled {
-  background: #ffffff;
-  border-color: #ededed;
-  color: #505050;
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(233, 241, 255, 0.48);
   opacity: 0.88;
   cursor: default;
 }
 
 .el-menu-item.is-disabled:hover {
   transform: none;
-  background: #ffffff;
-  border-color: #ededed;
+  background: rgba(255, 255, 255, 0.08);
+  box-shadow: none;
 }
 
 .siderIcon {
@@ -483,7 +512,7 @@ function isRouteMatch(currentPath, targetPath) {
 .menu-beta-badge {
   flex-shrink: 0;
   border-radius: 999px;
-  background: rgba(0, 0, 0, 0.08);
+  background: rgba(255, 255, 255, 0.16);
   color: currentColor;
   font-size: 11px;
   line-height: 1;
@@ -495,6 +524,7 @@ function isRouteMatch(currentPath, targetPath) {
   min-height: 100vh;
   display: flex;
   flex-direction: column;
+  background: transparent;
 }
 
 .header-wrap {
@@ -507,8 +537,9 @@ function isRouteMatch(currentPath, targetPath) {
   justify-content: space-between;
   gap: 16px;
   padding: 12px 24px;
-  background: rgba(255, 255, 255, 0.92);
-  border-bottom: 1px solid #e7e7e7;
+  background: transparent;
+  border-bottom: 0;
+  box-shadow: none;
   backdrop-filter: blur(12px);
 }
 
@@ -516,7 +547,7 @@ function isRouteMatch(currentPath, targetPath) {
   min-width: 0;
   font-size: 18px;
   font-weight: 700;
-  color: #111111;
+  color: #ffffff;
   letter-spacing: 0.04em;
   white-space: nowrap;
   overflow: hidden;
@@ -532,18 +563,17 @@ function isRouteMatch(currentPath, targetPath) {
   align-items: center;
   justify-content: flex-end;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 12px;
 }
 
 .header-notice-btn,
-.header-topup,
 .header-link {
   min-height: 34px;
-  padding: 0 13px;
+  padding: 0 15px;
   border-radius: 10px;
-  border: 1px solid #111111;
-  background: #111111;
-  color: #ffffff;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.12);
+  color: rgba(245, 249, 255, 0.92);
   font-size: 12.5px;
   font-weight: 600;
   line-height: 1;
@@ -555,29 +585,66 @@ function isRouteMatch(currentPath, targetPath) {
     transform 0.16s ease;
 }
 
+.header-topup {
+  min-height: 34px;
+  padding: 0 15px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.26);
+  background: rgba(255, 255, 255, 0.95);
+  color: var(--shell-accent);
+  font-size: 12.5px;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow: 0 12px 24px rgba(15, 44, 120, 0.18);
+  transition:
+    background-color 0.16s ease,
+    color 0.16s ease,
+    border-color 0.16s ease,
+    transform 0.16s ease,
+    box-shadow 0.16s ease;
+}
+
 .header-notice-btn:hover,
-.header-topup:hover,
 .header-link:hover,
 .header-link--muted:hover {
-  background: #ffffff;
-  color: #111111;
-  border-color: #111111;
+  background: rgba(255, 255, 255, 0.18);
+  color: #ffffff;
+  border-color: rgba(255, 255, 255, 0.24);
   transform: translateY(-1px);
 }
 
+.header-topup:hover {
+  background: #ffffff;
+  color: var(--shell-accent-deep);
+  border-color: rgba(255, 255, 255, 0.3);
+  transform: translateY(-1px);
+  box-shadow: 0 14px 26px rgba(15, 44, 120, 0.2);
+}
+
 .header-notice-btn:active,
-.header-topup:active,
 .header-link:active,
 .header-link--muted:active {
-  background: #111111;
+  background: rgba(255, 255, 255, 0.14);
   color: #ffffff;
   transform: translateY(0);
+}
+
+.header-topup:active {
+  background: rgba(255, 255, 255, 0.92);
+  color: var(--shell-accent-deep);
+  transform: translateY(0);
+}
+
+.header-link--muted {
+  background: transparent;
 }
 
 .main-wrap {
   flex: 1;
   min-width: 0;
   padding: 24px;
+  background: #ffffff;
 }
 
 .main-content {
@@ -585,7 +652,7 @@ function isRouteMatch(currentPath, targetPath) {
   max-width: 1280px;
   margin: 0 auto;
   display: grid;
-  gap: 14px;
+  gap: 16px;
 }
 
 .navbarCon {
@@ -593,14 +660,12 @@ function isRouteMatch(currentPath, targetPath) {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
-  padding: 10px 14px;
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(247, 247, 247, 0.94)),
-    linear-gradient(135deg, rgba(0, 0, 0, 0.03), transparent 46%);
-  border: 1px solid rgba(0, 0, 0, 0.12);
+  gap: 12px;
+  padding: 12px 16px;
+  background: #ffffff;
+  border: 0;
   border-radius: var(--radius-card);
-  box-shadow: 0 10px 22px rgba(0, 0, 0, 0.06);
+  box-shadow: 0 10px 22px rgba(30, 91, 223, 0.06);
 }
 
 .app-breadcrumb {
@@ -609,13 +674,13 @@ function isRouteMatch(currentPath, targetPath) {
   gap: 8px;
   min-width: 0;
   font-size: 13px;
-  color: #5d5d5d;
+  color: var(--shell-ink-faint);
 }
 
 .app-breadcrumb .no-redirect {
   min-width: 0;
   font-size: 15px;
-  color: #111111;
+  color: var(--shell-ink);
   font-weight: 700;
   white-space: nowrap;
   overflow: hidden;
@@ -626,9 +691,9 @@ function isRouteMatch(currentPath, targetPath) {
   min-height: 34px;
   padding: 0 12px;
   border-radius: 10px;
-  border: 1px solid #d0d0d0;
-  background: #ffffff;
-  color: #1f1f1f;
+  border: 1px solid rgba(214, 226, 248, 0.92);
+  background: rgba(255, 255, 255, 0.96);
+  color: var(--shell-ink-soft);
   font-size: 12.5px;
   font-weight: 600;
   cursor: pointer;
@@ -640,8 +705,8 @@ function isRouteMatch(currentPath, targetPath) {
 }
 
 .navbarCon_right button:hover {
-  background: #f3f3f3;
-  border-color: #9e9e9e;
+  background: rgba(244, 248, 255, 0.98);
+  border-color: rgba(163, 191, 237, 0.92);
   transform: translateY(-1px);
 }
 
@@ -650,12 +715,16 @@ function isRouteMatch(currentPath, targetPath) {
   min-width: 0;
 }
 
+.app-main-con {
+  position: relative;
+}
+
 .header-notice-btn:focus-visible,
 .header-topup:focus-visible,
 .header-link:focus-visible,
 .navbarCon_right button:focus-visible,
 .menu-link:focus-visible .el-menu-item {
-  outline: 2px solid rgba(0, 0, 0, 0.55);
+  outline: 2px solid rgba(86, 129, 191, 0.48);
   outline-offset: 2px;
 }
 
@@ -663,7 +732,7 @@ function isRouteMatch(currentPath, targetPath) {
   position: fixed;
   inset: 0;
   z-index: 999;
-  background: rgba(0, 0, 0, 0.45);
+  background: rgba(24, 47, 86, 0.2);
   display: grid;
   place-items: center;
   padding: 16px;
@@ -672,16 +741,16 @@ function isRouteMatch(currentPath, targetPath) {
 .notice-dialog {
   width: min(560px, 100%);
   border-radius: 14px;
-  border: 1px solid #d9d9d9;
-  background: #ffffff;
-  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.16);
+  border: 1px solid rgba(214, 226, 248, 0.92);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.99), rgba(240, 247, 255, 0.96));
+  box-shadow: var(--shell-shadow);
   overflow: hidden;
 }
 
 .notice-dialog__head {
   min-height: 54px;
   padding: 0 14px;
-  border-bottom: 1px solid #e5e5e5;
+  border-bottom: 1px solid rgba(164, 186, 218, 0.42);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -691,15 +760,15 @@ function isRouteMatch(currentPath, targetPath) {
 .notice-dialog__head h3 {
   margin: 0;
   font-size: 18px;
-  color: #000000;
+  color: var(--shell-ink);
 }
 
 .notice-dialog__head button {
   min-height: 32px;
   padding: 0 10px;
   border-radius: 8px;
-  border: 1px solid #000000;
-  background: #000000;
+  border: 1px solid rgba(30, 91, 223, 0.88);
+  background: linear-gradient(135deg, #4a84ff 0%, #2d70f0 28%, #1e5bdf 58%, #184ec8 100%);
   color: #ffffff;
   cursor: pointer;
 }
@@ -708,13 +777,13 @@ function isRouteMatch(currentPath, targetPath) {
   margin: 0;
   padding: 10px 14px 0;
   font-size: 12px;
-  color: #666666;
+  color: var(--shell-ink-faint);
 }
 
 .notice-dialog__body {
   margin: 0;
   padding: 16px 14px 18px;
-  color: #111111;
+  color: var(--shell-ink-soft);
   line-height: 1.8;
   white-space: pre-wrap;
 }
@@ -734,7 +803,7 @@ function isRouteMatch(currentPath, targetPath) {
     position: static;
     height: auto;
     border-right: 0;
-    border-bottom: 1px solid #e7e7e7;
+    border-bottom: 1px solid rgba(164, 186, 218, 0.38);
     box-shadow: none;
   }
 
@@ -747,19 +816,20 @@ function isRouteMatch(currentPath, targetPath) {
     display: flex;
     min-width: max-content;
     padding: 0 8px;
+    gap: 10px;
   }
 
   .nav-divider {
     width: 1px;
     margin: 10px 8px;
     border-top: 0;
-    border-left: 1px solid #e7e7e7;
+    border-left: 1px solid rgba(164, 186, 218, 0.3);
   }
 
   .el-menu-item {
     width: auto;
     min-width: 140px;
-    margin: 0 4px;
+    margin: 0;
   }
 
   .header-wrap {
@@ -784,14 +854,14 @@ function isRouteMatch(currentPath, targetPath) {
   }
 
   .header-right {
-    gap: 6px;
+    gap: 8px;
   }
 
   .header-notice-btn,
   .header-topup,
   .header-link {
     min-height: 32px;
-    padding: 0 10px;
+    padding: 0 12px;
     font-size: 12px;
   }
 

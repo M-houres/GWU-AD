@@ -248,7 +248,7 @@
               </div>
 
               <div class="mt-4 grid gap-2 text-sm text-[#41505c] sm:grid-cols-2">
-                <div class="rounded-xl border border-[#e1e7ec] bg-white px-3 py-2">平台：{{ mapPlatform(selectedTask.platform) }}</div>
+                <div class="rounded-xl border border-[#e1e7ec] bg-white px-3 py-2">平台：{{ mapPlatform(selectedTask.platform, selectedTask.task_type) }}</div>
                 <div class="rounded-xl border border-[#e1e7ec] bg-white px-3 py-2">更新时间：{{ formatTime(selectedTask.updated_at) }}</div>
                 <div class="rounded-xl border border-[#e1e7ec] bg-white px-3 py-2 sm:col-span-2">
                   主文件：{{ selectedTask.source_filename || "-" }}
@@ -472,8 +472,8 @@ function mapTaskType(type) {
   return map[type] || type || "-"
 }
 
-function mapPlatform(platform) {
-  return mapTaskPlatform(platform)
+function mapPlatform(platform, taskType) {
+  return mapTaskPlatform(platform, taskType)
 }
 
 function mapStatus(status) {

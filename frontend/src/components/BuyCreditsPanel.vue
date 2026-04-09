@@ -228,7 +228,7 @@ function packageDescription(item) {
   if (text) {
     return text
   }
-  return "适合常规论文处理场景，可用于 AIGC 检测、降重复率和学术润色任务。"
+  return "适合常规论文处理场景，可用于 AIGC 检测、降重复率和降AIGC任务。"
 }
 
 async function openPay(item) {

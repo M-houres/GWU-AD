@@ -80,7 +80,7 @@
               <td class="px-2 py-2">{{ row.id }}</td>
               <td class="px-2 py-2">{{ row.user_id }}</td>
               <td class="px-2 py-2">{{ mapTaskType(row.task_type) }}</td>
-              <td class="px-2 py-2">{{ mapPlatform(row.platform) }}</td>
+              <td class="px-2 py-2">{{ mapPlatform(row.platform, row.task_type) }}</td>
               <td class="px-2 py-2">{{ mapSource(row.source) }}</td>
               <td class="px-2 py-2">
                 <span :class="statusClass(row.status)" class="inline-flex items-center rounded-full border px-2 py-1 text-xs">{{ mapStatus(row.status) }}</span>
@@ -117,7 +117,7 @@
       <div class="grid gap-2 text-sm md:grid-cols-2 xl:grid-cols-3">
         <div>用户：{{ taskDetail.user_id }} {{ taskDetail.user_phone ? `(${taskDetail.user_phone})` : '' }}</div>
         <div>类型：{{ mapTaskType(taskDetail.task_type) }}</div>
-        <div>平台：{{ mapPlatform(taskDetail.platform) }}</div>
+        <div>平台：{{ mapPlatform(taskDetail.platform, taskDetail.task_type) }}</div>
         <div>来源：{{ mapSource(taskDetail.source) }}</div>
         <div>状态：{{ mapStatus(taskDetail.status) }}</div>
         <div>字符数：{{ taskDetail.char_count }}</div>
@@ -327,8 +327,8 @@ function mapTaskType(type) {
   return mapping[type] || type
 }
 
-function mapPlatform(platform) {
-  return mapTaskPlatform(platform)
+function mapPlatform(platform, taskType) {
+  return mapTaskPlatform(platform, taskType)
 }
 
 function mapSource(source) {

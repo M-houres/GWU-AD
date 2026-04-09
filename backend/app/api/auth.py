@@ -19,7 +19,7 @@ from app.deps import db_dep, get_redis
 from app.exceptions import BizError
 from app.models import CreditType, RegistrationRiskLog, SystemConfig, User, UserInviteCode
 from app.responses import ok
-from app.schemas import APIResp, LoginReq, MiniProgramLoginReq, SendCodeReq
+from app.schemas import APIResp, LoginReq, MiniProgramLoginReq, MiniProgramPhoneLoginReq, SendCodeReq
 from app.security import create_token
 from app.services.credit_service import change_credits
 from app.services.referral_service import bind_referral_relation
@@ -496,6 +496,118 @@ def _wechat_miniprogram_login_enabled(login_cfg: dict) -> bool:
     return _wechat_miniprogram_real_login_enabled(login_cfg) or _wechat_mock_enabled()
 
 
+def _wechat_miniprogram_phone_login_enabled(login_cfg: dict) -> bool:
+    return _wechat_miniprogram_real_login_enabled(login_cfg)
+
+
+def _get_wechat_miniprogram_access_token(login_cfg: dict, redis_client) -> str:
+    if not _wechat_miniprogram_real_login_enabled(login_cfg):
+        raise BizError(code=4016, message="miniprogram_credentials_not_ready")
+
+    app_id, app_secret = _resolve_wechat_miniprogram_credentials(login_cfg)
+    cache_key = f"auth:wxmini:access_token:{app_id}"
+    cached = str(redis_client.get(cache_key) or "").strip()
+    if cached:
+        return cached
+
+    try:
+        token_resp = httpx.get(
+            "https://api.weixin.qq.com/cgi-bin/token",
+            params={
+                "grant_type": "client_credential",
+                "appid": app_id,
+                "secret": app_secret,
+            },
+            timeout=8,
+        )
+    except Exception as exc:
+        raise BizError(code=4016, message="微信小程序 access_token 获取失败") from exc
+
+    if not (200 <= token_resp.status_code < 300):
+        raise BizError(code=4016, message="微信小程序 access_token 获取失败")
+
+    payload = token_resp.json()
+    access_token = str(payload.get("access_token", "")).strip()
+    if not access_token:
+        raise BizError(code=4016, message="微信小程序 access_token 无效")
+
+    expires_in = int(payload.get("expires_in") or 7200)
+    redis_client.setex(cache_key, max(60, min(expires_in - 120, 7000)), access_token)
+    return access_token
+
+
+def _resolve_miniprogram_openid_unionid(login_cfg: dict, login_code: str) -> tuple[str, str | None]:
+    if settings.app_env != "prod" and login_code.startswith("mock_"):
+        openid = f"mp_{hashlib.sha256(login_code.encode('utf-8')).hexdigest()[:20]}"
+        unionid = f"union_{hashlib.sha256((login_code + settings.jwt_secret).encode('utf-8')).hexdigest()[:20]}"
+        return openid, unionid
+
+    if not _wechat_miniprogram_real_login_enabled(login_cfg):
+        raise BizError(code=4016, message="miniprogram_credentials_not_ready")
+
+    app_id, app_secret = _resolve_wechat_miniprogram_credentials(login_cfg)
+    try:
+        session_resp = httpx.get(
+            "https://api.weixin.qq.com/sns/jscode2session",
+            params={
+                "appid": app_id,
+                "secret": app_secret,
+                "js_code": login_code,
+                "grant_type": "authorization_code",
+            },
+            timeout=8,
+        )
+    except Exception as exc:
+        raise BizError(code=4016, message="wechat_jscode2session_request_failed") from exc
+    if not (200 <= session_resp.status_code < 300):
+        raise BizError(code=4016, message="wechat_jscode2session_http_error")
+
+    payload = session_resp.json()
+    openid = str(payload.get("openid", "")).strip()
+    unionid = str(payload.get("unionid", "")).strip() or None
+    if not openid:
+        errmsg = str(payload.get("errmsg") or "openid_missing")
+        raise BizError(code=4016, message=f"wechat_jscode2session_failed:{errmsg}")
+    return openid, unionid
+
+
+def _resolve_miniprogram_phone_number(login_cfg: dict, redis_client, phone_code: str) -> str:
+    if settings.app_env != "prod" and phone_code.startswith("mock_phone_"):
+        phone = str(phone_code.split("mock_phone_", 1)[1]).strip()
+        if not is_phone_valid(phone):
+            raise BizError(code=4001, message="手机号格式错误")
+        return phone
+
+    access_token = _get_wechat_miniprogram_access_token(login_cfg, redis_client)
+    try:
+        phone_resp = httpx.post(
+            "https://api.weixin.qq.com/wxa/business/getuserphonenumber",
+            params={"access_token": access_token},
+            json={"code": phone_code},
+            timeout=8,
+        )
+    except Exception as exc:
+        raise BizError(code=4016, message="微信手机号快捷登录暂不可用，请稍后重试") from exc
+
+    if not (200 <= phone_resp.status_code < 300):
+        raise BizError(code=4016, message="微信手机号快捷登录暂不可用，请稍后重试")
+
+    payload = phone_resp.json()
+    errcode = int(payload.get("errcode") or 0)
+    if errcode != 0:
+        if errcode == 40029:
+            raise BizError(code=4016, message="手机号授权已失效，请重新获取")
+        if errcode == 40013:
+            raise BizError(code=4016, message="小程序配置异常，请联系管理员")
+        raise BizError(code=4016, message="手机号快捷登录失败，请改用微信一键登录")
+
+    phone_info = payload.get("phone_info") if isinstance(payload.get("phone_info"), dict) else {}
+    phone = str(phone_info.get("purePhoneNumber") or phone_info.get("phoneNumber") or "").strip()
+    if not is_phone_valid(phone):
+        raise BizError(code=4016, message="微信返回的手机号无效，请改用微信一键登录")
+    return phone
+
+
 def _wechat_authorize_url(login_cfg: dict, state: str) -> str:
     app_id = str(login_cfg.get("wechat_app_id", "")).strip()
     redirect_uri = str(login_cfg.get("wechat_redirect_uri", "")).strip()
@@ -571,6 +683,68 @@ def _upsert_wechat_user(
     return user, is_new_user
 
 
+def _upsert_miniprogram_phone_user(
+    db: Session,
+    *,
+    phone: str,
+    openid: str,
+    source: str = DEFAULT_CLIENT_SOURCE,
+    unionid: str | None = None,
+    initial_credits: int | None = None,
+) -> tuple[User, bool]:
+    openid_user = db.query(User).filter(User.wechat_openid_mp == openid).with_for_update().first()
+    if openid_user is None and unionid:
+        openid_user = db.query(User).filter(User.wechat_unionid == unionid).with_for_update().first()
+    phone_user = db.query(User).filter(User.phone == phone).with_for_update().first()
+
+    checked: list[User] = []
+    for candidate in (openid_user, phone_user):
+        if candidate is None or candidate in checked:
+            continue
+        checked.append(candidate)
+        if candidate.is_banned:
+            raise BizError(code=4012, message="账号已封禁")
+
+    if openid_user and phone_user and openid_user.id != phone_user.id:
+        raise BizError(code=4016, message="当前微信与手机号已关联不同账户，请使用原登录方式")
+
+    user = openid_user or phone_user
+    is_new_user = False
+    if user is None:
+        is_new_user = True
+        user = User(
+            phone=phone,
+            nickname=f"用户{phone[-4:]}",
+            wechat_unionid=unionid,
+            wechat_openid_mp=openid,
+            source=source,
+            credits=0,
+        )
+        db.add(user)
+        db.flush()
+        change_credits(
+            db,
+            user,
+            tx_type=CreditType.INIT,
+            delta=settings.initial_credits if initial_credits is None else int(initial_credits),
+            reason="微信新用户初始积分",
+            related_id=f"wx_user_init:{user.id}",
+            source=source,
+        )
+        db.add(UserInviteCode(user_id=user.id, invite_code=make_invite_code(user.id)))
+        db.flush()
+        return user, is_new_user
+
+    user.phone = phone
+    user.wechat_openid_mp = openid
+    if unionid and not user.wechat_unionid:
+        user.wechat_unionid = unionid
+    if not user.source:
+        user.source = source
+    db.flush()
+    return user, is_new_user
+
+
 @router.get("/options", response_model=APIResp)
 def auth_options(db: Session = Depends(db_dep)) -> APIResp:
     login_cfg = _get_login_config(db)
@@ -582,6 +756,7 @@ def auth_options(db: Session = Depends(db_dep)) -> APIResp:
         data={
             "wechat_login_enabled": _wechat_login_enabled(login_cfg),
             "wechat_miniprogram_login_enabled": _wechat_miniprogram_login_enabled(login_cfg),
+            "wechat_miniprogram_phone_quick_login_enabled": _wechat_miniprogram_phone_login_enabled(login_cfg),
             "wechat_auth_scenes": ["web", "miniprogram"],
             "debug_code_enabled": debug_enabled,
             "sms_provider": str(login_cfg.get("sms_provider", "custom_webhook")).strip().lower() or "custom_webhook",
@@ -860,34 +1035,7 @@ def wx_mini_login(
         error_message="ip_rate_limit_reached",
     )
 
-    if settings.app_env != "prod" and js_code.startswith("mock_"):
-        openid = f"mp_{hashlib.sha256(js_code.encode('utf-8')).hexdigest()[:20]}"
-        unionid = f"union_{hashlib.sha256((js_code + settings.jwt_secret).encode('utf-8')).hexdigest()[:20]}"
-    else:
-        if not _wechat_miniprogram_real_login_enabled(login_cfg):
-            raise BizError(code=4016, message="miniprogram_credentials_not_ready")
-        app_id, app_secret = _resolve_wechat_miniprogram_credentials(login_cfg)
-        try:
-            session_resp = httpx.get(
-                "https://api.weixin.qq.com/sns/jscode2session",
-                params={
-                    "appid": app_id,
-                    "secret": app_secret,
-                    "js_code": js_code,
-                    "grant_type": "authorization_code",
-                },
-                timeout=8,
-            )
-        except Exception as exc:
-            raise BizError(code=4016, message="wechat_jscode2session_request_failed") from exc
-        if not (200 <= session_resp.status_code < 300):
-            raise BizError(code=4016, message="wechat_jscode2session_http_error")
-        payload = session_resp.json()
-        openid = str(payload.get("openid", "")).strip()
-        unionid = str(payload.get("unionid", "")).strip() or None
-        if not openid:
-            errmsg = str(payload.get("errmsg") or "openid_missing")
-            raise BizError(code=4016, message=f"wechat_jscode2session_failed:{errmsg}")
+    openid, unionid = _resolve_miniprogram_openid_unionid(login_cfg, js_code)
 
     is_new_user = False
     fp = _get_device_fingerprint(request, req.device_fingerprint)
@@ -934,6 +1082,88 @@ def wx_mini_login(
             "token": token,
             "is_new_user": is_new_user,
             "scene": "miniprogram",
+            "user": _user_payload(user),
+        }
+    )
+
+
+@router.post("/wx/mini-phone-login", response_model=APIResp)
+def wx_mini_phone_login(
+    req: MiniProgramPhoneLoginReq,
+    request: Request,
+    db: Session = Depends(db_dep),
+    redis_client=Depends(get_redis),
+) -> APIResp:
+    login_cfg = _get_login_config(db)
+    if not _wechat_miniprogram_phone_login_enabled(login_cfg):
+        raise BizError(code=4016, message="wechat_miniprogram_phone_login_not_enabled")
+
+    login_code = str(req.login_code or "").strip()
+    phone_code = str(req.phone_code or "").strip()
+    if not login_code:
+        raise BizError(code=4017, message="empty_login_code")
+    if not phone_code:
+        raise BizError(code=4017, message="empty_phone_code")
+
+    _enforce_ip_limit(
+        redis_client,
+        ip=_get_ip(request),
+        action="wx_mini_phone_login",
+        limit=_int_from_login_cfg(login_cfg, "login_ip_10m_limit", settings.auth_login_ip_10m_limit, min_value=1, max_value=10_000),
+        window_seconds=10 * 60,
+        error_code=4020,
+        error_message="ip_rate_limit_reached",
+    )
+
+    openid, unionid = _resolve_miniprogram_openid_unionid(login_cfg, login_code)
+    phone = _resolve_miniprogram_phone_number(login_cfg, redis_client, phone_code)
+
+    fp = _get_device_fingerprint(request, req.device_fingerprint)
+    client_source = get_client_source(request)
+    register_relation_id: int | None = None
+
+    try:
+        user, is_new_user = _upsert_miniprogram_phone_user(
+            db,
+            phone=phone,
+            openid=openid,
+            source=client_source,
+            unionid=unionid,
+            initial_credits=_int_from_login_cfg(
+                login_cfg,
+                "new_user_initial_credits",
+                settings.initial_credits,
+                min_value=0,
+                max_value=1_000_000,
+            ),
+        )
+        if is_new_user and req.referrer_code:
+            relation = bind_referral_relation(
+                db,
+                invitee=user,
+                referrer_code=str(req.referrer_code).strip().upper(),
+                source=client_source,
+            )
+            if relation:
+                register_relation_id = relation.id
+        token = create_token(subject=str(user.id), scope="user")
+        redis_client.setex(f"user:fp:{user.id}", 30 * 24 * 3600, fp)
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+
+    if register_relation_id:
+        from app.worker_tasks import dispatch_background_task, grant_register_rewards_async
+
+        dispatch_background_task(grant_register_rewards_async, register_relation_id)
+
+    return ok(
+        data={
+            "token": token,
+            "is_new_user": is_new_user,
+            "scene": "miniprogram",
+            "login_type": "phone_quick",
             "user": _user_payload(user),
         }
     )

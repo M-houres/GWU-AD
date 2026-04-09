@@ -79,7 +79,7 @@
             <div>作者：{{ safeText(item.result_json?.authors) }}</div>
             <div>提交时间：{{ formatTime(item.created_at) }}</div>
             <div>计费字数：{{ item.char_count || 0 }}</div>
-            <div>平台：{{ mapPlatform(item.platform) }}</div>
+            <div>平台：{{ mapPlatform(item.platform, item.task_type) }}</div>
           </div>
         </div>
 
@@ -252,7 +252,7 @@ const filteredTasks = computed(() => {
     if (!text) {
       return true
     }
-    const searchText = `${item.id} ${taskLabel(item)} ${mapTaskPlatform(item.platform)}`.toLowerCase()
+    const searchText = `${item.id} ${taskLabel(item)} ${mapTaskPlatform(item.platform, item.task_type)}`.toLowerCase()
     return searchText.includes(text)
   })
 })
@@ -345,8 +345,8 @@ function stopPolling() {
   }
 }
 
-function mapPlatform(platform) {
-  return mapTaskPlatform(platform)
+function mapPlatform(platform, taskType = "aigc_detect") {
+  return mapTaskPlatform(platform, taskType)
 }
 
 function taskLabel(item) {

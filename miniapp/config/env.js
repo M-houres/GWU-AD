@@ -1,7 +1,7 @@
 const envMap = {
   develop: {
     // Development tools can point to local or test services.
-    apiBaseUrl: "http://127.0.0.1:8100/api/v1",
+    apiBaseUrl: "http://127.0.0.1:8000/api/v1",
   },
   trial: {
     // Replace before trial submission. Must be a filed HTTPS domain allowed in WeChat.

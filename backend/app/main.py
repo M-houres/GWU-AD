@@ -31,6 +31,7 @@ async def app_lifespan(_: FastAPI):
     assert_production_secrets()
     run_migrations()
     repair_missing_tables()
+    normalize_runtime_configs()
     init_super_admin()
     logger.info("startup_completed", extra={"app_env": settings.app_env})
     yield
@@ -126,6 +127,46 @@ def init_super_admin() -> None:
             )
         )
         db.commit()
+
+
+def normalize_runtime_configs() -> None:
+    from sqlalchemy.orm import Session
+
+    from app.models import SystemConfig
+
+    desired_initial_credits = int(settings.initial_credits)
+    with Session(engine) as db:
+        login_row = (
+            db.query(SystemConfig)
+            .filter(SystemConfig.category == "system", SystemConfig.config_key == "login")
+            .first()
+        )
+        if login_row is None or not isinstance(login_row.config_value, dict):
+            return
+
+        login_cfg = dict(login_row.config_value)
+        raw_initial = login_cfg.get("new_user_initial_credits", desired_initial_credits)
+        try:
+            current_initial_credits = int(raw_initial)
+        except Exception:
+            current_initial_credits = desired_initial_credits
+
+        should_upgrade_legacy_default = current_initial_credits == 1000 and desired_initial_credits == 5000
+        missing_value = "new_user_initial_credits" not in login_cfg
+        if not (missing_value or should_upgrade_legacy_default):
+            return
+
+        login_cfg["new_user_initial_credits"] = desired_initial_credits
+        login_row.config_value = login_cfg
+        db.commit()
+        logger.warning(
+            "runtime_login_config_normalized",
+            extra={
+                "field": "new_user_initial_credits",
+                "from_value": current_initial_credits,
+                "to_value": desired_initial_credits,
+            },
+        )
 
 
 def assert_production_secrets() -> None:

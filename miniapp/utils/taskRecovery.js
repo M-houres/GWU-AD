@@ -1,4 +1,4 @@
-import { fetchAllUserTasks } from "./userRecords"
+const { request } = require("./request")
 
 function normalizeText(value) {
   return String(value || "").trim().toLowerCase()
@@ -25,9 +25,7 @@ function hasLooseMatch(left, right) {
 }
 
 function scoreCreatedAt(createdAt, submittedAt) {
-  if (!Number.isFinite(createdAt) || !Number.isFinite(submittedAt)) {
-    return 0
-  }
+  if (!Number.isFinite(createdAt) || !Number.isFinite(submittedAt)) return 0
   const delta = Math.abs(createdAt - submittedAt)
   if (delta <= 15 * 1000) return 8
   if (delta <= 60 * 1000) return 6
@@ -38,73 +36,102 @@ function scoreCreatedAt(createdAt, submittedAt) {
 
 function scoreCandidate(task, matcher, submittedAt, createdAt) {
   let score = 0
-  const taskTitle = normalizeText(task?.result_json?.paper_title)
-  const taskAuthors = normalizeText(task?.result_json?.authors)
-  const sourceFilename = normalizeFilename(task?.source_filename)
+  const taskTitle = normalizeText(task && task.result_json ? task.result_json.paper_title : "")
+  const taskAuthors = normalizeText(task && task.result_json ? task.result_json.authors : "")
+  const sourceFilename = normalizeFilename(task && task.source_filename)
 
   if (matcher.paperTitle && taskTitle === matcher.paperTitle) {
     score += 12
   } else if (matcher.paperTitle && hasLooseMatch(taskTitle, matcher.paperTitle)) {
     score += 7
   }
+
   if (matcher.sourceFilename && sourceFilename === matcher.sourceFilename) {
     score += 10
   } else if (matcher.sourceFilename && hasLooseMatch(sourceFilename, matcher.sourceFilename)) {
     score += 5
   }
+
   if (matcher.derivedTitle && taskTitle === matcher.derivedTitle) {
     score += 4
   } else if (matcher.derivedTitle && hasLooseMatch(taskTitle, matcher.derivedTitle)) {
     score += 2
   }
+
   if (matcher.authors && taskAuthors === matcher.authors) {
     score += 6
   } else if (matcher.authors && hasLooseMatch(taskAuthors, matcher.authors)) {
     score += 3
   }
+
   score += scoreCreatedAt(createdAt, submittedAt)
   return score
 }
 
-export function isTaskSubmitTimeoutError(error) {
-  const message = String(error?.message || "").trim()
-  const code = String(error?.code || "").trim()
+function isTaskSubmitRecoverableError(error) {
+  const message = normalizeText((error && error.message) || (error && error.errMsg) || "")
   return (
-    /timeout|timed out|exceeded/i.test(message) ||
-    code === "ECONNABORTED" ||
-    code === "ETIMEDOUT"
+    !!(error && (error.isNetworkError || error.isTimeout || error.isResponseParseError)) ||
+    /timeout|network|connection|closed|reset|abort|未收到有效响应|响应格式异常/.test(message)
   )
 }
 
-export function isTaskSubmitNetworkError(error) {
-  const message = String(error?.message || "").trim()
-  const code = String(error?.code || "").trim().toUpperCase()
-  const status = Number(error?.response?.status || 0)
-  return (
-    /network error|failed to fetch|fetch failed|load failed|err_network|connection closed|empty response|socket hang up/i.test(
-      message
-    ) ||
-    [
-      "ERR_NETWORK",
-      "ERR_CONNECTION_CLOSED",
-      "ERR_CONNECTION_RESET",
-      "ERR_EMPTY_RESPONSE",
-    ].includes(code) ||
-    (!error?.response && Boolean(error?.request)) ||
-    [502, 503, 504, 520, 522, 524].includes(status)
-  )
+function getTaskRecordLabel(taskType) {
+  if (taskType === "aigc_detect") return "检测"
+  if (taskType === "rewrite") return "降AIGC"
+  if (taskType === "dedup") return "降重"
+  return "任务"
 }
 
-export async function recoverSubmittedTask({
+function getTaskSubmitFallbackMessage(error, taskType) {
+  const recordLabel = getTaskRecordLabel(taskType)
+  if (error && error.isTimeout) {
+    return `提交耗时较长，请稍后到${recordLabel}记录页确认任务是否已创建`
+  }
+  if (isTaskSubmitRecoverableError(error)) {
+    return `提交未收到有效响应，请检查网络或后端服务；也可到${recordLabel}记录页查看任务是否已创建`
+  }
+  return String((error && error.message) || "").trim() || "提交失败，请稍后重试"
+}
+
+async function fetchRecentTasks(taskType) {
+  const pageSize = 50
+  const maxPages = 6
+  let page = 1
+  let totalPages = 1
+  const items = []
+
+  while (page <= totalPages && page <= maxPages) {
+    const data = await request({
+      url: `/tasks/my?page=${page}&page_size=${pageSize}&task_type=${encodeURIComponent(taskType)}`,
+      method: "GET",
+      silent: true,
+    })
+    const pageItems = Array.isArray(data && data.items) ? data.items : []
+    items.push(...pageItems)
+
+    const nextTotal = Number(data && data.pagination ? data.pagination.total_pages : 0)
+    if (Number.isFinite(nextTotal) && nextTotal > 0) {
+      totalPages = nextTotal
+    } else if (pageItems.length < pageSize) {
+      totalPages = page
+    } else {
+      totalPages = page + 1
+    }
+    page += 1
+  }
+
+  return items
+}
+
+async function recoverSubmittedTask({
   taskType,
   paperTitle,
   authors,
   sourceFilename,
   submittedAt = Date.now(),
 }) {
-  if (!taskType) {
-    return null
-  }
+  if (!taskType) return null
 
   const matcher = {
     paperTitle: normalizeText(paperTitle),
@@ -114,17 +141,18 @@ export async function recoverSubmittedTask({
   }
 
   try {
-    const items = await fetchAllUserTasks(
-      { task_type: taskType },
-      { pageSize: 100, maxPages: 10 }
-    )
+    const items = await fetchRecentTasks(taskType)
     const windowStart = submittedAt - 10 * 60 * 1000
     const windowEnd = Date.now() + 2 * 60 * 1000
 
     const recentCandidates = items
-      .map((task) => ({ task, createdAt: parseTimestamp(task?.created_at) }))
+      .map((task) => ({ task, createdAt: parseTimestamp(task && task.created_at) }))
       .filter((item) => item.createdAt !== null && item.createdAt >= windowStart && item.createdAt <= windowEnd)
-      .map((item) => ({ ...item, score: scoreCandidate(item.task, matcher, submittedAt, item.createdAt) }))
+      .map((item) => ({
+        task: item.task,
+        createdAt: item.createdAt,
+        score: scoreCandidate(item.task, matcher, submittedAt, item.createdAt),
+      }))
       .filter((item) => item.score >= 6)
       .sort((left, right) => right.score - left.score || right.createdAt - left.createdAt)
 
@@ -133,7 +161,7 @@ export async function recoverSubmittedTask({
     }
 
     const nearTasks = items
-      .map((task) => ({ task, createdAt: parseTimestamp(task?.created_at) }))
+      .map((task) => ({ task, createdAt: parseTimestamp(task && task.created_at) }))
       .filter((item) => item.createdAt !== null)
       .filter((item) => Math.abs(item.createdAt - submittedAt) <= 45 * 1000)
       .sort(
@@ -150,8 +178,14 @@ export async function recoverSubmittedTask({
       return nearTasks[0].task
     }
   } catch (error) {
-    console.warn("recover_submitted_task_failed", error)
+    console.warn("miniapp_recover_submitted_task_failed", error)
   }
 
   return null
+}
+
+module.exports = {
+  isTaskSubmitRecoverableError,
+  recoverSubmittedTask,
+  getTaskSubmitFallbackMessage,
 }

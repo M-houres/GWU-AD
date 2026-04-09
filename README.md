@@ -180,8 +180,8 @@ curl -X POST "http://localhost:8000/api/v1/admin/algo-packages/activate" \
 
 ## 工程化脚本（新增）
 
-- 一键部署（阿里云 ECS）：
-  - `bash scripts/deploy_aliyun.sh`
+- 一键部署（腾讯云）：
+  - `powershell -ExecutionPolicy Bypass -File scripts/update_tencent.ps1`
 - 质量闸门（Linux）：
   - `bash scripts/quality_gate.sh`
 - 质量闸门（Windows）：
@@ -189,7 +189,6 @@ curl -X POST "http://localhost:8000/api/v1/admin/algo-packages/activate" \
 - 全链路升级手册：
   - `docs/PROJECT_EXCELLENCE_PLAYBOOK.md`
 
-## Aliyun Quick Commands
-- Quick guide: `docs/ALIYUN_QUICKSTART.md`
-- Deploy: `bash scripts/deploy_aliyun.sh`
-- Rollback: `bash scripts/deploy_aliyun_rollback.sh`
+## Tencent Cloud Deploy
+- Deploy: `powershell -ExecutionPolicy Bypass -File scripts/update_tencent.ps1`
+- Remote updater: `bash scripts/update_prod_server.sh`

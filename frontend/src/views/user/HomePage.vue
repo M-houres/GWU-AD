@@ -16,7 +16,7 @@
         <p class="gw-home-v3__kicker">五个功能页面自动轮播</p>
         <h1 id="home-title">一屏查看论文处理全流程能力</h1>
         <p class="gw-home-v3__lead">
-          首页只保留五个核心功能卡片：学术润色、降重复率、AIGC检测、智能审稿、答辩服务。
+          首页只保留五个核心功能卡片：降AIGC、降重复率、AIGC检测、智能审稿、答辩服务。
           自动轮播，支持手动切换，不再是长文本堆叠。
         </p>
       </section>
@@ -91,11 +91,11 @@ const entryText = computed(() => (hasToken.value ? "进入工作台" : "登录")
 const slides = [
   {
     key: "rewrite",
-    short: "学术润色",
-    title: "学术润色",
+    short: "降AIGC",
+    title: "降AIGC",
     desc: "针对疑似 AI 特征段落进行重写优化，尽量保留原意并降低风险。",
     points: ["支持报告联动", "任务进度实时可见", "结果可下载复核"],
-    cta: "进入学术润色",
+    cta: "进入降AIGC",
     path: "/app/rewrite",
   },
   {

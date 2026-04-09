@@ -124,7 +124,7 @@
                 <article v-for="item in recentTasks" :key="item.id" class="profile-list__item">
                   <div class="profile-list__main">
                     <button class="profile-link" type="button" @click="openResult(item)">{{ taskLabel(item) }}</button>
-                    <div class="profile-list__meta">{{ mapTaskType(item.task_type) }} · {{ mapPlatform(item.platform) }} · {{ formatTime(item.created_at) }}</div>
+                    <div class="profile-list__meta">{{ mapTaskType(item.task_type) }} · {{ mapPlatform(item.platform, item.task_type) }} · {{ formatTime(item.created_at) }}</div>
                   </div>
                   <div class="profile-list__side">
                     <span class="scholar-badge" :class="statusClass(item.status)">{{ mapStatus(item.status) }}</span>
@@ -200,7 +200,7 @@
                   <td>{{ item.id }}</td>
                   <td>{{ taskLabel(item) }}</td>
                   <td>{{ mapTaskType(item.task_type) }}</td>
-                  <td>{{ mapPlatform(item.platform) }}</td>
+                  <td>{{ mapPlatform(item.platform, item.task_type) }}</td>
                   <td><span class="scholar-badge" :class="statusClass(item.status)">{{ mapStatus(item.status) }}</span></td>
                   <td>{{ item.char_count || 0 }}</td>
                   <td>{{ item.cost_credits || 0 }} 积分</td>
@@ -339,7 +339,7 @@ const historyTypeFilters = [
   { key: "all", label: "全部任务" },
   { key: "aigc_detect", label: "AIGC 检测" },
   { key: "dedup", label: "降重复率" },
-  { key: "rewrite", label: "学术润色" },
+  { key: "rewrite", label: "降AIGC" },
 ]
 
 const activeTab = ref("overview")
@@ -392,7 +392,7 @@ const accountCards = computed(() => [
 const breakdownCards = computed(() => [
   { label: "AIGC 检测", value: summaryState.value.task_counts?.by_type?.aigc_detect || 0, hint: "功能累计任务数" },
   { label: "降重复率", value: summaryState.value.task_counts?.by_type?.dedup || 0, hint: "功能累计任务数" },
-  { label: "学术润色", value: summaryState.value.task_counts?.by_type?.rewrite || 0, hint: "功能累计任务数" },
+  { label: "降AIGC", value: summaryState.value.task_counts?.by_type?.rewrite || 0, hint: "功能累计任务数" },
   { label: "处理中", value: summaryState.value.task_counts?.by_status?.running || 0, hint: "当前还在执行中的任务" },
   { label: "已完成", value: summaryState.value.task_counts?.by_status?.completed || 0, hint: "已产出结果的任务" },
   { label: "失败", value: summaryState.value.task_counts?.by_status?.failed || 0, hint: "需要重新提交或人工排查" },
@@ -485,7 +485,7 @@ function mapCreditType(type) {
 }
 
 function mapTaskType(type) {
-  return { aigc_detect: "AIGC 检测", dedup: "降重复率", rewrite: "学术润色" }[type] || type
+  return { aigc_detect: "AIGC 检测", dedup: "降重复率", rewrite: "降AIGC" }[type] || type
 }
 
 function mapStatus(status) {
@@ -499,8 +499,8 @@ function statusClass(status) {
   return "scholar-badge--warn"
 }
 
-function mapPlatform(platform) {
-  return mapTaskPlatform(platform)
+function mapPlatform(platform, taskType) {
+  return mapTaskPlatform(platform, taskType)
 }
 
 function mapUserSource(source) {

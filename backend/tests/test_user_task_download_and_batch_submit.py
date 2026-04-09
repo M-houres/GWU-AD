@@ -1,0 +1,157 @@
+from contextlib import contextmanager
+import io
+import json
+from io import BytesIO
+from pathlib import Path
+import zipfile
+
+from docx import Document
+from sqlalchemy.orm import Session
+
+from app import worker_tasks
+from app.deps import current_user
+from app.main import app
+from app.models import Task, TaskStatus, TaskType, User
+from app.services.algo_package_service import install_algorithm_package
+
+
+def _make_docx_bytes(text: str) -> BytesIO:
+    doc = Document()
+    doc.add_paragraph(text)
+    buffer = BytesIO()
+    doc.save(buffer)
+    buffer.seek(0)
+    return buffer
+
+
+def _build_package_zip(*, platform: str, function_type: str, name: str = "engine") -> bytes:
+    manifest = {
+        "name": name,
+        "version": "1.0.0",
+        "platform": platform,
+        "function_type": function_type,
+        "entry": "main.py",
+    }
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("manifest.json", json.dumps(manifest, ensure_ascii=False))
+        zf.writestr("main.py", "def process(text):\n    return {'text': str(text)}\n")
+    return buf.getvalue()
+
+
+def _activate_slot(db_session: Session, *, platform: str, function_type: str) -> None:
+    install_algorithm_package(
+        db_session,
+        file_bytes=_build_package_zip(platform=platform, function_type=function_type, name=f"{function_type}_engine"),
+        platform=platform,
+        function_type=function_type,
+        uploaded_by=1,
+        activate_after_upload=True,
+    )
+    db_session.commit()
+
+
+def test_user_can_download_completed_task_result(client, db_session: Session, tmp_path: Path) -> None:
+    output_path = tmp_path / "user_task_result.txt"
+    output_path.write_text("user download result", encoding="utf-8")
+
+    user = User(phone="13800006660", nickname="download-user", credits=1000)
+    db_session.add(user)
+    db_session.flush()
+
+    task = Task(
+        user_id=user.id,
+        task_type=TaskType.DEDUP,
+        platform="cnki",
+        status=TaskStatus.COMPLETED,
+        source_filename="paper.docx",
+        source_path=str(tmp_path / "paper.docx"),
+        output_path=str(output_path),
+        char_count=200,
+        cost_credits=200,
+        result_json={"paper_title": "下载测试"},
+    )
+    db_session.add(task)
+    db_session.commit()
+
+    app.dependency_overrides[current_user] = lambda: user
+    try:
+        resp = client.get(f"/api/v1/tasks/{task.id}/download")
+        assert resp.status_code == 200
+        assert resp.content == b"user download result"
+    finally:
+        app.dependency_overrides.pop(current_user, None)
+
+
+def test_multiple_quick_submissions_can_all_process_and_download(
+    client,
+    db_session: Session,
+    monkeypatch,
+    settings_override,
+) -> None:
+    user = User(phone="13800006661", nickname="batch-user", credits=20000)
+    db_session.add(user)
+    db_session.commit()
+    db_session.refresh(user)
+
+    _activate_slot(db_session, platform="cnki", function_type="dedup")
+    monkeypatch.setattr("app.worker_tasks.dispatch_background_task", lambda *_args, **_kwargs: "test-noop")
+
+    app.dependency_overrides[current_user] = lambda: user
+    try:
+        task_ids: list[int] = []
+        for idx in range(3):
+            resp = client.post(
+                "/api/v1/tasks/submit",
+                data={
+                    "task_type": "dedup",
+                    "platform": "cnki",
+                    "paper_title": "短时间连续提交测试",
+                    "authors": "测试作者",
+                },
+                files={
+                    "paper": (
+                        "same_name.docx",
+                        _make_docx_bytes(f"第{idx + 1}篇：用于验证短时间连续提交的正文内容。"),
+                        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                    )
+                },
+            )
+            assert resp.status_code == 200
+            task_ids.append(resp.json()["data"]["id"])
+
+        assert len(set(task_ids)) == 3
+
+        rows = db_session.query(Task).filter(Task.id.in_(task_ids)).order_by(Task.id.asc()).all()
+        assert len(rows) == 3
+        assert all(row.status == TaskStatus.PENDING for row in rows)
+        assert len({row.source_path for row in rows}) == 3
+        assert all(Path(row.source_path).name.endswith("_same_name.docx") for row in rows)
+
+        @contextmanager
+        def _db_session_override():
+            try:
+                yield db_session
+                db_session.commit()
+            except Exception:
+                db_session.rollback()
+                raise
+
+        monkeypatch.setattr(worker_tasks, "db_session", _db_session_override)
+
+        for task_id in task_ids:
+            result = worker_tasks.process_task_async(task_id)
+            assert result["ok"] is True
+
+        for task_id in task_ids:
+            row = db_session.get(Task, task_id)
+            assert row is not None
+            assert row.status == TaskStatus.COMPLETED
+            assert row.output_path
+            assert Path(row.output_path).exists()
+
+            download_resp = client.get(f"/api/v1/tasks/{task_id}/download")
+            assert download_resp.status_code == 200
+            assert len(download_resp.content) > 0
+    finally:
+        app.dependency_overrides.pop(current_user, None)

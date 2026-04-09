@@ -1,7 +1,7 @@
 ﻿<template>
   <UserShell
     title="AIGC检测"
-    subtitle="上传文档后提交检测，系统将按仿知网、仿维普、仿PaperPass规则生成简洁报告与全文报告。"
+    subtitle="上传文档后提交检测，系统将按模拟知网、模拟维普、模拟PaperPass规则生成简洁报告与全文报告。"
     :credits="userCredits"
     :hide-topbar="true"
     :hide-header-title="true"
@@ -181,7 +181,7 @@ import {
   isTaskSubmitTimeoutError,
   recoverSubmittedTask,
 } from "../../lib/taskSubmitRecovery"
-import { TASK_PLATFORM_OPTIONS } from "../../lib/taskPlatform"
+import { AIGC_PLATFORM_OPTIONS } from "../../lib/taskPlatform"
 import { ensureUserLogin } from "../../lib/requireLogin"
 import { getUserToken } from "../../lib/session"
 
@@ -208,13 +208,13 @@ const fieldErrors = reactive({
   authors: "",
 })
 
-const platformCards = TASK_PLATFORM_OPTIONS
+const platformCards = AIGC_PLATFORM_OPTIONS
 
 const features = [
   {
     icon: "1",
     title: "多平台仿真检测",
-    desc: "按仿知网、仿维普、仿PaperPass三套口径输出结果，重点覆盖常见学术论文与课程作业场景。",
+    desc: "按模拟知网、模拟维普、模拟PaperPass三套口径输出结果，重点覆盖常见学术论文与课程作业场景。",
   },
   {
     icon: "2",

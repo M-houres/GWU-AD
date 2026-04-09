@@ -13,8 +13,20 @@
 
       <section class="aigc-page-head">
         <h2 class="aigc-page-head__title">上传降重处理文档</h2>
+        <p class="aigc-page-head__quota">围绕高重复风险内容进行表达重构与语序优化，兼顾原意保留与查重率控制。</p>
       </section>
       <div class="aigc-page-head__divider" aria-hidden="true"></div>
+      <section class="service-benefit-banner">
+        <div class="service-benefit-banner__badge">邀请有礼</div>
+        <div class="service-benefit-banner__body">
+          <h3>邀请好友使用可得奖励与返利</h3>
+          <p>好友注册、首充和持续使用后可累计邀请奖励，相关权益与流水可在推广福利页查看。</p>
+        </div>
+        <div class="service-benefit-banner__side">
+          <strong>推广福利</strong>
+          <button type="button" class="service-benefit-banner__action" @click="router.push('/app/referral')">查看权益</button>
+        </div>
+      </section>
 
       <div class="uploadLiterature_content">
         <div class="uploadLit_content panels-container">
@@ -56,29 +68,6 @@
                       <button type="button" @click="clearPaper">移除</button>
                     </p>
                     <p v-if="fieldErrors.paper" class="aigc-field-error">{{ fieldErrors.paper }}</p>
-                  </section>
-
-                  <section class="aigc-group">
-                    <h3 class="aigc-group__title">查重报告<span class="service-optional-tag">选填</span></h3>
-                    <label
-                      class="aigc-upload aigc-upload--green aigc-upload--compact"
-                      :class="{ 'is-dragging': dragReport, 'is-error': fieldErrors.report }"
-                      @dragenter.prevent="dragReport = true"
-                      @dragover.prevent="dragReport = true"
-                      @dragleave.prevent="dragReport = false"
-                      @drop.prevent="onReportDrop"
-                    >
-                      <input class="hidden" type="file" accept=".docx,.pdf" @change="onReportInput" />
-                      <div class="aigc-upload__inner">
-                        <p class="aigc-upload__title">请上传查重全文报告（非截图/节选）</p>
-                        <p class="aigc-upload__subtitle">全文报告支持 .docx / .pdf</p>
-                      </div>
-                    </label>
-                    <p v-if="reportFile" class="aigc-upload__file">
-                      {{ reportFile.name }}（{{ humanSize(reportFile.size) }}）
-                      <button type="button" @click="clearReport">移除</button>
-                    </p>
-                    <p v-if="fieldErrors.report" class="aigc-field-error">{{ fieldErrors.report }}</p>
                   </section>
 
                   <section class="aigc-group">
@@ -226,8 +215,8 @@ const features = [
   },
   {
     icon: "3",
-    title: "报告联动处理",
-    desc: "支持上传查重报告作为辅助输入，系统可优先处理命中区域，减少无效改写与重复返工。",
+    title: "命中区域重点处理",
+    desc: "结合平台规则优先处理高风险与高重复段落，减少无效改写与重复返工。",
   },
   {
     icon: "4",
@@ -238,15 +227,12 @@ const features = [
 
 const fieldErrors = reactive({
   paper: "",
-  report: "",
   title: "",
   authors: "",
 })
 
 const dragMain = ref(false)
-const dragReport = ref(false)
 const paperFile = ref(null)
-const reportFile = ref(null)
 const submitting = ref(false)
 const errorText = ref("")
 const successText = ref("")
@@ -270,11 +256,6 @@ function humanSize(size) {
 function clearPaper() {
   paperFile.value = null
   fieldErrors.paper = ""
-}
-
-function clearReport() {
-  reportFile.value = null
-  fieldErrors.report = ""
 }
 
 function onPaperInput(event) {
@@ -303,34 +284,6 @@ function setMainFile(file) {
     return
   }
   paperFile.value = file
-}
-
-function onReportInput(event) {
-  const file = event.target.files?.[0] || null
-  setReportFile(file)
-  event.target.value = ""
-}
-
-function onReportDrop(event) {
-  dragReport.value = false
-  const file = event.dataTransfer?.files?.[0] || null
-  setReportFile(file)
-}
-
-function setReportFile(file) {
-  fieldErrors.report = ""
-  if (!file) return
-
-  const ext = file.name.includes(".") ? file.name.slice(file.name.lastIndexOf(".")).toLowerCase() : ""
-  if (![".docx", ".pdf"].includes(ext)) {
-    fieldErrors.report = "查重报告仅支持 .docx / .pdf"
-    return
-  }
-  if (file.size > 20 * 1024 * 1024) {
-    fieldErrors.report = "文件超过 20MB 限制"
-    return
-  }
-  reportFile.value = file
 }
 
 function validateForm() {
@@ -374,7 +327,6 @@ async function submitTask() {
     payload.append("paper", paperFile.value)
     payload.append("paper_title", form.title.trim())
     payload.append("authors", form.authors.trim())
-    if (reportFile.value) payload.append("report", reportFile.value)
 
     const data = await userHttp.post("/tasks/submit", payload, {
       timeout: 120000,

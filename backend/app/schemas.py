@@ -27,6 +27,13 @@ class MiniProgramLoginReq(BaseModel):
     device_fingerprint: str | None = Field(default=None, max_length=128)
 
 
+class MiniProgramPhoneLoginReq(BaseModel):
+    login_code: str = Field(min_length=2, max_length=256)
+    phone_code: str = Field(min_length=2, max_length=256)
+    referrer_code: str | None = None
+    device_fingerprint: str | None = Field(default=None, max_length=128)
+
+
 class UserResp(BaseModel):
     id: int
     phone: str

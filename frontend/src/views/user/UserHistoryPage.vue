@@ -108,7 +108,7 @@
               <tr v-for="item in tasks" :key="item.id">
                 <td>{{ item.id }}</td>
                 <td>{{ mapTaskType(item.task_type) }}</td>
-                <td>{{ mapPlatform(item.platform) }}</td>
+                <td>{{ mapPlatform(item.platform, item.task_type) }}</td>
                 <td>
                   <span class="scholar-badge" :class="statusClass(item.status)">
                     {{ mapStatus(item.status) }}
@@ -308,7 +308,7 @@ const taskTypeOptions = [
   { value: "", label: "全部" },
   { value: "aigc_detect", label: "AIGC 检测" },
   { value: "dedup", label: "降重复率" },
-  { value: "rewrite", label: "学术润色" },
+  { value: "rewrite", label: "降AIGC" },
 ]
 const platformOptions = [
   { value: "", label: "全部" },
@@ -455,7 +455,7 @@ function mapTaskType(type) {
   const mapping = {
     aigc_detect: "AIGC 检测",
     dedup: "降重复率",
-    rewrite: "学术润色",
+    rewrite: "降AIGC",
   }
   return mapping[type] || type
 }
@@ -470,8 +470,8 @@ function mapStatus(status) {
   return mapping[status] || status
 }
 
-function mapPlatform(platform) {
-  return mapTaskPlatform(platform)
+function mapPlatform(platform, taskType) {
+  return mapTaskPlatform(platform, taskType)
 }
 
 function resultSummary(task) {

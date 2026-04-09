@@ -33,7 +33,7 @@
 - 每次发布前执行一次质量闸门并保留结果。
 
 ## 4. 运维视角
-- 使用单脚本部署：`scripts/deploy_aliyun.sh`。
+- 使用腾讯云发布脚本：`scripts/update_tencent.ps1`。
 - 脚本内置：
   - Git 克隆失败自动切换 codeload 下载
   - 自动生成关键密钥

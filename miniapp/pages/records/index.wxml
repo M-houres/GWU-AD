@@ -1,18 +1,141 @@
-<view class="container">
-  <view class="card" wx:if="{{ !records.length }}">
-    <view class="muted">暂无任务记录，先去提交一个任务吧。</view>
-  </view>
+<view class="page-shell page-shell--records">
+  <view class="content-stack">
+    <view class="hero-panel hero-panel--light records-hero">
+      <view class="hero-title">任务记录</view>
+      <view class="hero-subtitle">这里集中保存每一篇论文的检测、降AIGC与降重任务。完成后可直接展开报告，也可以下载结果文件。</view>
+      <view class="hero-meta">
+        <view class="hero-chip">共 {{ summary.total }} 条</view>
+        <view class="hero-chip">已完成 {{ summary.completed }} 条</view>
+        <view class="hero-chip">处理中 {{ summary.active }} 条</view>
+      </view>
+    </view>
 
-  <view class="card record-item" wx:for="{{ records }}" wx:key="id">
-    <view class="row">
-      <view>任务 #{{ item.id }}</view>
-      <view class="muted">{{ item.statusText }}</view>
+    <view class="surface surface--compact panel-gap" wx:if="{{ guestMode }}">
+      <view class="section-head">
+        <view class="section-copy">
+          <view class="section-kicker">登录后可见</view>
+          <view class="section-title">登录后查看完整任务记录</view>
+          <view class="section-desc">检测、降AIGC和降重任务都会保存在这里，登录后可继续查看状态、报告和下载结果。</view>
+        </view>
+      </view>
+      <view class="button-group button-group--single">
+        <view class="button-item">
+          <button class="primary-btn" hover-class="is-press-btn" bindtap="onTapGuestLogin">去登录后查看</button>
+        </view>
+      </view>
     </view>
-    <view class="muted gap-12">{{ item.task_type }} / {{ item.platform }}</view>
-    <view class="muted gap-12">字符数：{{ item.char_count }} · 扣费：{{ item.cost_credits }}</view>
-    <view class="row gap-16">
-      <button class="btn-secondary" data-id="{{ item.id }}" bindtap="onTapDetail">查看详情</button>
-      <button class="btn-primary" data-id="{{ item.id }}" data-status="{{ item.status }}" bindtap="onTapDownload">下载结果</button>
+
+    <block wx:else>
+    <view class="filter-row">
+      <view
+        class="filter-pill {{ currentFilter === item.value ? 'active' : '' }}"
+        wx:for="{{ filterOptions }}"
+        wx:key="value"
+        data-value="{{ item.value }}"
+        bindtap="onChangeFilter"
+        hover-class="is-press-pill"
+      >
+        {{ item.label }}
+        <text class="filter-count">{{ item.count }}</text>
+      </view>
     </view>
+
+    <view class="surface surface--compact records-loading" wx:if="{{ loading && !records.length }}">
+      <view class="loading-inline">
+        <view class="loading-orbit">
+          <view class="loading-dot loading-dot--a"></view>
+          <view class="loading-dot loading-dot--b"></view>
+          <view class="loading-dot loading-dot--c"></view>
+        </view>
+        <view class="loading-copy">
+          <view class="loading-title">正在整理任务记录</view>
+          <view class="loading-desc">正在同步最新状态、结果和报告摘要</view>
+        </view>
+      </view>
+      <view class="skeleton-row">
+        <view class="skeleton-card">
+          <view class="skeleton-line skeleton-line--mid"></view>
+          <view class="skeleton-line"></view>
+          <view class="skeleton-line skeleton-line--short"></view>
+        </view>
+        <view class="skeleton-card">
+          <view class="skeleton-line skeleton-line--mid"></view>
+          <view class="skeleton-line"></view>
+          <view class="skeleton-line skeleton-line--short"></view>
+        </view>
+      </view>
+    </view>
+
+    <view class="empty-state panel-gap" wx:if="{{ !loading && !records.length }}">
+      <view class="empty-mark">记</view>
+      <view class="empty-title">当前筛选下没有任务</view>
+      <view class="empty-desc">切换筛选查看其他状态，或回到首页提交新的论文处理任务。</view>
+    </view>
+
+    <view class="surface surface--compact record-card" wx:for="{{ records }}" wx:key="id">
+      <view class="section-head record-head">
+        <view class="record-copy">
+          <view class="record-title">{{ item.paperTitle }}</view>
+          <view class="record-meta">作者 {{ item.authorsText }}</view>
+          <view class="record-meta">{{ item.taskTypeText }} · {{ item.platformText }} · #{{ item.id }}</view>
+        </view>
+        <view class="status-badge {{ item.statusClass }}">{{ item.statusText }}</view>
+      </view>
+
+      <view class="record-mini-row">
+        <view class="record-mini-pill">提交 {{ item.createdAtText }}</view>
+        <view class="record-mini-pill">字数 {{ item.charCount }}</view>
+        <view class="record-mini-pill">积分 {{ item.costCredits }}</view>
+      </view>
+
+      <view class="record-actions">
+        <view class="record-action-item">
+          <button class="secondary-btn" hover-class="is-press-btn" data-id="{{ item.id }}" bindtap="onToggleDetail">
+            {{ expandedId === item.id ? "收起报告" : "查看报告" }}
+          </button>
+        </view>
+        <view class="record-action-item">
+          <button class="primary-btn" hover-class="is-press-btn" data-id="{{ item.id }}" data-status="{{ item.status }}" bindtap="onTapDownload">下载结果</button>
+        </view>
+      </view>
+
+      <view class="surface surface--soft panel-gap" wx:if="{{ expandedId === item.id }}">
+        <view class="loading-inline" wx:if="{{ detailLoadingId === item.id }}">
+          <view class="loading-orbit">
+            <view class="loading-dot loading-dot--a"></view>
+            <view class="loading-dot loading-dot--b"></view>
+            <view class="loading-dot loading-dot--c"></view>
+          </view>
+          <view class="loading-copy">
+            <view class="loading-title">正在加载报告详情</view>
+            <view class="loading-desc">请保持当前页面，系统正在拉取结果</view>
+          </view>
+        </view>
+
+        <view wx:elif="{{ expandedDetail }}">
+          <view class="section-head">
+            <view class="section-copy">
+              <view class="section-kicker">内嵌报告</view>
+              <view class="section-title">内嵌报告</view>
+              <view class="section-desc">不再跳转详情页，直接在当前任务卡片中查看摘要、结果和错误信息。</view>
+            </view>
+          </view>
+
+          <view class="report-grid">
+            <view class="report-card" wx:for="{{ expandedDetail.reportCards }}" wx:key="label">
+              <view class="report-label">{{ item.label }}</view>
+              <view class="report-value">{{ item.value }}</view>
+            </view>
+          </view>
+
+          <view class="helper-text" wx:if="{{ expandedDetail.errorMessage }}">错误信息：{{ expandedDetail.errorMessage }}</view>
+
+          <scroll-view scroll-y class="result-block panel-gap">
+            <view class="pre-text">{{ expandedDetail.resultText }}</view>
+          </scroll-view>
+        </view>
+      </view>
+    </view>
+    </block>
   </view>
 </view>

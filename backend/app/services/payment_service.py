@@ -117,11 +117,24 @@ def is_payment_provider_ready(cfg: Mapping[str, Any], provider: str | None = Non
     return False
 
 
-def enabled_payment_providers(db) -> list[str]:
+def enabled_payment_providers(db, *, scene: str = "web") -> list[str]:
     cfg = load_payment_config(db)
-    if bool(cfg.get("test_mode", settings.payment_test_mode)):
-        return ["mock"]
+    normalized_scene = str(scene or "web").strip().lower().replace("-", "_")
     provider = normalize_payment_provider(cfg.get("provider", "wechatpay_v3"))
+    test_mode = bool(cfg.get("test_mode", settings.payment_test_mode))
+
+    if normalized_scene == "miniprogram":
+        if provider == "wechatpay_v3" and is_payment_provider_ready(cfg, provider):
+            return ["wechat"]
+        # Keep miniapp payment flows testable in local/dev even when the primary
+        # provider is still set to web-only channels such as Alipay.
+        if test_mode or settings.app_env != "prod":
+            return ["mock"]
+        return []
+
+    if test_mode:
+        return ["mock"]
+
     if provider == "wechatpay_v3" and is_payment_provider_ready(cfg, provider):
         return ["wechat"]
     if provider == "alipay" and is_payment_provider_ready(cfg, provider):

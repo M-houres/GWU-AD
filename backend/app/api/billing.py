@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse, PlainTextResponse
 from sqlalchemy.orm import Session
 
-from app.client_source import DEFAULT_CLIENT_SOURCE, SYSTEM_CLIENT_SOURCE, get_client_source
+from app.client_source import DEFAULT_CLIENT_SOURCE, MINIPROGRAM_CLIENT_SOURCE, SYSTEM_CLIENT_SOURCE, get_client_source
 from app.config import get_settings
 from app.constants import DEFAULT_BILLING_PACKAGES, PACKAGE_CONFIG
 from app.deps import current_user, db_dep
@@ -39,6 +39,15 @@ MINIPROGRAM_SCENE = "miniprogram"
 PACKAGE_NAME_ALIASES = {
     "年费包": "大额包",
 }
+
+
+def _normalize_payment_scene(scene: str | None, *, fallback_source: str = DEFAULT_CLIENT_SOURCE) -> str:
+    raw = str(scene or "").strip().lower().replace("-", "_")
+    if raw in {"miniapp", "miniprogram", "mini_program", "wxapp", "wechat_miniprogram", "wechat_mini_program"}:
+        return MINIPROGRAM_SCENE
+    if raw in {"web", "site", "h5"}:
+        return "web"
+    return MINIPROGRAM_SCENE if fallback_source == MINIPROGRAM_CLIENT_SOURCE else "web"
 
 
 def _normalize_package_name(name: str) -> str:
@@ -324,19 +333,37 @@ def _wechat_ack(success: bool, message: str) -> JSONResponse:
 
 
 @router.get("/packages", response_model=APIResp)
-def packages(db: Session = Depends(db_dep)) -> APIResp:
+def packages(
+    request: Request,
+    scene: str | None = None,
+    db: Session = Depends(db_dep),
+) -> APIResp:
+    client_source = get_client_source(request)
+    normalized_scene = _normalize_payment_scene(scene, fallback_source=client_source)
     payment_cfg = load_payment_config(db)
+    supported_providers = enabled_payment_providers(db, scene=normalized_scene)
     payment_test_mode = bool(payment_cfg.get("test_mode", settings.payment_test_mode))
-    supported_providers = enabled_payment_providers(db)
+    if normalized_scene == MINIPROGRAM_SCENE and supported_providers == ["mock"]:
+        payment_test_mode = True
     payment_mode = payment_cfg.get("provider", "wechatpay_v3")
     items = _load_available_packages(db)
+    if normalized_scene == MINIPROGRAM_SCENE:
+        if supported_providers == ["wechat"]:
+            message = "小程序当前为微信支付模式"
+        elif supported_providers == ["mock"]:
+            message = "小程序当前使用测试支付模式"
+        else:
+            message = "小程序支付通道未就绪"
+    else:
+        message = "当前为联调支付模式" if payment_test_mode else "当前为正式支付模式"
     return ok(
         data={
             "items": items,
             "payment_test_mode": payment_test_mode,
-            "message": "当前为联调支付模式" if payment_test_mode else "当前为正式支付模式",
+            "message": message,
             "supported_providers": supported_providers,
             "payment_provider_mode": payment_mode,
+            "scene": normalized_scene,
         }
     )
 
@@ -358,12 +385,20 @@ def create_order(
     if scene not in SUPPORTED_SCENES:
         raise BizError(code=4211, message="支付场景不支持")
 
-    enabled = set(enabled_payment_providers(db))
+    enabled = set(enabled_payment_providers(db, scene=scene))
     payment_cfg = load_payment_config(db)
     payment_test_mode = bool(payment_cfg.get("test_mode", settings.payment_test_mode))
 
-    if provider not in SUPPORTED_PROVIDERS or provider not in enabled:
+    if provider not in SUPPORTED_PROVIDERS:
         raise BizError(code=4211, message="支付方式不支持")
+    if provider not in enabled:
+        if scene == MINIPROGRAM_SCENE and provider == "wechat" and "mock" in enabled and settings.app_env != "prod":
+            provider = "mock"
+            payment_test_mode = True
+        elif scene == MINIPROGRAM_SCENE and provider == "wechat":
+            raise BizError(code=4214, message="小程序微信支付未就绪，请检查微信支付配置")
+        else:
+            raise BizError(code=4211, message="支付方式不支持")
     if provider == "mock" and (not payment_test_mode) and settings.app_env == "prod":
         raise BizError(code=4213, message="当前环境未开启测试支付")
 

@@ -1,37 +1,152 @@
-<view class="container">
-  <view class="card">
-    <view class="row">
-      <view class="title">格物学术</view>
-      <view class="muted">积分：{{ user.credits || 0 }}</view>
-    </view>
-    <view class="muted gap-12">稳定、简洁、可追踪的论文处理工作台。</view>
-  </view>
+<view class="page-shell page-shell--home">
+  <view class="content-stack">
+    <view class="hero-panel home-hero">
+      <view class="hero-title">格物学术</view>
+      <view class="hero-subtitle">全文检测、降AIGC、降重处理，在同一个学术工作台里完成。</view>
 
-  <view class="card gap-16">
-    <view class="row">
-      <view class="title" style="font-size: 30rpx;">系统公告</view>
-      <view class="muted">v{{ notice.version }}</view>
-    </view>
-    <view class="gap-12">{{ notice.title || "系统公告" }}</view>
-    <view class="muted gap-12">{{ notice.content || "暂无公告内容" }}</view>
-  </view>
+      <view class="hero-meta">
+        <view class="hero-chip">{{ creditChipText }}</view>
+        <view class="hero-chip">{{ quotaChipText }}</view>
+      </view>
 
-  <view class="card gap-16">
-    <view class="title" style="font-size: 30rpx;">核心功能</view>
-    <view class="gap-16">
-      <view class="row" wx:for="{{ features }}" wx:key="taskType">
-        <view>
-          <view>{{ item.title }}</view>
-          <view class="muted">{{ item.desc }}</view>
+      <view class="invite-panel" wx:if="{{ !guestMode }}">
+        <view class="invite-head">
+          <view>
+            <view class="invite-label">邀请好友</view>
+            <view class="invite-note">好友首次登录时会自动带入邀请码，邀请关系会被记录。</view>
+          </view>
+          <view class="invite-code">{{ inviteInfo.inviteCode || "待生成" }}</view>
         </view>
-        <button class="btn-secondary" data-task="{{ item.taskType }}" bindtap="onTapFeature">进入</button>
+
+        <view class="invite-actions">
+          <button class="hero-sub-btn" hover-class="is-press-btn" bindtap="onCopyInviteCode">复制邀请码</button>
+          <button class="hero-main-btn" hover-class="is-press-btn" open-type="share">邀请好友</button>
+        </view>
       </view>
     </view>
-  </view>
 
-  <view class="card gap-16">
-    <view class="title" style="font-size: 30rpx;">积分与支付</view>
-    <view class="muted gap-12">购买积分后可直接用于三大核心任务。</view>
-    <button class="btn-primary gap-16" bindtap="onGoPay">立即充值</button>
+    <view class="surface submit-sheet">
+      <view class="section-head">
+        <view class="section-copy">
+          <view class="section-kicker">任务工作区</view>
+          <view class="section-title">{{ quotaPanelTitle }}</view>
+          <view class="section-desc">{{ quotaPanelDesc }}</view>
+        </view>
+      </view>
+
+      <view class="sheet-block sheet-block--task">
+        <view class="sheet-block-head">
+          <view class="sheet-step">第一步</view>
+          <view class="sheet-label">选择服务</view>
+        </view>
+        <view class="service-list">
+          <view
+            class="service-row service-row--{{ item.value }} {{ selectedTaskType === item.value ? 'active' : '' }}"
+            wx:for="{{ taskOptions }}"
+            wx:key="value"
+            data-value="{{ item.value }}"
+            bindtap="onSelectTaskType"
+            hover-class="is-press-card"
+            hover-stay-time="70"
+          >
+            <view class="service-headline">
+              <view class="service-main">
+                <view class="service-name">{{ item.label }}</view>
+                <view class="service-note">{{ item.note }}</view>
+              </view>
+            </view>
+            <view class="service-foot">
+              <view class="service-badge {{ selectedTaskType === item.value ? 'active' : '' }}">
+                {{ selectedTaskType === item.value ? "已选" : item.badge }}
+              </view>
+              <view class="service-arrow"></view>
+            </view>
+          </view>
+        </view>
+        <view class="helper-text">{{ selectedTaskMeta.helper }}</view>
+      </view>
+
+      <view class="sheet-block sheet-block--platform">
+        <view class="sheet-block-head">
+          <view class="sheet-step">第二步</view>
+          <view class="sheet-label">选择平台</view>
+        </view>
+        <view class="segment-row">
+          <view
+            class="segment-chip {{ selectedPlatform === item.value ? 'active' : '' }}"
+            wx:for="{{ platformOptions }}"
+            wx:key="value"
+            data-value="{{ item.value }}"
+            bindtap="onSelectPlatform"
+            hover-class="is-press-pill"
+          >
+            {{ item.label }}
+          </view>
+        </view>
+        <view class="helper-text">{{ selectedPlatformMeta.desc }}</view>
+      </view>
+
+      <view class="upload-panel">
+        <view class="upload-head">
+          <view class="sheet-block-head">
+            <view class="sheet-step">第三步</view>
+            <view class="sheet-label upload-title">上传文件</view>
+          </view>
+          <view class="upload-tip">默认从微信聊天记录中选择</view>
+        </view>
+        <view class="upload-file {{ paperName ? 'upload-file--selected' : '' }}">
+          {{ paperName || "尚未选择文件" }}
+        </view>
+        <view class="helper-text">{{ uploadRuleText }}</view>
+        <view class="helper-text" wx:if="{{ paperName && !paperTitle }}">选择文件后会自动读取文件名作为篇名。</view>
+        <button class="secondary-btn upload-action" hover-class="is-press-btn" bindtap="onChooseFile">从微信聊天记录选择</button>
+      </view>
+
+      <view class="sheet-block sheet-block--info">
+        <view class="sheet-block-head">
+          <view class="sheet-step">第四步</view>
+          <view class="sheet-label">信息填写</view>
+        </view>
+
+        <view class="field-stack">
+          <view class="field">
+            <view class="field-label">篇名</view>
+            <input
+              class="text-input"
+              placeholder="请输入论文篇名"
+              maxlength="300"
+              value="{{ paperTitle }}"
+              bindinput="onInputPaperTitle"
+            />
+          </view>
+
+          <view class="field">
+            <view class="field-label">作者</view>
+            <input
+              class="text-input"
+              placeholder="请输入作者姓名，多位作者可用分号分隔"
+              maxlength="200"
+              value="{{ authors }}"
+              bindinput="onInputAuthors"
+            />
+          </view>
+        </view>
+      </view>
+
+      <view class="button-group button-group--single">
+        <view class="button-item">
+          <button
+            class="primary-btn"
+            loading="{{ submitting }}"
+            disabled="{{ submitting }}"
+            bindtap="onSubmitTask"
+            hover-class="is-press-btn"
+          >
+            {{ submitting ? "提交中..." : "提交任务" }}
+          </button>
+        </view>
+      </view>
+      <view class="helper-text submit-next-step">第五步 已提交任务：提交后会自动进入记录页查看进度。</view>
+    </view>
   </view>
 </view>

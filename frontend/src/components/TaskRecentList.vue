@@ -30,7 +30,7 @@
                 {{ item.source_filename || `任务 #${item.id}` }}
               </div>
               <div class="mt-3 flex flex-wrap gap-2">
-                <span class="scholar-pill">{{ platformLabel(item.platform) }}</span>
+                <span class="scholar-pill">{{ platformLabel(item) }}</span>
                 <span class="scholar-pill">{{ formatTime(item.created_at) }}</span>
                 <span class="scholar-pill">{{ item.char_count || 0 }} 字符</span>
                 <span class="scholar-pill">{{ item.cost_credits || 0 }} 积分</span>
@@ -71,8 +71,8 @@ function formatTime(value) {
   return value ? String(value).slice(0, 19).replace("T", " ") : "-"
 }
 
-function platformLabel(platform) {
-  return mapTaskPlatform(platform)
+function platformLabel(item) {
+  return mapTaskPlatform(item?.platform, item?.task_type)
 }
 
 function statusLabel(status) {

@@ -1,33 +1,26 @@
 {
   "pages": [
-    "pages/login/index",
     "pages/home/index",
-    "pages/task/index",
     "pages/records/index",
     "pages/profile/index",
-    "pages/pay/index",
-    "pages/task-detail/index"
+    "pages/login/index"
   ],
   "window": {
     "navigationBarTextStyle": "black",
     "navigationBarTitleText": "格物学术",
-    "navigationBarBackgroundColor": "#ffffff",
-    "backgroundColor": "#ffffff",
+    "navigationBarBackgroundColor": "#f7f1ef",
+    "backgroundColor": "#f6f1ef",
     "backgroundTextStyle": "light"
   },
   "tabBar": {
-    "color": "#666666",
-    "selectedColor": "#000000",
-    "backgroundColor": "#ffffff",
+    "color": "#6f6966",
+    "selectedColor": "#07c160",
+    "backgroundColor": "#fcfbfa",
     "borderStyle": "black",
     "list": [
       {
         "pagePath": "pages/home/index",
         "text": "首页"
-      },
-      {
-        "pagePath": "pages/task/index",
-        "text": "任务"
       },
       {
         "pagePath": "pages/records/index",
