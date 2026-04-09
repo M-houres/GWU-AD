@@ -60,7 +60,10 @@ Page({
     const token = getToken()
     wx.downloadFile({
       url: `${env.apiBaseUrl}/tasks/${taskId}/download`,
-      header: token ? { Authorization: `Bearer ${token}` } : {},
+      header: {
+        "X-Client-Source": "miniprogram",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
       success: (res) => {
         if (res.statusCode !== 200 || !res.tempFilePath) {
           wx.showToast({ title: "下载失败", icon: "none" })

@@ -1,0 +1,11 @@
+{
+  "projectname": "gewu-miniapp-local",
+  "appid": "wx-your-real-miniapp-appid",
+  "setting": {
+    "urlCheck": false,
+    "es6": true,
+    "postcss": true,
+    "minified": true,
+    "enhance": true
+  }
+}

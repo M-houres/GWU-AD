@@ -6,6 +6,7 @@ function buildHeaders(extra = {}) {
   const token = getToken()
   const headers = {
     "content-type": "application/json",
+    "X-Client-Source": "miniprogram",
     ...extra,
   }
   if (token) headers.Authorization = `Bearer ${token}`
