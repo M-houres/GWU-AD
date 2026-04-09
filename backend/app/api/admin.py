@@ -2093,14 +2093,14 @@ def user_detail(
     tx_rows = (
         db.query(CreditTransaction)
         .filter(CreditTransaction.user_id == user.id)
-        .order_by(desc(CreditTransaction.created_at))
+        .order_by(desc(CreditTransaction.id))
         .limit(20)
         .all()
     )
     task_rows = (
         db.query(Task)
         .filter(Task.user_id == user.id)
-        .order_by(desc(Task.created_at))
+        .order_by(desc(Task.id))
         .limit(20)
         .all()
     )
@@ -2212,7 +2212,7 @@ def admin_tasks(
     source_rows = base_query.with_entities(Task.source, func.count(Task.id)).group_by(Task.source).all()
     total = base_query.count()
     rows = (
-        base_query.order_by(desc(Task.created_at))
+        base_query.order_by(desc(Task.id))
         .offset((page - 1) * page_size)
         .limit(page_size)
         .all()
@@ -2735,7 +2735,7 @@ def credit_transactions(
     base_query = db.query(CreditTransaction)
     total = base_query.count()
     rows = (
-        base_query.order_by(desc(CreditTransaction.created_at))
+        base_query.order_by(desc(CreditTransaction.id))
         .offset((page - 1) * page_size)
         .limit(page_size)
         .all()

@@ -9,6 +9,7 @@ from sqlalchemy import (
     Enum as SQLEnum,
     Float,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
@@ -144,6 +145,7 @@ class CreditTransaction(Base):
 
     __table_args__ = (
         UniqueConstraint("user_id", "tx_type", "related_id", name="uk_user_tx_related"),
+        Index("ix_credit_transactions_user_recent", "user_id", "id"),
     )
 
 
@@ -170,6 +172,10 @@ class Task(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
 
     user: Mapped[User] = relationship(back_populates="tasks")
+
+    __table_args__ = (
+        Index("ix_tasks_user_recent", "user_id", "id"),
+    )
 
 
 class SystemSwitch(Base):

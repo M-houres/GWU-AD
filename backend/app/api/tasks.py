@@ -324,7 +324,7 @@ def my_tasks(
             raise BizError(code=4112, message="结束日期格式错误，应为YYYY-MM-DD")
     total = base_query.count()
     rows = (
-        base_query.order_by(desc(Task.created_at), desc(Task.id))
+        base_query.order_by(desc(Task.id))
         .offset((page - 1) * page_size)
         .limit(page_size)
         .all()
