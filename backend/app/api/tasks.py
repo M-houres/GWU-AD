@@ -39,6 +39,8 @@ TASK_REPORT_EXTENSIONS: dict[TaskType, set[str]] = {
     TaskType.DEDUP: {".docx", ".pdf"},
     TaskType.REWRITE: {".docx", ".pdf"},
 }
+
+
 def _parse_task_type(raw: str) -> TaskType:
     try:
         return TaskType(raw)
@@ -60,6 +62,16 @@ def _build_storage_name(name: str, fallback_name: str) -> tuple[str, str]:
     original_name = safe_filename(name or fallback_name)
     unique_name = f"{uuid.uuid4().hex[:12]}_{original_name}"
     return original_name, unique_name
+
+
+def _remove_uploads(*paths: Path | None) -> None:
+    for path in paths:
+        if path is None:
+            continue
+        try:
+            path.unlink(missing_ok=True)
+        except Exception:
+            logger.warning("uploaded_file_cleanup_failed", exc_info=True, extra={"path": str(path)})
 
 
 def _clean_form_text(value: str, *, max_len: int) -> str:
@@ -180,74 +192,75 @@ def submit_task(
     max_bytes = MAX_FILE_SIZE_MB * 1024 * 1024
     src_name, src_storage_name = _build_storage_name(paper.filename or f"source{ext}", f"source{ext}")
     src_path = upload_dir / src_storage_name
-    _save_upload_to(src_path, paper, max_bytes)
+    report_file_path: Path | None = None
+    try:
+        _save_upload_to(src_path, paper, max_bytes)
 
-    magic = detect_file_magic(src_path)
-    if magic and magic != ext:
-        src_path.unlink(missing_ok=True)
-        raise BizError(code=4105, message="文件内容与扩展名不匹配")
+        magic = detect_file_magic(src_path)
+        if magic and magic != ext:
+            raise BizError(code=4105, message="文件内容与扩展名不匹配")
 
-    report_path = None
-    if report is not None and report.filename:
-        rpt_ext = Path(report.filename).suffix.lower()
-        if rpt_ext not in ALLOWED_EXTENSIONS:
-            raise BizError(code=4106, message="报告文件格式不支持")
-        _validate_report_extension(t, rpt_ext)
-        _, report_storage_name = _build_storage_name(report.filename, f"report{rpt_ext or '.tmp'}")
-        tmp = upload_dir / report_storage_name
-        _save_upload_to(tmp, report, max_bytes)
-        try:
-            _validate_report_content(t, tmp)
-        except Exception:
-            tmp.unlink(missing_ok=True)
-            raise
-        report_path = str(tmp)
+        report_path = None
+        if report is not None and report.filename:
+            rpt_ext = Path(report.filename).suffix.lower()
+            if rpt_ext not in ALLOWED_EXTENSIONS:
+                raise BizError(code=4106, message="报告文件格式不支持")
+            _validate_report_extension(t, rpt_ext)
+            _, report_storage_name = _build_storage_name(report.filename, f"report{rpt_ext or '.tmp'}")
+            report_file_path = upload_dir / report_storage_name
+            _save_upload_to(report_file_path, report, max_bytes)
+            _validate_report_content(t, report_file_path)
+            report_path = str(report_file_path)
 
-    text = extract_text_from_file(src_path)
-    char_count = count_billable_chars(text)
-    rate = _resolve_task_rate(db, t)
-    quota_before = get_aigc_daily_quota(db, user_id=user.id) if t == TaskType.AIGC_DETECT else None
-    free_applied = bool(quota_before and quota_before["free_remaining_today"] > 0)
-    cost = 0 if free_applied else rate * char_count
-    if char_count <= 0:
-        raise BizError(code=4107, message="文档字符数为0，无法处理")
-    if user.credits < cost:
-        raise BizError(code=4006, message="积分不足，请先充值")
+        text = extract_text_from_file(src_path)
+        char_count = count_billable_chars(text)
+        rate = _resolve_task_rate(db, t)
+        quota_before = get_aigc_daily_quota(db, user_id=user.id) if t == TaskType.AIGC_DETECT else None
+        free_applied = bool(quota_before and quota_before["free_remaining_today"] > 0)
+        cost = 0 if free_applied else rate * char_count
+        if char_count <= 0:
+            raise BizError(code=4107, message="文档字符数为0，无法处理")
+        if user.credits < cost:
+            raise BizError(code=4006, message="积分不足，请先充值")
 
-    submission_meta = {}
-    normalized_title = _clean_form_text(paper_title, max_len=300)
-    normalized_authors = _clean_form_text(authors, max_len=200)
-    if normalized_title:
-        submission_meta["paper_title"] = normalized_title
-    if normalized_authors:
-        submission_meta["authors"] = normalized_authors
+        submission_meta = {}
+        normalized_title = _clean_form_text(paper_title, max_len=300)
+        normalized_authors = _clean_form_text(authors, max_len=200)
+        if normalized_title:
+            submission_meta["paper_title"] = normalized_title
+        if normalized_authors:
+            submission_meta["authors"] = normalized_authors
 
-    task = Task(
-        user_id=user.id,
-        task_type=t,
-        platform=normalized_platform,
-        processing_mode=internal_processing_mode,
-        source=client_source,
-        status=TaskStatus.PENDING,
-        source_filename=src_name,
-        source_path=str(src_path),
-        report_path=report_path,
-        char_count=char_count,
-        cost_credits=cost,
-        result_json=submission_meta or None,
-    )
-    db.add(task)
-    db.flush()
-    change_credits(
-        db,
-        user,
-        tx_type=CreditType.TASK_CONSUME,
-        delta=-cost,
-        reason="AIGC每日免费额度抵扣" if free_applied else f"{t.value}任务提交扣费",
-        related_id=f"task:{task.id}",
-        source=client_source,
-    )
-    db.commit()
+        task = Task(
+            user_id=user.id,
+            task_type=t,
+            platform=normalized_platform,
+            processing_mode=internal_processing_mode,
+            source=client_source,
+            status=TaskStatus.PENDING,
+            source_filename=src_name,
+            source_path=str(src_path),
+            report_path=report_path,
+            char_count=char_count,
+            cost_credits=cost,
+            result_json=submission_meta or None,
+        )
+        db.add(task)
+        db.flush()
+        change_credits(
+            db,
+            user,
+            tx_type=CreditType.TASK_CONSUME,
+            delta=-cost,
+            reason="AIGC每日免费额度抵扣" if free_applied else f"{t.value}任务提交扣费",
+            related_id=f"task:{task.id}",
+            source=client_source,
+        )
+        db.commit()
+    except Exception:
+        db.rollback()
+        _remove_uploads(src_path, report_file_path)
+        raise
     logger.info(
         "task_submitted",
         extra={

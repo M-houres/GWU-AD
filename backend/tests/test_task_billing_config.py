@@ -7,6 +7,7 @@ from docx import Document
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
+from app.config import get_settings
 from app.deps import current_user
 from app.main import app
 from app.models import SystemConfig, Task, User
@@ -146,5 +147,42 @@ def test_submit_rewrite_rejects_non_full_report(
         body = resp.json()
         assert body["code"] == 4115
         assert "全文AIGC检测报告" in body["message"]
+    finally:
+        app.dependency_overrides.pop(current_user, None)
+
+
+def test_submit_rewrite_invalid_report_cleans_uploaded_files(
+    client: TestClient,
+    db_session: Session,
+    monkeypatch,
+    settings_override,
+    tmp_path,
+) -> None:
+    user = User(phone="13800009994", nickname="rewrite-clean-user", credits=10000)
+    db_session.add(user)
+    db_session.commit()
+    db_session.refresh(user)
+    _activate_slot(db_session, platform="cnki", function_type="rewrite")
+
+    settings = get_settings()
+    patched_upload_dir = tmp_path / "uploads"
+    monkeypatch.setattr(type(settings), "upload_dir", property(lambda self: patched_upload_dir))
+
+    monkeypatch.setattr("app.worker_tasks.process_task_async.delay", lambda *_args, **_kwargs: None)
+    app.dependency_overrides[current_user] = lambda: user
+    try:
+        paper_bytes = _make_docx_bytes("这是一篇用于清理无效报告测试的论文正文，长度足够用于计费。")
+        report_bytes = _make_docx_bytes("章节报告，仅包含部分片段，没有AIGC汇总结果。")
+        resp = client.post(
+            "/api/v1/tasks/submit",
+            data={"task_type": "rewrite", "platform": "cnki"},
+            files={
+                "paper": ("paper.docx", paper_bytes, "application/vnd.openxmlformats-officedocument.wordprocessingml.document"),
+                "report": ("report.docx", report_bytes, "application/vnd.openxmlformats-officedocument.wordprocessingml.document"),
+            },
+        )
+        assert resp.status_code == 422
+        upload_user_dir = patched_upload_dir / str(user.id)
+        assert not upload_user_dir.exists() or not any(upload_user_dir.iterdir())
     finally:
         app.dependency_overrides.pop(current_user, None)
