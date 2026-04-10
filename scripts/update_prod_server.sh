@@ -8,7 +8,6 @@ BRANCH="${BRANCH:-main}"
 APP_DIR="${APP_DIR:-/opt/gewuxueshu}"
 ENV_FILE="${ENV_FILE:-${APP_DIR}/.env.prod}"
 COMPOSE_FILE="${COMPOSE_FILE:-${APP_DIR}/docker-compose.prod.yml}"
-FRONTEND_BIND="${FRONTEND_BIND:-127.0.0.1:8080:80}"
 KEEP_ENV="${KEEP_ENV:-1}"
 
 TARBALL_URL="${TARBALL_URL:-https://codeload.github.com/${REPO_OWNER}/${REPO_NAME}/tar.gz/refs/heads/${BRANCH}}"
@@ -91,17 +90,17 @@ sync_source() {
   fi
 }
 
-patch_compose_for_host_nginx() {
-  [ -f "${COMPOSE_FILE}" ] || abort "Compose file not found: ${COMPOSE_FILE}"
-  local escaped_bind
-  escaped_bind="$(printf '%s' "${FRONTEND_BIND}" | sed 's/[\/&]/\\&/g')"
-  run_root sed -i "s#\"80:80\"#\"${escaped_bind}\"#g" "${COMPOSE_FILE}"
-}
-
 normalize_runtime_scripts() {
   if [ -f "${APP_DIR}/scripts/update_prod_server.sh" ]; then
     run_root sed -i 's/\r$//' "${APP_DIR}/scripts/update_prod_server.sh" || true
     run_root chmod +x "${APP_DIR}/scripts/update_prod_server.sh" || true
+  fi
+}
+
+prepare_public_edge() {
+  if command -v systemctl >/dev/null 2>&1; then
+    run_root systemctl stop nginx || true
+    run_root systemctl disable nginx || true
   fi
 }
 
@@ -120,10 +119,13 @@ health_check() {
     if \
       echo "${services}" | grep -qx "backend" && \
       echo "${services}" | grep -qx "frontend" && \
-      echo "${services}" | grep -qx "worker"
+      echo "${services}" | grep -qx "worker" && \
+      echo "${services}" | grep -qx "edge"
     then
-      echo "Health check passed."
-      return 0
+      if curl -kfsS https://127.0.0.1 >/dev/null 2>&1; then
+        echo "Health check passed."
+        return 0
+      fi
     fi
     sleep 2
   done
@@ -139,8 +141,8 @@ main() {
   validate_paths
   download_source
   sync_source
-  patch_compose_for_host_nginx
   normalize_runtime_scripts
+  prepare_public_edge
   deploy_compose
   health_check
   log "Update complete"

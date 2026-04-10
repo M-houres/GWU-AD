@@ -67,8 +67,24 @@ services:
     restart: unless-stopped
     depends_on:
       - backend
+    expose:
+      - "80"
+    ports:
+      - "127.0.0.1:8080:80"
+
+  edge:
+    image: nginx:1.27-alpine
+    container_name: wuhongai-edge
+    restart: unless-stopped
+    depends_on:
+      - frontend
     ports:
       - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/nginx-public.conf:/etc/nginx/conf.d/default.conf:ro
+      - /etc/letsencrypt/live/restin.top/fullchain.pem:/etc/nginx/certs/fullchain.pem:ro
+      - /etc/letsencrypt/live/restin.top/privkey.pem:/etc/nginx/certs/privkey.pem:ro
 
 volumes:
   mysql_data:
