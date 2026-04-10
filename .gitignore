@@ -25,6 +25,8 @@ backend/.venv_sys/
 backend/*.db
 backend/tmp_bootstrap_debug/
 backend/wuhongai.db
+backend/custom_algo_packages/dist/
+backend/custom_algo_packages/**/__pycache__/
 logs/
 .playwright-cli/
 .codex/
