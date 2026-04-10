@@ -911,6 +911,10 @@ class ProcessingEngine:
                 "evidence_relief_weight": 0.06,
                 "colloquial_relief_weight": 0.42,
                 "specificity_relief_weight": 0.30,
+                "artifact_weight": 0.12,
+                "english_abstract_weight": 0.08,
+                "abstract_section_weight": 0.08,
+                "intro_section_weight": 0.05,
                 "fragment_display_thresholds": {"mild": 0.70, "moderate": 0.80, "severe": 0.90},
             },
             "vip": {
@@ -933,6 +937,10 @@ class ProcessingEngine:
                 "evidence_relief_weight": 0.05,
                 "colloquial_relief_weight": 0.48,
                 "specificity_relief_weight": 0.34,
+                "artifact_weight": 0.06,
+                "english_abstract_weight": 0.03,
+                "abstract_section_weight": 0.03,
+                "intro_section_weight": 0.02,
                 "fragment_display_thresholds": {"mild": 0.70, "moderate": 0.80, "severe": 0.90},
             },
             "paperpass": {
@@ -955,6 +963,10 @@ class ProcessingEngine:
                 "evidence_relief_weight": 0.04,
                 "colloquial_relief_weight": 0.16,
                 "specificity_relief_weight": 0.12,
+                "artifact_weight": 0.04,
+                "english_abstract_weight": 0.02,
+                "abstract_section_weight": 0.02,
+                "intro_section_weight": 0.01,
                 "fragment_display_thresholds": {"mild": 0.70, "moderate": 0.80, "severe": 0.90},
             },
         }
@@ -1375,9 +1387,24 @@ class ProcessingEngine:
             for item in section_distribution
             if float(item.get("avg_score") or 0.0) >= medium_threshold or int(item.get("high_count") or 0) > 0
         )
+        abstract_scores = [
+            float(item.get("avg_score") or 0.0)
+            for item in section_distribution
+            if self._section_category(item.get("section") or "") == "abstract"
+        ]
+        intro_scores = [
+            float(item.get("avg_score") or 0.0)
+            for item in section_distribution
+            if self._section_category(item.get("section") or "") == "intro"
+        ]
+        review_scores = [
+            float(item.get("avg_score") or 0.0)
+            for item in section_distribution
+            if self._section_category(item.get("section") or "") == "review"
+        ]
         paragraphs = self._split_detect_paragraphs(text)
         opening_similarity = self._paragraph_opening_similarity(paragraphs)
-        evidence_relief = max(self._citation_relief_signal(text), self._evidence_relief_signal(text))
+        evidence_relief = max(self._citation_relief_signal_v2(text), self._evidence_relief_signal_v2(text))
         return {
             "paragraph_count": total,
             "high_medium_paragraph_count": high_medium_count,
@@ -1394,6 +1421,9 @@ class ProcessingEngine:
             "outline_sections": len(document_outline),
             "distribution_mode": "outline" if document_outline else "band",
             "evidence_relief_pct": round(evidence_relief * 100, 2),
+            "abstract_avg_score": round(sum(abstract_scores) / max(len(abstract_scores), 1), 2) if abstract_scores else 0.0,
+            "intro_avg_score": round(sum(intro_scores) / max(len(intro_scores), 1), 2) if intro_scores else 0.0,
+            "review_avg_score": round(sum(review_scores) / max(len(review_scores), 1), 2) if review_scores else 0.0,
         }
 
     def _legacy_build_decision_basis_v1(
@@ -1549,6 +1579,8 @@ class ProcessingEngine:
         streak_ratio = round(float(document_metrics.get("longest_risk_streak_ratio") or 0.0) / 100.0, 4)
         opening_similarity_ratio = round(float(document_metrics.get("opening_similarity_ratio") or 0.0) / 100.0, 4)
         evidence_relief_ratio = round(float(document_metrics.get("evidence_relief_pct") or 0.0) / 100.0, 4)
+        abstract_section_ratio = round(float(document_metrics.get("abstract_avg_score") or 0.0) / 100.0, 4)
+        intro_section_ratio = round(float(document_metrics.get("intro_avg_score") or 0.0) / 100.0, 4)
         score = round(
             self._clamp_score(
                 score * 0.32
@@ -1561,6 +1593,8 @@ class ProcessingEngine:
                 + section_coverage_ratio * float(profile.get("section_weight", 0.0))
                 + streak_ratio * float(profile.get("streak_weight", 0.0))
                 + opening_similarity_ratio * float(profile.get("opening_similarity_weight", 0.0))
+                + abstract_section_ratio * float(profile.get("abstract_section_weight", 0.0))
+                + intro_section_ratio * float(profile.get("intro_section_weight", 0.0))
                 - evidence_relief_ratio * float(profile.get("evidence_relief_weight", 0.0))
             ),
             4,
@@ -1602,7 +1636,7 @@ class ProcessingEngine:
         else:
             label = self._score_to_detect_label(score, profile)
 
-        decision_basis = self._build_decision_basis(
+        decision_basis = self._build_decision_basis_v2(
             breakdown=breakdown,
             document_metrics=document_metrics,
             fragment_distribution=fragment_distribution,
@@ -1829,6 +1863,150 @@ class ProcessingEngine:
         density = hit_count / max(len(content) / 150.0, 1.0)
         return round(min(0.16, density * 0.08), 4)
 
+    def _template_signal_v2(self, text: str) -> tuple[float, list[str]]:
+        hits: list[str] = []
+        phrases = [
+            "研究表明",
+            "本研究旨在",
+            "本研究以",
+            "本文基于",
+            "在此背景下",
+            "可以看出",
+            "由此可见",
+            "综上所述",
+            "总而言之",
+            "值得注意的是",
+            "首先",
+            "其次",
+            "再次",
+            "最后",
+            "此外",
+            "与此同时",
+            "另一方面",
+            "进一步而言",
+            "从整体上看",
+            "不难发现",
+            "基于上述",
+            "研究结论显示",
+            "系统分析",
+            "构建",
+            "搭建",
+            "实施保障",
+        ]
+        content = str(text or "")
+        for phrase in phrases:
+            if phrase in content:
+                hits.append(phrase)
+        density = len(hits) / max(len(content) / 85.0, 1.0)
+        return round(self._clamp_score(density), 4), hits[:5]
+
+    def _citation_relief_signal_v2(self, text: str) -> float:
+        content = str(text or "")
+        patterns = [r"\[\d+\]", r"（\d{4}）", r"\(\d{4}\)", r"表\d+", r"图\d+", r"\d+%"]
+        hit_count = 0
+        for pattern in patterns:
+            hit_count += len(re.findall(pattern, content))
+        return round(min(0.18, hit_count * 0.025), 4)
+
+    def _opening_signal_v2(self, text: str) -> float:
+        clean = re.sub(
+            r"^(?:第[一二三四五六七八九十百零0-9]+[章节部分篇]|[一二三四五六七八九十百零]+[、.．]|"
+            r"\d+(?:\.\d+){0,3}[、.．]?|[（(][一二三四五六七八九十百零0-9]+[)）])",
+            "",
+            " ".join(str(text or "").split()),
+        ).lstrip("：:.。;；、，, ")
+        starters = (
+            "本研究",
+            "本文",
+            "研究表明",
+            "研究发现",
+            "综上所述",
+            "总而言之",
+            "值得注意的是",
+            "首先",
+            "其次",
+            "再次",
+            "此外",
+            "另一方面",
+            "由此可见",
+            "基于上述",
+        )
+        signal = 0.48 if any(clean.startswith(token) for token in starters) else 0.0
+        if re.search(r"^在.{0,8}背景下", clean):
+            signal += 0.18
+        return round(self._clamp_score(signal), 4)
+
+    def _evidence_relief_signal_v2(self, text: str) -> float:
+        content = str(text or "")
+        patterns = [
+            r"\bN\s*=\s*\d+",
+            r"样本量",
+            r"问卷",
+            r"访谈",
+            r"实验",
+            r"受访者",
+            r"标准差",
+            r"均值",
+            r"统计",
+            r"案例",
+            r"观察记录",
+            r"调查",
+        ]
+        hit_count = 0
+        for pattern in patterns:
+            hit_count += len(re.findall(pattern, content, flags=re.IGNORECASE))
+        return round(min(0.16, hit_count * 0.018), 4)
+
+    def _specificity_relief_signal_v2(self, text: str) -> float:
+        content = str(text or "")
+        patterns = [
+            r"(?:19|20)\d{2}年",
+            r"《[^》]{2,30}》",
+            r"国家|教育部|课程标准|指导意见|实施方案|条例|通知|文件|制度",
+            r"案例|问卷|调查|样本|统计|实验|访谈|观察记录",
+            r"表\d+|图\d+|\[\d+\]|（\d{4}）|\(\d{4}\)",
+            r"某市|某校|A公司|B公司",
+        ]
+        hit_count = 0
+        for pattern in patterns:
+            hit_count += len(re.findall(pattern, content, flags=re.IGNORECASE))
+        density = hit_count / max(len(content) / 150.0, 1.0)
+        return round(min(0.16, density * 0.08), 4)
+
+    def _artifact_signal(self, text: str) -> tuple[float, list[str]]:
+        content = str(text or "")
+        markers = [
+            "需要求",
+            "知识得到",
+            "主题着眼于",
+            "读全面本书",
+            "都衡",
+            "全面性",
+            "让用",
+            "成效",
+            "机械替换",
+            "目的模糊等困难",
+        ]
+        hits = [marker for marker in markers if marker in content]
+        density = len(hits) / max(len(content) / 120.0, 1.0)
+        score = min(0.2, density * 0.14 + (0.04 if hits else 0.0))
+        return round(self._clamp_score(score), 4), hits[:4]
+
+    def _english_abstract_signal(self, text: str) -> float:
+        content = str(text or "")
+        lower = content.lower()
+        ascii_ratio = len(re.findall(r"[A-Za-z]", content)) / max(len(content), 1)
+        hints = ("abstract", "keywords", "this study", "this paper", "based on", "findings show", "research object")
+        hit_count = sum(1 for hint in hints if hint in lower)
+        score = 0.0
+        if "abstract" in lower or "keywords" in lower:
+            score += 0.06
+        if ascii_ratio >= 0.18:
+            score += min(0.06, ascii_ratio * 0.18)
+        if hit_count >= 2:
+            score += min(0.05, hit_count * 0.02)
+        return round(min(0.18, score), 4)
+
     def _calibrate_detect_score(
         self,
         *,
@@ -1992,13 +2170,15 @@ class ProcessingEngine:
         repeat_signal = self._clamp_score(1.0 - unique_ratio)
         avg_len = float(stats.get("avg_sentence_length") or 0.0)
         style_signal = self._clamp_score((avg_len - 18.0) / 52.0)
-        template_signal, template_hits = self._template_signal(clean)
+        template_signal, template_hits = self._template_signal_v2(clean)
         context_signal = self._uniformity_signal(self._split_detect_sentences(clean))
-        opening_signal = self._opening_signal(clean)
-        citation_relief = self._citation_relief_signal(clean)
-        evidence_relief = self._evidence_relief_signal(clean)
+        opening_signal = self._opening_signal_v2(clean)
+        citation_relief = self._citation_relief_signal_v2(clean)
+        evidence_relief = self._evidence_relief_signal_v2(clean)
         colloquial_relief = self._colloquial_relief_signal(clean)
-        specificity_relief = self._specificity_relief_signal(clean)
+        specificity_relief = self._specificity_relief_signal_v2(clean)
+        artifact_signal, artifact_hits = self._artifact_signal(clean)
+        english_abstract_signal = self._english_abstract_signal(clean)
 
         weighted = (
             float(base_score) * profile["baseline_weight"]
@@ -2007,6 +2187,8 @@ class ProcessingEngine:
             + template_signal * profile["template_weight"]
             + context_signal * profile["context_weight"]
             + opening_signal * profile["opening_weight"]
+            + artifact_signal * profile.get("artifact_weight", 0.0)
+            + english_abstract_signal * profile.get("english_abstract_weight", 0.0)
             - citation_relief
             - evidence_relief
             - colloquial_relief * profile.get("colloquial_relief_weight", 0.0)
@@ -2025,6 +2207,9 @@ class ProcessingEngine:
             "evidence_relief": round(evidence_relief, 4),
             "colloquial_relief": round(colloquial_relief, 4),
             "specificity_relief": round(specificity_relief, 4),
+            "artifact_signal": round(artifact_signal, 4),
+            "artifact_hits": artifact_hits,
+            "english_abstract_signal": round(english_abstract_signal, 4),
             "template_hits": template_hits,
             "weights": {
                 "baseline": profile["baseline_weight"],
@@ -2033,6 +2218,8 @@ class ProcessingEngine:
                 "template": profile["template_weight"],
                 "context": profile["context_weight"],
                 "opening": profile["opening_weight"],
+                "artifact": profile.get("artifact_weight", 0.0),
+                "english_abstract": profile.get("english_abstract_weight", 0.0),
                 "colloquial_relief": profile.get("colloquial_relief_weight", 0.0),
                 "specificity_relief": profile.get("specificity_relief_weight", 0.0),
                 "offset": profile["offset"],
@@ -2176,6 +2363,56 @@ class ProcessingEngine:
             tags.append("段首表述模板化")
         return tags[:3]
 
+    def _local_suspicious_segments_v2(self, paragraph: str, platform: str, profile: dict) -> list[dict]:
+        segments: list[dict] = []
+        for sentence in self._split_detect_sentences(paragraph):
+            if len(sentence) < 8:
+                continue
+            base_score = self._heuristic_ai_score(sentence)
+            score, _profile, breakdown = self._simulate_platform_detect_score(platform, sentence, base_score)
+            if score < float(profile.get("medium", 0.35)) and len(breakdown.get("template_hits") or []) < 2:
+                continue
+            reasons: list[str] = []
+            if float(breakdown.get("template_signal") or 0.0) >= 0.22:
+                reasons.append("模板连接词偏多")
+            if float(breakdown.get("repeat_signal") or 0.0) >= 0.32:
+                reasons.append("重复表达偏多")
+            if float(breakdown.get("context_signal") or 0.0) >= 0.58:
+                reasons.append("句式波动偏小")
+            if float(breakdown.get("opening_signal") or 0.0) >= 0.44:
+                reasons.append("段首展开方式过于集中")
+            if float(breakdown.get("artifact_signal") or 0.0) >= 0.08:
+                reasons.append("存在异常改写痕迹")
+            if float(breakdown.get("english_abstract_signal") or 0.0) >= 0.08:
+                reasons.append("英文摘要镜像痕迹偏强")
+            segments.append(
+                {
+                    "text": self._clip_text(sentence, 76),
+                    "score": round(score * 100, 2),
+                    "reason": "、".join(reasons[:2]) or "综合风险偏高",
+                }
+            )
+        segments.sort(key=lambda item: item["score"], reverse=True)
+        return segments[:3]
+
+    def _paragraph_reason_tags_v2(self, breakdown: dict) -> list[str]:
+        tags: list[str] = []
+        if float(breakdown.get("template_signal") or 0.0) >= 0.22:
+            tags.append("模板连接词偏多")
+        if float(breakdown.get("repeat_signal") or 0.0) >= 0.30:
+            tags.append("重复表达偏高")
+        if float(breakdown.get("context_signal") or 0.0) >= 0.56:
+            tags.append("句式波动偏小")
+        if float(breakdown.get("style_signal") or 0.0) >= 0.55:
+            tags.append("长句占比偏高")
+        if float(breakdown.get("opening_signal") or 0.0) >= 0.44:
+            tags.append("段首展开方式集中")
+        if float(breakdown.get("artifact_signal") or 0.0) >= 0.08:
+            tags.append("存在异常改写痕迹")
+        if float(breakdown.get("english_abstract_signal") or 0.0) >= 0.08:
+            tags.append("英文摘要镜像痕迹")
+        return tags[:3]
+
     def _build_detect_paragraph_details(self, text: str, platform: str, profile: dict, algo_result) -> list[dict]:
         paragraphs = self._split_detect_paragraphs(text)
 
@@ -2191,7 +2428,7 @@ class ProcessingEngine:
                     4,
                 )
 
-            local_segments = self._local_suspicious_segments(paragraph, platform, profile)
+            local_segments = self._local_suspicious_segments_v2(paragraph, platform, profile)
             merged_segments = self._merge_suspicious_segments(local_segments, (algo_row or {}).get("segments") or [])
             if merged_segments:
                 score_ratio = round(self._clamp_score(score_ratio + min(0.06, len(merged_segments) * 0.012)), 4)
@@ -2206,7 +2443,7 @@ class ProcessingEngine:
                     "char_count": count_billable_chars(paragraph),
                     "sentence_count": len(self._split_detect_sentences(paragraph)),
                     "excerpt": self._clip_text(paragraph, 110),
-                    "reason_tags": self._paragraph_reason_tags(breakdown),
+                    "reason_tags": self._paragraph_reason_tags_v2(breakdown),
                     "suspicious_segments": merged_segments,
                 }
             )
@@ -2465,6 +2702,20 @@ class ProcessingEngine:
             },
         }
 
+    def _section_category(self, section_name: str) -> str:
+        normalized = re.sub(r"\s+", "", str(section_name or "")).lower()
+        if not normalized:
+            return ""
+        if any(token in normalized for token in ("摘要", "中英文摘要", "英文摘要", "abstract")):
+            return "abstract"
+        if any(token in normalized for token in ("绪论", "引言", "前言")):
+            return "intro"
+        if any(token in normalized for token in ("相关概念", "理论基础", "文献综述", "相关研究", "理论综述")):
+            return "review"
+        if any(token in normalized for token in ("结论", "结语", "总结")):
+            return "conclusion"
+        return ""
+
     def _build_document_metrics(
         self,
         *,
@@ -2494,9 +2745,24 @@ class ProcessingEngine:
             for item in section_distribution
             if float(item.get("avg_score") or 0.0) >= medium_threshold or int(item.get("high_count") or 0) > 0
         )
+        abstract_scores = [
+            float(item.get("avg_score") or 0.0)
+            for item in section_distribution
+            if self._section_category(item.get("section") or "") == "abstract"
+        ]
+        intro_scores = [
+            float(item.get("avg_score") or 0.0)
+            for item in section_distribution
+            if self._section_category(item.get("section") or "") == "intro"
+        ]
+        review_scores = [
+            float(item.get("avg_score") or 0.0)
+            for item in section_distribution
+            if self._section_category(item.get("section") or "") == "review"
+        ]
         paragraphs = self._split_detect_paragraphs(text)
         opening_similarity = self._paragraph_opening_similarity(paragraphs)
-        evidence_relief = max(self._citation_relief_signal(text), self._evidence_relief_signal(text))
+        evidence_relief = max(self._citation_relief_signal_v2(text), self._evidence_relief_signal_v2(text))
         return {
             "paragraph_count": total,
             "high_medium_paragraph_count": high_medium_count,
@@ -2513,6 +2779,9 @@ class ProcessingEngine:
             "outline_sections": len(document_outline),
             "distribution_mode": "outline" if document_outline else "band",
             "evidence_relief_pct": round(evidence_relief * 100, 2),
+            "abstract_avg_score": round(sum(abstract_scores) / max(len(abstract_scores), 1), 2) if abstract_scores else 0.0,
+            "intro_avg_score": round(sum(intro_scores) / max(len(intro_scores), 1), 2) if intro_scores else 0.0,
+            "review_avg_score": round(sum(review_scores) / max(len(review_scores), 1), 2) if review_scores else 0.0,
         }
 
     def _build_decision_basis(
@@ -2663,6 +2932,132 @@ class ProcessingEngine:
             "max_score": round(max(scores), 2),
         }
 
+    def _build_decision_basis_v2(
+        self,
+        *,
+        breakdown: dict,
+        document_metrics: dict,
+        fragment_distribution: dict,
+        suspicious_segments: list[dict],
+    ) -> list[dict]:
+        items: list[dict] = []
+        template_signal = float(breakdown.get("template_signal") or 0.0)
+        context_signal = float(breakdown.get("context_signal") or 0.0)
+        repeat_signal = float(breakdown.get("repeat_signal") or 0.0)
+        opening_signal = float(breakdown.get("opening_signal") or 0.0)
+        artifact_signal = float(breakdown.get("artifact_signal") or 0.0)
+        english_signal = float(breakdown.get("english_abstract_signal") or 0.0)
+        template_hits = [str(item) for item in (breakdown.get("template_hits") or []) if str(item).strip()]
+        artifact_hits = [str(item) for item in (breakdown.get("artifact_hits") or []) if str(item).strip()]
+
+        if template_signal >= 0.2:
+            hit_text = "、".join(template_hits[:3]) if template_hits else "高频模板连接词"
+            items.append(
+                {
+                    "title": "模板连接词密度偏高",
+                    "detail": f"命中 {hit_text}，模板信号 {round(template_signal * 100, 2)}%。",
+                    "direction": "risk",
+                }
+            )
+        if context_signal >= 0.55:
+            items.append(
+                {
+                    "title": "句式波动偏小",
+                    "detail": f"上下文均匀度 {round(context_signal * 100, 2)}%，更接近批量生成文本的平直节奏。",
+                    "direction": "risk",
+                }
+            )
+        if repeat_signal >= 0.3:
+            items.append(
+                {
+                    "title": "重复表达偏多",
+                    "detail": f"重复信号 {round(repeat_signal * 100, 2)}%，存在固定总结句反复出现的倾向。",
+                    "direction": "risk",
+                }
+            )
+        if opening_signal >= 0.44 or float(document_metrics.get("opening_similarity_ratio") or 0.0) >= 25:
+            items.append(
+                {
+                    "title": "段首展开方式较集中",
+                    "detail": f"段首相似度 {document_metrics.get('opening_similarity_ratio', 0.0)}%，段落起手方式较为集中。",
+                    "direction": "risk",
+                }
+            )
+        if float(document_metrics.get("abstract_avg_score") or 0.0) >= 30:
+            items.append(
+                {
+                    "title": "摘要区域模板化明显",
+                    "detail": f"摘要相关章节平均风险 {document_metrics.get('abstract_avg_score', 0.0)}%，与样本中的高风险摘要特征一致。",
+                    "direction": "risk",
+                }
+            )
+        if float(document_metrics.get("intro_avg_score") or 0.0) >= 12:
+            items.append(
+                {
+                    "title": "绪论区域风险偏高",
+                    "detail": f"绪论相关章节平均风险 {document_metrics.get('intro_avg_score', 0.0)}%，常见于研究对象、目的、路径的模板化展开。",
+                    "direction": "risk",
+                }
+            )
+        if artifact_signal >= 0.08 or artifact_hits:
+            hit_text = "、".join(artifact_hits[:3]) if artifact_hits else "异常改写痕迹"
+            items.append(
+                {
+                    "title": "存在异常改写痕迹",
+                    "detail": f"命中 {hit_text}，疑似存在机械替换或不自然表达。",
+                    "direction": "risk",
+                }
+            )
+        if english_signal >= 0.08:
+            items.append(
+                {
+                    "title": "英文摘要镜像痕迹偏强",
+                    "detail": f"英文摘要信号 {round(english_signal * 100, 2)}%，中英摘要结构与措辞较为镜像。",
+                    "direction": "risk",
+                }
+            )
+        if float(document_metrics.get("section_coverage_ratio") or 0.0) >= 35:
+            items.append(
+                {
+                    "title": "中高风险内容跨章节分布",
+                    "detail": f"可疑章节覆盖率 {document_metrics.get('section_coverage_ratio', 0.0)}%，不是单点异常。",
+                    "direction": "risk",
+                }
+            )
+        if int(document_metrics.get("longest_risk_streak") or 0) >= 3:
+            items.append(
+                {
+                    "title": "存在连续风险片段带",
+                    "detail": f"最长连续中高风险段落 {document_metrics.get('longest_risk_streak', 0)} 段。",
+                    "direction": "risk",
+                }
+            )
+        if float(fragment_distribution.get("high_and_middle_suspected_text_ratio") or 0.0) >= 20:
+            items.append(
+                {
+                    "title": "高中风险文字占比较高",
+                    "detail": f"高中风险文字占比 {fragment_distribution.get('high_and_middle_suspected_text_ratio', 0.0)}%。",
+                    "direction": "risk",
+                }
+            )
+        if float(document_metrics.get("evidence_relief_pct") or 0.0) >= 6:
+            items.append(
+                {
+                    "title": "实证证据较充足",
+                    "detail": f"实证减权 {document_metrics.get('evidence_relief_pct', 0.0)}%，用于抑制纯模板误判。",
+                    "direction": "relief",
+                }
+            )
+        if not items:
+            items.append(
+                {
+                    "title": "以全文统计与片段聚合综合判定",
+                    "detail": f"当前识别到 {len(suspicious_segments)} 个可疑片段，建议人工复核摘要、引言与结论段。",
+                    "direction": "risk",
+                }
+            )
+        return items[:6]
+
     def _build_detect_result(
         self,
         *,
@@ -2719,6 +3114,8 @@ class ProcessingEngine:
         streak_ratio = round(float(document_metrics.get("longest_risk_streak_ratio") or 0.0) / 100.0, 4)
         opening_similarity_ratio = round(float(document_metrics.get("opening_similarity_ratio") or 0.0) / 100.0, 4)
         evidence_relief_ratio = round(float(document_metrics.get("evidence_relief_pct") or 0.0) / 100.0, 4)
+        abstract_section_ratio = round(float(document_metrics.get("abstract_avg_score") or 0.0) / 100.0, 4)
+        intro_section_ratio = round(float(document_metrics.get("intro_avg_score") or 0.0) / 100.0, 4)
         score = round(
             self._clamp_score(
                 score * 0.32
@@ -2731,6 +3128,8 @@ class ProcessingEngine:
                 + section_coverage_ratio * float(profile.get("section_weight", 0.0))
                 + streak_ratio * float(profile.get("streak_weight", 0.0))
                 + opening_similarity_ratio * float(profile.get("opening_similarity_weight", 0.0))
+                + abstract_section_ratio * float(profile.get("abstract_section_weight", 0.0))
+                + intro_section_ratio * float(profile.get("intro_section_weight", 0.0))
                 - evidence_relief_ratio * float(profile.get("evidence_relief_weight", 0.0))
             ),
             4,
@@ -2787,7 +3186,7 @@ class ProcessingEngine:
         else:
             label = self._score_to_detect_label(score, profile)
 
-        decision_basis = self._build_decision_basis(
+        decision_basis = self._build_decision_basis_v2(
             breakdown=breakdown,
             document_metrics=document_metrics,
             fragment_distribution=fragment_distribution,
@@ -2811,6 +3210,8 @@ class ProcessingEngine:
         breakdown["streak_ratio"] = streak_ratio
         breakdown["opening_similarity_ratio"] = opening_similarity_ratio
         breakdown["evidence_relief_ratio"] = evidence_relief_ratio
+        breakdown["abstract_section_ratio"] = abstract_section_ratio
+        breakdown["intro_section_ratio"] = intro_section_ratio
         breakdown["raw_score_pct"] = round(raw_score * 100, 2)
         breakdown["calibrated_score_pct"] = score_pct
 
