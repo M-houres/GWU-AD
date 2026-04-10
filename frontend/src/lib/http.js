@@ -70,9 +70,25 @@ async function normalizeError(error) {
     err.code = blobError.code
     return Promise.reject(err)
   }
+  const rawMessage = String(error?.message || "").trim()
+  if (error?.code === "ECONNABORTED" || /timeout/i.test(rawMessage)) {
+    const err = new Error("请求超时，请稍后重试")
+    err.code = error?.code || "ECONNABORTED"
+    return Promise.reject(err)
+  }
+  if (!error?.response) {
+    const err = new Error("网络连接异常，请稍后重试")
+    err.code = error?.code || "NETWORK_ERROR"
+    return Promise.reject(err)
+  }
   if (error?.response?.data?.message) {
     const err = new Error(error.response.data.message)
     err.code = error.response.data.code
+    return Promise.reject(err)
+  }
+  if ([502, 503, 504].includes(Number(error?.response?.status))) {
+    const err = new Error("服务暂时不可用，请稍后重试")
+    err.code = error?.response?.status
     return Promise.reject(err)
   }
   return Promise.reject(error)

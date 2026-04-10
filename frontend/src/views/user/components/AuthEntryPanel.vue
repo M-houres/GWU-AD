@@ -94,6 +94,7 @@ const props = defineProps({
 
 const route = useRoute()
 const router = useRouter()
+const envWechatLoginEnabled = String(import.meta.env.VITE_ENABLE_WECHAT_LOGIN || "false").toLowerCase() === "true"
 
 const wechatLoginEnabled = ref(false)
 const wxMockEnabled = ref(false)
@@ -209,6 +210,11 @@ function validatePhone() {
 }
 
 async function loadAuthOptions() {
+  if (!envWechatLoginEnabled) {
+    wechatLoginEnabled.value = false
+    wxMockEnabled.value = false
+    return
+  }
   try {
     const data = await userHttp.get("/auth/options")
     wechatLoginEnabled.value = Boolean(data.wechat_login_enabled)

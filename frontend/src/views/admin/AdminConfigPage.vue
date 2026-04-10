@@ -1115,9 +1115,12 @@ async function saveCurrent() {
   hintText.value = ""
   errorText.value = ""
   try {
-    await adminHttp.post(`/admin/configs/${activeTab.value}`, payloadFor(activeTab.value))
-    await Promise.all([loadTab(activeTab.value), loadReadiness()])
-    hintText.value = `${currentTab.value.label}已保存并生效。`
+    await adminHttp.post(`/admin/configs/${activeTab.value}`, payloadFor(activeTab.value), { timeout: 45000 })
+    const refreshResults = await Promise.allSettled([loadTab(activeTab.value), loadReadiness()])
+    const refreshFailed = refreshResults.some((item) => item.status === "rejected")
+    hintText.value = refreshFailed
+      ? `${currentTab.value.label}已保存。页面状态刷新稍后同步。`
+      : `${currentTab.value.label}已保存并生效。`
   } catch (error) {
     errorText.value = error.message || "保存失败"
   } finally {

@@ -132,9 +132,11 @@ async function save() {
       level: String(form.value.level || "info").trim().toLowerCase(),
       version: Number(form.value.version || 1),
       updated_at: String(form.value.updated_at || ""),
-    })
-    await load()
-    hintText.value = "公告配置已保存并生效。"
+    }, { timeout: 45000 })
+    const refreshResult = await Promise.allSettled([load()])
+    hintText.value = refreshResult.some((item) => item.status === "rejected")
+      ? "公告配置已保存。页面状态刷新稍后同步。"
+      : "公告配置已保存并生效。"
   } catch (error) {
     errorText.value = error.message || "保存失败"
   } finally {
@@ -150,4 +152,3 @@ function formatTime(value) {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`
 }
 </script>
-
