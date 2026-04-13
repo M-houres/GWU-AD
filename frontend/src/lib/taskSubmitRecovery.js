@@ -1,7 +1,28 @@
 import { fetchAllUserTasks } from "./userRecords"
 
-function sleep(ms) {
-  return new Promise((resolve) => window.setTimeout(resolve, ms))
+function sleep(ms, signal) {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      const error = new Error("request canceled")
+      error.code = "ERR_CANCELED"
+      reject(error)
+      return
+    }
+    const timer = window.setTimeout(() => {
+      if (signal) {
+        signal.removeEventListener("abort", handleAbort)
+      }
+      resolve()
+    }, ms)
+    const handleAbort = () => {
+      window.clearTimeout(timer)
+      signal?.removeEventListener("abort", handleAbort)
+      const error = new Error("request canceled")
+      error.code = "ERR_CANCELED"
+      reject(error)
+    }
+    signal?.addEventListener("abort", handleAbort, { once: true })
+  })
 }
 
 function normalizeText(value) {
@@ -99,6 +120,38 @@ export function isTaskSubmitNetworkError(error) {
   )
 }
 
+export function isTaskSubmitCanceledError(error) {
+  const code = String(error?.code || "").trim().toUpperCase()
+  const message = String(error?.message || "").trim()
+  return code === "ERR_CANCELED" || /canceled|cancelled|aborted/i.test(message)
+}
+
+export function createTaskSubmitIdempotencyKey({
+  taskType,
+  platform,
+  paperTitle,
+  authors,
+  sourceFilename,
+  submittedAt = Date.now(),
+}) {
+  const randomSuffix =
+    typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+      ? crypto.randomUUID().replace(/-/g, "").slice(0, 12)
+      : Math.random().toString(36).slice(2, 14)
+  return [
+    String(taskType || "").trim().toLowerCase(),
+    String(platform || "").trim().toLowerCase(),
+    normalizeText(paperTitle).slice(0, 24),
+    normalizeText(authors).slice(0, 24),
+    normalizeFilename(sourceFilename).slice(0, 24),
+    String(submittedAt),
+    randomSuffix,
+  ]
+    .filter(Boolean)
+    .join(":")
+    .slice(0, 96)
+}
+
 export async function recoverSubmittedTask({
   taskType,
   paperTitle,
@@ -107,8 +160,9 @@ export async function recoverSubmittedTask({
   submittedAt = Date.now(),
   attempts = 3,
   retryDelayMs = 900,
+  signal,
 }) {
-  if (!taskType) {
+  if (!taskType || signal?.aborted) {
     return null
   }
 
@@ -123,7 +177,7 @@ export async function recoverSubmittedTask({
     try {
       const items = await fetchAllUserTasks(
         { task_type: taskType },
-        { pageSize: 100, maxPages: 10 }
+        { pageSize: 100, maxPages: 10, requestConfig: signal ? { signal } : undefined }
       )
       const windowStart = submittedAt - 10 * 60 * 1000
       const windowEnd = Date.now() + 2 * 60 * 1000
@@ -157,11 +211,21 @@ export async function recoverSubmittedTask({
         return nearTasks[0].task
       }
     } catch (error) {
+      if (isTaskSubmitCanceledError(error)) {
+        return null
+      }
       console.warn("recover_submitted_task_failed", error)
     }
 
     if (attempt < attempts - 1) {
-      await sleep(retryDelayMs)
+      try {
+        await sleep(retryDelayMs, signal)
+      } catch (error) {
+        if (isTaskSubmitCanceledError(error)) {
+          return null
+        }
+        throw error
+      }
     }
   }
 

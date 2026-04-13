@@ -159,7 +159,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref } from "vue"
+import { computed, onMounted, onUnmounted, reactive, ref } from "vue"
 import { useRoute, useRouter } from "vue-router"
 
 import BuyCreditsPanel from "../../components/BuyCreditsPanel.vue"
@@ -168,6 +168,8 @@ import WorkbenchTaskFeed from "../../components/WorkbenchTaskFeed.vue"
 import { useUserProfile } from "../../composables/useUserProfile"
 import { userHttp } from "../../lib/http"
 import {
+  createTaskSubmitIdempotencyKey,
+  isTaskSubmitCanceledError,
   isTaskSubmitNetworkError,
   isTaskSubmitTimeoutError,
   recoverSubmittedTask,
@@ -230,6 +232,8 @@ const autoFilledTitle = ref("")
 const submitting = ref(false)
 const errorText = ref("")
 const successText = ref("")
+const activeSubmitToken = ref(0)
+let activeSubmitController = null
 
 onMounted(async () => {
   const jobs = []
@@ -240,6 +244,32 @@ onMounted(async () => {
   }
   await Promise.all(jobs)
 })
+
+onUnmounted(() => {
+  activeSubmitToken.value += 1
+  activeSubmitController?.abort()
+  activeSubmitController = null
+})
+
+function beginSubmitGuard() {
+  activeSubmitToken.value += 1
+  activeSubmitController?.abort()
+  activeSubmitController = new AbortController()
+  return {
+    token: activeSubmitToken.value,
+    signal: activeSubmitController.signal,
+  }
+}
+
+function isActiveSubmit(token) {
+  return activeSubmitToken.value === token
+}
+
+function finishSubmitGuard(token) {
+  if (isActiveSubmit(token)) {
+    activeSubmitController = null
+  }
+}
 
 function humanSize(size) {
   if (size < 1024) return `${size} B`
@@ -309,28 +339,51 @@ function validateForm() {
 
 async function submitTask() {
   if (!ensureUserLogin(router, route, "/app/rewrite")) return
+  if (submitting.value) return
 
   if (!validateForm()) {
     errorText.value = "请先完成必填项后再提交"
     return
   }
 
+  const snapshot = {
+    taskType: "rewrite",
+    platform: String(form.platform || "cnki"),
+    paper: paperFile.value,
+    paperTitle: form.title.trim(),
+    authors: form.authors.trim(),
+    sourceFilename: paperFile.value?.name || "",
+  }
+  const submittedAt = Date.now()
+  const idempotencyKey = createTaskSubmitIdempotencyKey({
+    taskType: snapshot.taskType,
+    platform: snapshot.platform,
+    paperTitle: snapshot.paperTitle,
+    authors: snapshot.authors,
+    sourceFilename: snapshot.sourceFilename,
+    submittedAt,
+  })
+  const { token, signal } = beginSubmitGuard()
   submitting.value = true
   errorText.value = ""
   successText.value = ""
-  const submittedAt = Date.now()
 
   try {
     const payload = new FormData()
-    payload.append("task_type", "rewrite")
-    payload.append("platform", form.platform)
-    payload.append("paper", paperFile.value)
-    payload.append("paper_title", form.title.trim())
-    payload.append("authors", form.authors.trim())
+    payload.append("task_type", snapshot.taskType)
+    payload.append("platform", snapshot.platform)
+    payload.append("paper", snapshot.paper)
+    payload.append("paper_title", snapshot.paperTitle)
+    payload.append("authors", snapshot.authors)
 
     const data = await userHttp.post("/tasks/submit", payload, {
       timeout: 120000,
+      signal,
+      headers: {
+        "X-Idempotency-Key": idempotencyKey,
+      },
     })
+    if (!isActiveSubmit(token)) return
 
     successText.value = `提交成功，任务 #${data.id} 已进入处理队列`
     try {
@@ -338,16 +391,22 @@ async function submitTask() {
     } catch (refreshError) {
       console.warn("task_submit_refresh_user_failed", refreshError)
     }
+    if (!isActiveSubmit(token)) return
     router.push({ path: "/app/rewrite/records", query: { focus: String(data.id) } })
   } catch (error) {
+    if (isTaskSubmitCanceledError(error) || !isActiveSubmit(token)) {
+      return
+    }
     if (isTaskSubmitTimeoutError(error) || isTaskSubmitNetworkError(error)) {
       const recoveredTask = await recoverSubmittedTask({
-        taskType: "rewrite",
-        paperTitle: form.title.trim(),
-        authors: form.authors.trim(),
-        sourceFilename: paperFile.value?.name,
+        taskType: snapshot.taskType,
+        paperTitle: snapshot.paperTitle,
+        authors: snapshot.authors,
+        sourceFilename: snapshot.sourceFilename,
         submittedAt,
+        signal,
       })
+      if (!isActiveSubmit(token)) return
       if (recoveredTask?.id) {
         successText.value = `提交响应中断，但任务 #${recoveredTask.id} 已进入处理队列，正在跳转记录页`
         try {
@@ -355,6 +414,7 @@ async function submitTask() {
         } catch (refreshError) {
           console.warn("task_submit_refresh_user_failed", refreshError)
         }
+        if (!isActiveSubmit(token)) return
         router.push({ path: "/app/rewrite/records", query: { focus: String(recoveredTask.id) } })
         return
       }
@@ -370,7 +430,10 @@ async function submitTask() {
     }
     errorText.value = message || "提交失败，请稍后重试"
   } finally {
-    submitting.value = false
+    if (isActiveSubmit(token)) {
+      submitting.value = false
+    }
+    finishSubmitGuard(token)
   }
 }
 

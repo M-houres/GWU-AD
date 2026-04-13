@@ -28,6 +28,7 @@ async function fetchAllPages(loader, { pageSize = 100, maxPages = 20 } = {}) {
 }
 
 export async function fetchAllUserTasks(params = {}, options = {}) {
+  const { requestConfig, ...pageOptions } = options || {}
   return fetchAllPages(
     (page, pageSize) =>
       userHttp.get("/tasks/my", {
@@ -36,12 +37,14 @@ export async function fetchAllUserTasks(params = {}, options = {}) {
           page,
           page_size: pageSize,
         },
+        ...(requestConfig || {}),
       }),
-    options
+    pageOptions
   )
 }
 
 export async function fetchAllUserCreditTransactions(params = {}, options = {}) {
+  const { requestConfig, ...pageOptions } = options || {}
   return fetchAllPages(
     (page, pageSize) =>
       userHttp.get("/users/me/credit-transactions", {
@@ -50,7 +53,8 @@ export async function fetchAllUserCreditTransactions(params = {}, options = {}) 
           page,
           page_size: pageSize,
         },
+        ...(requestConfig || {}),
       }),
-    options
+    pageOptions
   )
 }
