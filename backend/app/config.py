@@ -73,10 +73,13 @@ class Settings(BaseSettings):
     task_submit_user_1m_limit: int = 20
     task_submit_user_inflight_limit: int = 5
     task_submit_queue_backlog_limit: int = 2000
-    task_processing_global_concurrency: int = 4
-    task_processing_user_concurrency: int = 2
+    task_processing_global_concurrency: int = 8
+    task_processing_user_concurrency: int = 3
     task_processing_retry_countdown_seconds: int = 5
     celery_local_fallback_enabled: bool = True
+    local_submission_worker_concurrency: int = 4
+    local_processing_worker_concurrency: int = 4
+    local_maintenance_worker_concurrency: int = 2
 
     @field_validator("app_env", mode="before")
     @classmethod

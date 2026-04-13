@@ -31,6 +31,7 @@ import { useRoute, useRouter } from "vue-router"
 
 import { userHttp } from "../lib/http"
 import { getUserToken } from "../lib/session"
+import { isTaskProcessingStatus } from "../lib/taskStatus"
 
 const props = defineProps({
   taskType: {
@@ -74,7 +75,7 @@ const panelMeta = computed(() => panelMetaMap[props.taskType] || panelMetaMap.ai
 
 const summaryCards = computed(() => {
   const all = tasks.value.length
-  const processing = tasks.value.filter((item) => item.status === "pending" || item.status === "running").length
+  const processing = tasks.value.filter((item) => isTaskProcessingStatus(item.status)).length
   const completed = tasks.value.filter((item) => item.status === "completed").length
   const failed = tasks.value.filter((item) => item.status === "failed").length
   return [
@@ -117,7 +118,7 @@ function startPolling() {
   stopPolling()
   if (!hasUserToken.value) return
   pollTimer = window.setInterval(() => {
-    if (tasks.value.some((item) => item.status === "pending" || item.status === "running")) {
+    if (tasks.value.some((item) => isTaskProcessingStatus(item.status))) {
       loadTasks()
     }
   }, 4000)

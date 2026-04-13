@@ -247,6 +247,7 @@ import { userHttp } from "../../lib/http"
 import { ensureUserLogin } from "../../lib/requireLogin"
 import { getUserToken } from "../../lib/session"
 import { mapTaskPlatform } from "../../lib/taskPlatform"
+import { mapTaskStatus, taskStatusClass } from "../../lib/taskStatus"
 import { taskResultMetrics, taskResultOutputPreview, taskResultReviewPoints, taskResultSummary } from "../../lib/taskResult"
 import { fetchAllUserCreditTransactions, fetchAllUserTasks } from "../../lib/userRecords"
 
@@ -317,7 +318,15 @@ const breakdownCards = computed(() => [
   { label: "AIGC 检测", value: summaryState.value.task_counts?.by_type?.aigc_detect || 0, hint: "功能累计任务数" },
   { label: "降重复率", value: summaryState.value.task_counts?.by_type?.dedup || 0, hint: "功能累计任务数" },
   { label: "降AIGC率", value: summaryState.value.task_counts?.by_type?.rewrite || 0, hint: "功能累计任务数" },
-  { label: "处理中", value: summaryState.value.task_counts?.by_status?.running || 0, hint: "当前还在执行中的任务" },
+  {
+    label: "处理中",
+    value:
+      (summaryState.value.task_counts?.by_status?.pending || 0) +
+      (summaryState.value.task_counts?.by_status?.preprocessing || 0) +
+      (summaryState.value.task_counts?.by_status?.queued || 0) +
+      (summaryState.value.task_counts?.by_status?.running || 0),
+    hint: "当前还在执行中的任务",
+  },
   { label: "已完成", value: summaryState.value.task_counts?.by_status?.completed || 0, hint: "已产出结果的任务" },
   { label: "失败", value: summaryState.value.task_counts?.by_status?.failed || 0, hint: "需要重新提交或人工排查" },
 ])
@@ -413,13 +422,14 @@ function mapTaskType(type) {
 }
 
 function mapStatus(status) {
-  return { pending: "等待中", running: "处理中", completed: "已完成", failed: "失败" }[status] || status
+  return mapTaskStatus(status)
 }
 
 function statusClass(status) {
-  if (status === "completed") return "scholar-badge--success"
-  if (status === "failed") return "scholar-badge--danger"
-  if (status === "running") return "scholar-badge--info"
+  const tone = taskStatusClass(status)
+  if (tone === "success") return "scholar-badge--success"
+  if (tone === "danger") return "scholar-badge--danger"
+  if (tone === "info") return "scholar-badge--info"
   return "scholar-badge--warn"
 }
 

@@ -37,7 +37,7 @@ services:
     restart: unless-stopped
     env_file:
       - ./.env.prod
-    command: sh -c "python -m app.bootstrap && uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers ${WEB_CONCURRENCY:-4}"
+    command: sh -c "python -m app.bootstrap && uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers ${WEB_CONCURRENCY:-6}"
     depends_on:
       mysql:
         condition: service_healthy
@@ -64,7 +64,7 @@ services:
     restart: unless-stopped
     env_file:
       - ./.env.prod
-    command: celery -A app.worker_tasks.celery_app worker -l info -Q submission -c ${CELERY_SUBMISSION_CONCURRENCY:-6} --max-tasks-per-child=200
+    command: celery -A app.worker_tasks.celery_app worker -l info -Q submission -c ${CELERY_SUBMISSION_CONCURRENCY:-8} --max-tasks-per-child=200
     depends_on:
       backend:
         condition: service_healthy
@@ -91,7 +91,7 @@ services:
     restart: unless-stopped
     env_file:
       - ./.env.prod
-    command: celery -A app.worker_tasks.celery_app worker -l info -Q processing -c ${CELERY_PROCESSING_CONCURRENCY:-2} --max-tasks-per-child=20
+    command: celery -A app.worker_tasks.celery_app worker -l info -Q processing -c ${CELERY_PROCESSING_CONCURRENCY:-4} --max-tasks-per-child=20
     depends_on:
       backend:
         condition: service_healthy

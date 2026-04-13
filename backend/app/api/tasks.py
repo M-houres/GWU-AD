@@ -186,6 +186,34 @@ def _check_submit_backlog(redis_conn, *, user_id: int) -> None:
             raise BizError(code=4118, message="系统繁忙，请稍后再试", http_status=503)
 
 
+def _increment_submit_backlog(redis_conn, *, user_id: int) -> None:
+    if settings.app_env == "test":
+        return
+    backlog_key = "task:submit:backlog"
+    user_key = f"task:submit:inflight:user:{user_id}"
+    redis_conn.incr(backlog_key)
+    redis_conn.expire(backlog_key, 3600)
+    current = redis_conn.incr(user_key)
+    if current == 1:
+        redis_conn.expire(user_key, 3600)
+
+
+def _decrement_submit_backlog(redis_conn, *, user_id: int) -> None:
+    if settings.app_env == "test":
+        return
+    backlog_key = "task:submit:backlog"
+    user_key = f"task:submit:inflight:user:{user_id}"
+    try:
+        backlog = int(redis_conn.get(backlog_key) or 0)
+        user_inflight = int(redis_conn.get(user_key) or 0)
+        if backlog > 0:
+            redis_conn.decr(backlog_key)
+        if user_inflight > 0:
+            redis_conn.decr(user_key)
+    except Exception:
+        logger.warning("task_submit_counter_decrement_failed", exc_info=True, extra={"user_id": user_id})
+
+
 def _build_idempotency_key(request: Request, *, user_id: int, task_type: TaskType, platform: str, filename: str) -> str | None:
     raw = str(request.headers.get("Idempotency-Key") or request.headers.get("X-Idempotency-Key") or "").strip()
     if not raw:
@@ -266,6 +294,15 @@ def _prepare_task_for_processing(db: Session, *, task: Task) -> dict:
     }
 
 
+def _initial_billing_payload(db: Session, *, user_id: int, task_type: TaskType) -> dict:
+    quota = get_aigc_daily_quota(db, user_id=user_id) if task_type == TaskType.AIGC_DETECT else None
+    return {
+        "rate_per_char": _resolve_task_rate(db, task_type),
+        "free_applied": bool(quota and quota["free_remaining_today"] > 0),
+        "quota": quota,
+    }
+
+
 @router.get("/rates", response_model=APIResp)
 def task_rates(db: Session = Depends(db_dep)) -> APIResp:
     return ok(
@@ -319,6 +356,7 @@ def submit_task(
     )
 
     existing_task = None
+    task: Task | None = None
     if idempotency_key:
         existing_task = (
             db.query(Task)
@@ -373,7 +411,7 @@ def submit_task(
             platform=normalized_platform,
             processing_mode=internal_processing_mode,
             source=client_source,
-            status=TaskStatus.PENDING,
+            status=TaskStatus.PREPROCESSING if settings.app_env != "test" else TaskStatus.PENDING,
             source_filename=src_name,
             source_path=str(src_path),
             report_path=report_path,
@@ -384,7 +422,11 @@ def submit_task(
         )
         db.add(task)
         db.flush()
-        billing_payload = _prepare_task_for_processing(db, task=task)
+        billing_payload = (
+            _prepare_task_for_processing(db, task=task)
+            if settings.app_env == "test"
+            else _initial_billing_payload(db, user_id=user.id, task_type=t)
+        )
         db.commit()
     except Exception:
         db.rollback()
@@ -403,11 +445,13 @@ def submit_task(
 
     dispatch_mode = "skipped"
     if settings.app_env != "test":
-        from app.worker_tasks import dispatch_background_task, process_task_async
+        from app.worker_tasks import dispatch_background_task, preprocess_submission_async
 
+        _increment_submit_backlog(redis_conn, user_id=user.id)
         try:
-            dispatch_mode = dispatch_background_task(process_task_async, task.id, queue="processing")
-        except Exception:
+            dispatch_mode = dispatch_background_task(preprocess_submission_async, task.id, queue="submission")
+        except Exception as exc:
+            _decrement_submit_backlog(redis_conn, user_id=user.id)
             logger.exception(
                 "task_dispatch_failed_after_submit",
                 extra={
@@ -417,11 +461,17 @@ def submit_task(
                     "platform": normalized_platform,
                 },
             )
+            failed_task = db.get(Task, task.id)
+            if failed_task is not None:
+                failed_task.status = TaskStatus.FAILED
+                failed_task.error_message = f"任务排队失败: {exc}"
+                failed_task.updated_at = datetime.utcnow()
+                db.commit()
             dispatch_mode = "failed"
     return ok(
         data={
             "id": task.id,
-            "status": task.status.value,
+            "status": (db.get(Task, task.id) or task).status.value,
             "cost_credits": task.cost_credits,
             "estimated_time": int(strategy.get("timeout_sec", 300)),
             "billing": billing_payload,

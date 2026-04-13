@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from app.exceptions import BizError
 from app.models import SystemConfig, TaskType
 from app.services.algo_package_service import get_active_slot_config
+from app.services.builtin_algo_packages import ensure_builtin_algo_package_active
 
 STRATEGY_CATEGORY = "process_strategies_v1"
 
@@ -225,6 +226,13 @@ def resolve_task_processing_mode(
         platform=normalized_platform,
         function_type=normalized_task_type.value,
     )
+    if not active_slot:
+        active_slot = ensure_builtin_algo_package_active(
+            db,
+            platform=normalized_platform,
+            function_type=normalized_task_type.value,
+            uploaded_by=1,
+        )
     if not active_slot:
         raise BizError(code=4118, message="当前平台功能尚未配置算法包，请联系管理员")
 

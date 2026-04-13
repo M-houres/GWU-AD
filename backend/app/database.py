@@ -2,13 +2,31 @@ from contextlib import contextmanager
 import logging
 from typing import Generator
 
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, event, text
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 from app.config import get_settings
 
 settings = get_settings()
 logger = logging.getLogger("app.database")
+
+
+def _build_sqlite_engine():
+    sqlite_engine = create_engine(
+        settings.sqlite_dsn,
+        connect_args={"check_same_thread": False, "timeout": 30},
+        future=True,
+    )
+
+    @event.listens_for(sqlite_engine, "connect")
+    def _configure_sqlite_connection(dbapi_connection, _connection_record) -> None:
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA journal_mode=WAL")
+        cursor.execute("PRAGMA synchronous=NORMAL")
+        cursor.execute("PRAGMA busy_timeout=30000")
+        cursor.close()
+
+    return sqlite_engine
 
 
 def _create_engine():
@@ -31,11 +49,7 @@ def _create_engine():
         if not settings.db_fallback_sqlite:
             raise
         logger.warning("mysql_unavailable_fallback_to_sqlite", extra={"app_env": settings.app_env})
-        return create_engine(
-            settings.sqlite_dsn,
-            connect_args={"check_same_thread": False},
-            future=True,
-        )
+        return _build_sqlite_engine()
 
 
 engine = _create_engine()

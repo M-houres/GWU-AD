@@ -333,7 +333,7 @@ async function submitTask() {
       timeout: 120000,
     })
 
-    successText.value = `提交成功，任务 #${data.id} 已创建`
+    successText.value = `提交成功，任务 #${data.id} 已进入处理队列`
     try {
       await refreshUser()
     } catch (refreshError) {
@@ -350,7 +350,7 @@ async function submitTask() {
         submittedAt,
       })
       if (recoveredTask?.id) {
-        successText.value = `提交响应中断，但任务 #${recoveredTask.id} 已创建，正在跳转记录页`
+        successText.value = `提交响应中断，但任务 #${recoveredTask.id} 已进入处理队列，正在跳转记录页`
         try {
           await refreshUser()
         } catch (refreshError) {

@@ -211,10 +211,11 @@ def test_submit_and_process_rewrite_task_with_algo_llm_strategy(
     assert task.result_json["authors"] == "Tester"
 
 
-def test_task_submit_requires_active_package_for_enabled_strategy(
+def test_task_submit_auto_bootstraps_builtin_package_when_slot_missing(
     client: TestClient,
     db_session: Session,
     monkeypatch,
+    settings_override,
 ) -> None:
     user = User(phone="13800008881", nickname="strategy-user", credits=10000)
     db_session.add(user)
@@ -230,9 +231,12 @@ def test_task_submit_requires_active_package_for_enabled_strategy(
             data={"task_type": "dedup", "platform": "cnki"},
             files={"paper": ("sample.docx", file_bytes, "application/vnd.openxmlformats-officedocument.wordprocessingml.document")},
         )
-        assert resp.status_code == 400
+        assert resp.status_code == 200
         body = resp.json()
-        assert body["code"] == 4118
+        assert body["code"] == 0
+        task = db_session.get(Task, body["data"]["id"])
+        assert task is not None
+        assert task.processing_mode == "ALGO_ONLY"
     finally:
         app.dependency_overrides.pop(current_user, None)
 

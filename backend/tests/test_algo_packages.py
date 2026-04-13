@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
 from app.services.algo_package_service import install_algorithm_package, run_active_package, run_package_smoke_test
-from app.services.builtin_algo_packages import bootstrap_builtin_algo_packages
+from app.services.builtin_algo_packages import bootstrap_builtin_algo_packages, ensure_builtin_algo_package_active
 
 
 def _build_package_zip(
@@ -145,6 +145,39 @@ def test_run_active_package_uses_manifest_entry(
     output, active = active_result
     assert output == "ENTRY_FILE"
     assert active["entry"] == "engine/custom.py"
+
+
+def test_ensure_builtin_algo_package_active_preserves_existing_active_slot(
+    db_session: Session,
+    settings_override,
+) -> None:
+    manifest = {
+        "name": "custom_rewrite_engine",
+        "version": "9.9.9",
+        "platform": "cnki",
+        "function_type": "rewrite",
+        "entry": "main.py",
+    }
+    install_algorithm_package(
+        db_session,
+        file_bytes=_build_package_zip(manifest),
+        platform="cnki",
+        function_type="rewrite",
+        uploaded_by=7,
+        activate_after_upload=True,
+    )
+    db_session.commit()
+
+    active = ensure_builtin_algo_package_active(
+        db_session,
+        platform="cnki",
+        function_type="rewrite",
+        uploaded_by=1,
+    )
+
+    assert active is not None
+    assert active["name"] == "custom_rewrite_engine"
+    assert active["version"] == "9.9.9"
 
 
 def test_admin_upload_algorithm_package_custom_entry_without_main_py_success(

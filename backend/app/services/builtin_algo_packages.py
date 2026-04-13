@@ -7,7 +7,7 @@ from textwrap import dedent
 from sqlalchemy.orm import Session
 
 from app.exceptions import BizError
-from app.services.algo_package_service import _validate_slot, install_algorithm_package
+from app.services.algo_package_service import _validate_slot, get_active_slot_config, install_algorithm_package
 
 
 @dataclass(frozen=True)
@@ -2510,6 +2510,44 @@ def build_authoring_spec_bundle() -> tuple[str, bytes]:
 
     filename = "ALGO_PACKAGE_AUTHORING_SPEC_BUNDLE.zip"
     return filename, buf.getvalue()
+
+
+def ensure_builtin_algo_package_active(
+    db: Session,
+    *,
+    platform: str,
+    function_type: str,
+    uploaded_by: int,
+) -> dict | None:
+    normalized_platform, normalized_function_type = _validate_slot(platform, function_type)
+    active_slot = get_active_slot_config(
+        db,
+        platform=normalized_platform,
+        function_type=normalized_function_type,
+    )
+    if active_slot:
+        return active_slot
+
+    spec = next(
+        (
+            item
+            for item in BUILTIN_PACKAGE_SPECS
+            if item.platform == normalized_platform and item.function_type == normalized_function_type
+        ),
+        None,
+    )
+    if spec is None:
+        return None
+
+    result = install_algorithm_package(
+        db,
+        file_bytes=_build_package_zip(spec),
+        platform=normalized_platform,
+        function_type=normalized_function_type,
+        uploaded_by=uploaded_by,
+        activate_after_upload=True,
+    )
+    return result.get("active_slot")
 
 
 def bootstrap_builtin_algo_packages(

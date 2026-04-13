@@ -18,10 +18,12 @@ class DummyTask:
         self.sink.append(value)
 
 
-def test_dispatch_background_task_falls_back_to_single_local_queue(monkeypatch) -> None:
+def test_dispatch_background_task_falls_back_to_local_worker_pool(monkeypatch) -> None:
     settings = get_settings()
     old_env = settings.app_env
+    old_processing_concurrency = settings.local_processing_worker_concurrency
     settings.app_env = "dev"
+    settings.local_processing_worker_concurrency = 3
 
     try:
         sink: list[int] = []
@@ -29,11 +31,12 @@ def test_dispatch_background_task_falls_back_to_single_local_queue(monkeypatch) 
         monkeypatch.setattr("app.worker_tasks._celery_broker_available", lambda: False)
 
         assert wait_for_local_tasks(1.0)
-        for item in range(3):
-            mode = dispatch_background_task(task, item)
+        for item in range(6):
+            mode = dispatch_background_task(task, item, queue="processing")
             assert mode == "local-queue"
 
         assert wait_for_local_tasks(2.0)
-        assert sink == [0, 1, 2]
+        assert sorted(sink) == list(range(6))
     finally:
         settings.app_env = old_env
+        settings.local_processing_worker_concurrency = old_processing_concurrency

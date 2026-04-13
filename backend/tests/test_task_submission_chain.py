@@ -134,8 +134,10 @@ def test_submit_task_still_returns_success_when_dispatch_fails_after_commit(
         assert resp.status_code == 200
         payload = resp.json()["data"]
         assert payload["dispatch_mode"] == "failed"
+        assert payload["status"] == "failed"
         task = db_session.get(Task, payload["id"])
         assert task is not None
+        assert task.status == TaskStatus.FAILED
         assert task.result_json["paper_title"] == "派发异常测试"
     finally:
         settings.app_env = old_env
@@ -222,7 +224,7 @@ def test_dispatch_background_task_rejects_local_fallback_in_prod(monkeypatch) ->
     settings.app_env = "prod"
     settings.celery_local_fallback_enabled = True
     monkeypatch.setattr(worker_tasks, "_celery_broker_available", lambda: False)
-    monkeypatch.setattr(worker_tasks, "_ensure_local_worker", lambda: None)
+    monkeypatch.setattr(worker_tasks, "_ensure_local_workers", lambda *_args, **_kwargs: None)
     try:
         with pytest.raises(RuntimeError) as exc_info:
             worker_tasks.dispatch_background_task(_DummyTask(), 1, foo="bar")

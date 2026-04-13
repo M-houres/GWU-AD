@@ -47,7 +47,8 @@ celery_app.conf.update(
 
 _local_task_queue: Queue[tuple[object, tuple, dict, str]] = Queue()
 _local_worker_lock = threading.Lock()
-_local_worker_thread: threading.Thread | None = None
+_local_task_queues: dict[str, Queue[tuple[object, tuple, dict, str]]] = {"default": _local_task_queue}
+_local_worker_threads: dict[str, list[threading.Thread]] = {}
 
 _TASK_RESULT_META_KEYS = ("paper_title", "authors")
 
@@ -83,35 +84,68 @@ def _run_task_locally(task, args: tuple, kwargs: dict, task_name: str) -> None:
         logger.exception("local_task_dispatch_failed", extra={"task_name": task_name})
 
 
-def _local_worker_loop() -> None:
+def _normalize_local_queue_name(queue_name: str | None) -> str:
+    normalized = str(queue_name or "default").strip().lower()
+    if normalized in {"submission", "processing", "maintenance", "default"}:
+        return normalized
+    return "default"
+
+
+def _resolve_local_worker_concurrency(queue_name: str) -> int:
+    normalized = _normalize_local_queue_name(queue_name)
+    if normalized == "submission":
+        return max(int(settings.local_submission_worker_concurrency or 0), 1)
+    if normalized == "processing":
+        return max(int(settings.local_processing_worker_concurrency or 0), 1)
+    return max(int(settings.local_maintenance_worker_concurrency or 0), 1)
+
+
+def _get_local_task_queue(queue_name: str) -> Queue[tuple[object, tuple, dict, str]]:
+    normalized = _normalize_local_queue_name(queue_name)
+    queue = _local_task_queues.get(normalized)
+    if queue is not None:
+        return queue
+    queue = Queue()
+    _local_task_queues[normalized] = queue
+    return queue
+
+
+def _local_worker_loop(queue_name: str) -> None:
+    local_queue = _get_local_task_queue(queue_name)
     while True:
-        task, args, kwargs, task_name = _local_task_queue.get()
+        task, args, kwargs, task_name = local_queue.get()
         try:
             _run_task_locally(task, args, kwargs, task_name)
         finally:
-            _local_task_queue.task_done()
+            local_queue.task_done()
 
 
-def _ensure_local_worker() -> None:
-    global _local_worker_thread
+def _ensure_local_workers(queue_name: str) -> None:
+    normalized = _normalize_local_queue_name(queue_name)
     with _local_worker_lock:
-        if _local_worker_thread and _local_worker_thread.is_alive():
-            return
-        _local_worker_thread = threading.Thread(
-            target=_local_worker_loop,
-            daemon=True,
-            name="local-task-worker",
-        )
-        _local_worker_thread.start()
+        _get_local_task_queue(normalized)
+        existing = [thread for thread in _local_worker_threads.get(normalized, []) if thread.is_alive()]
+        desired = _resolve_local_worker_concurrency(normalized)
+        for index in range(len(existing), desired):
+            thread = threading.Thread(
+                target=_local_worker_loop,
+                args=(normalized,),
+                daemon=True,
+                name=f"local-task-worker-{normalized}-{index + 1}",
+            )
+            thread.start()
+            existing.append(thread)
+        _local_worker_threads[normalized] = existing
 
 
 def wait_for_local_tasks(timeout_seconds: float = 5.0) -> bool:
     deadline = time.monotonic() + max(timeout_seconds, 0)
     while time.monotonic() < deadline:
-        if _local_task_queue.unfinished_tasks == 0:
+        unfinished = sum(queue.unfinished_tasks for queue in _local_task_queues.values())
+        if unfinished == 0:
             return True
         time.sleep(0.01)
-    return _local_task_queue.unfinished_tasks == 0
+    return sum(queue.unfinished_tasks for queue in _local_task_queues.values()) == 0
 
 
 def _merge_task_result_metadata(existing_result, new_result) -> dict:
@@ -127,9 +161,10 @@ def _merge_task_result_metadata(existing_result, new_result) -> dict:
 
 def dispatch_background_task(task, *args, queue: str | None = None, **kwargs) -> str:
     task_name = getattr(task, "name", getattr(task, "__name__", "unknown_task"))
+    normalized_queue = _normalize_local_queue_name(queue)
     if _celery_broker_available():
         try:
-            task.apply_async(args=args, kwargs=kwargs, queue=queue)
+            task.apply_async(args=args, kwargs=kwargs, queue=normalized_queue)
             return "celery"
         except Exception:
             logger.warning(
@@ -146,8 +181,9 @@ def dispatch_background_task(task, *args, queue: str | None = None, **kwargs) ->
         raise RuntimeError(f"celery broker unavailable for task {task_name}")
 
     try:
-        _ensure_local_worker()
-        _local_task_queue.put((task, args, kwargs, task_name))
+        local_queue = _get_local_task_queue(normalized_queue)
+        _ensure_local_workers(normalized_queue)
+        local_queue.put((task, args, kwargs, task_name))
         return "local-queue"
     except Exception:
         logger.warning(

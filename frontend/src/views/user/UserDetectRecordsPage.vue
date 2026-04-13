@@ -89,7 +89,7 @@
             <div class="aigc-record-item__score">{{ aigcScore(item) }}</div>
             <div class="aigc-record-item__score-note">AI生成比例</div>
           </template>
-          <template v-else-if="item.status === 'running' || item.status === 'pending'">
+          <template v-else-if="isTaskProcessingStatus(item.status)">
             <div class="aigc-record-item__running">检测中...</div>
             <div class="aigc-record-item__spinner" />
           </template>
@@ -105,7 +105,7 @@
           <button
             class="aigc-record-item__delete"
             type="button"
-            :disabled="item.status === 'running' || removingId === item.id"
+            :disabled="isTaskProcessingStatus(item.status) || removingId === item.id"
             @click="removeTask(item)"
           >
             删除
@@ -202,6 +202,7 @@ import { userHttp } from "../../lib/http"
 import { fetchAllUserTasks } from "../../lib/userRecords"
 import { getUserToken } from "../../lib/session"
 import { mapTaskPlatform } from "../../lib/taskPlatform"
+import { isTaskProcessingStatus } from "../../lib/taskStatus"
 import { taskResultMetrics, taskResultRiskParagraphs, taskResultSummary } from "../../lib/taskResult"
 
 const router = useRouter()
@@ -229,7 +230,7 @@ const focusTaskId = computed(() => {
 
 const counts = computed(() => {
   const all = tasks.value.length
-  const processing = tasks.value.filter((item) => item.status === "pending" || item.status === "running").length
+  const processing = tasks.value.filter((item) => isTaskProcessingStatus(item.status)).length
   const completed = tasks.value.filter((item) => item.status === "completed").length
   return { all, processing, completed }
 })
@@ -243,7 +244,7 @@ const statusTabs = computed(() => [
 const filteredTasks = computed(() => {
   const text = keyword.value.trim().toLowerCase()
   return tasks.value.filter((item) => {
-    if (statusFilter.value === "processing" && item.status !== "pending" && item.status !== "running") {
+    if (statusFilter.value === "processing" && !isTaskProcessingStatus(item.status)) {
       return false
     }
     if (statusFilter.value === "completed" && item.status !== "completed") {
@@ -332,7 +333,7 @@ function startPolling() {
     return
   }
   pollTimer.value = window.setInterval(() => {
-    if (tasks.value.some((item) => item.status === "pending" || item.status === "running")) {
+    if (tasks.value.some((item) => isTaskProcessingStatus(item.status))) {
       loadTasks()
     }
   }, 4000)
