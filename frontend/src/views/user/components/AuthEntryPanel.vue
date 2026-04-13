@@ -681,6 +681,20 @@ function enterGuest() {
 }
 
 @media (max-width: 480px) {
+  .gw-auth-page__main {
+    padding: 12px;
+    align-items: start;
+  }
+
+  .gw-auth-card__head {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .gw-auth-card__entry-link {
+    width: 100%;
+  }
+
   .gw-auth-card__brand-name {
     font-size: 16px;
   }
@@ -697,6 +711,18 @@ function enterGuest() {
 
   .gw-auth-card__code-row button {
     width: 100%;
+  }
+
+  .gw-auth-card__wechat-actions {
+    flex-direction: column;
+  }
+
+  .gw-auth-card__wechat-actions button {
+    width: 100%;
+  }
+
+  .gw-auth-card__tabs {
+    gap: 6px;
   }
 }
 </style>

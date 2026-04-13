@@ -101,7 +101,9 @@ def client(db_session: Session) -> Generator[TestClient, None, None]:
     fake_redis = FakeRedis()
     settings = get_settings()
     old_auth_debug = settings.auth_return_debug_code
+    old_app_env = settings.app_env
     settings.auth_return_debug_code = True
+    settings.app_env = "test"
 
     startup_handlers = list(app.router.on_startup)
     shutdown_handlers = list(app.router.on_shutdown)
@@ -114,6 +116,7 @@ def client(db_session: Session) -> Generator[TestClient, None, None]:
         yield tc
     app.dependency_overrides.clear()
     settings.auth_return_debug_code = old_auth_debug
+    settings.app_env = old_app_env
 
     app.router.on_startup.extend(startup_handlers)
     app.router.on_shutdown.extend(shutdown_handlers)

@@ -1,4 +1,3 @@
-import hashlib
 import random
 import re
 import string
@@ -6,12 +5,6 @@ from pathlib import Path
 
 from docx import Document
 from pypdf import PdfReader
-
-
-def make_invite_code(user_id: int) -> str:
-    digest = hashlib.sha256(f"user-{user_id}".encode("utf-8")).hexdigest().upper()
-    return digest[:8]
-
 
 def make_order_no() -> str:
     prefix = "OD"

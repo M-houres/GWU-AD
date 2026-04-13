@@ -1,14 +1,47 @@
 <template>
-  <div class="app-shell">
-    <aside class="sider-wrap">
+  <div class="app-shell" :class="{ 'is-collapsed': isCollapsedDesktop, 'is-mobile': isMobile, 'is-drawer-open': isDrawerOpen }">
+    <button
+      v-if="isMobile && isDrawerOpen"
+      type="button"
+      class="shell-overlay"
+      aria-label="关闭侧边导航"
+      @click="closeDrawer"
+    ></button>
+
+    <aside class="sider-wrap" :class="{ 'is-collapsed': isCollapsedDesktop, 'is-open': isDrawerOpen }">
       <div class="sider-brand">
-        <RouterLink to="/app/detect" class="brand-home" aria-label="格物学术首页">
-          <span class="brand-mark">GW</span>
-          <div class="brand-copy">
-            <strong>格物学术</strong>
-            <span>Academic Workspace</span>
+        <div class="sider-brand__top">
+          <RouterLink to="/app/detect" class="brand-home" aria-label="格物学术首页" :title="isCollapsedDesktop ? '格物学术' : ''">
+            <span class="brand-mark">GW</span>
+            <div class="brand-copy">
+              <strong>格物学术</strong>
+              <span>Academic Workspace</span>
+            </div>
+          </RouterLink>
+
+          <div class="sider-brand__actions">
+            <button
+              v-if="!isMobile"
+              type="button"
+              class="shell-icon-btn shell-icon-btn--ghost"
+              :aria-label="sidebarToggleLabel"
+              :title="sidebarToggleLabel"
+              @click="toggleSidebar"
+            >
+              <component :is="sidebarToggleIcon" :size="18" />
+            </button>
+            <button
+              v-else
+              type="button"
+              class="shell-icon-btn shell-icon-btn--ghost"
+              aria-label="关闭侧边导航"
+              title="关闭侧边导航"
+              @click="closeDrawer"
+            >
+              <X :size="18" />
+            </button>
           </div>
-        </RouterLink>
+        </div>
       </div>
 
       <div class="scrollbar-wrapper">
@@ -16,20 +49,20 @@
         <ul v-else class="el-menu">
           <template v-for="(group, groupIndex) in visibleMenuGroups" :key="group.key">
             <li v-for="item in group.items" :key="item.path" class="menu-wrapper">
-              <div v-if="item.disabled" class="el-menu-item is-disabled" aria-disabled="true">
+              <div v-if="item.disabled" class="el-menu-item is-disabled" aria-disabled="true" :title="isCollapsedDesktop ? item.label : ''">
                 <i class="siderIcon">
                   <component :is="item.icon" :size="16" />
                 </i>
                 <span class="subMenu_title_box">{{ item.label }}</span>
-                <span v-if="item.badge" class="menu-beta-badge">{{ item.badge }}</span>
+                <span v-if="item.badge && !isCollapsedDesktop" class="menu-beta-badge">{{ item.badge }}</span>
               </div>
-              <RouterLink v-else :to="item.path" class="menu-link">
+              <RouterLink v-else :to="item.path" class="menu-link" :title="isCollapsedDesktop ? item.label : ''">
                 <div class="el-menu-item" :class="{ 'is-active': isMenuActive(item.path) }">
                   <i class="siderIcon">
                     <component :is="item.icon" :size="16" />
                   </i>
                   <span class="subMenu_title_box">{{ item.label }}</span>
-                  <span v-if="item.badge" class="menu-beta-badge">{{ item.badge }}</span>
+                  <span v-if="item.badge && !isCollapsedDesktop" class="menu-beta-badge">{{ item.badge }}</span>
                 </div>
               </RouterLink>
             </li>
@@ -41,15 +74,35 @@
 
     <div class="shell-main">
       <header class="header-wrap">
-        <div class="header-title" :class="{ 'header-title--hidden': shouldHideHeaderTitle }">{{ routeTitle }}</div>
+        <div class="header-left">
+          <button
+            v-if="isMobile"
+            type="button"
+            class="shell-icon-btn"
+            :aria-label="mobileMenuLabel"
+            :title="mobileMenuLabel"
+            @click="toggleSidebar"
+          >
+            <Menu :size="18" />
+          </button>
+          <div class="header-title" :class="{ 'header-title--hidden': shouldHideHeaderTitle }">{{ routeTitle }}</div>
+        </div>
 
         <div class="header-right">
-          <button v-if="showNoticeEntry" type="button" class="header-notice-btn" @click="isNoticeDialogOpen = true">公告</button>
-          <button type="button" class="header-topup" @click="hasUserToken ? goBuy() : goLogin()">充值</button>
-          <button type="button" class="header-link" @click="hasUserToken ? goProfile() : goLogin()">
+          <button
+            v-if="showNoticeEntry"
+            type="button"
+            class="header-notice-btn"
+            :class="{ 'is-active': isNoticeDialogOpen }"
+            @click="isNoticeDialogOpen = true"
+          >
+            公告
+          </button>
+          <button type="button" class="header-topup" :class="{ 'is-active': isBuyActive }" @click="hasUserToken ? goBuy() : goLogin()">充值</button>
+          <button type="button" class="header-link" :class="{ 'is-active': isPrimaryAccountActionActive }" @click="hasUserToken ? goProfile() : goLogin()">
             {{ hasUserToken ? "个人中心" : "登录" }}
           </button>
-          <button type="button" class="header-link header-link--muted" @click="hasUserToken ? logout() : goRegister()">
+          <button type="button" class="header-link header-link--muted" :class="{ 'is-active': isSecondaryAccountActionActive }" @click="hasUserToken ? logout() : goRegister()">
             {{ hasUserToken ? "退出" : "注册" }}
           </button>
         </div>
@@ -90,10 +143,11 @@
 </template>
 
 <script setup>
-import { Bot, FilePenLine, FileSearch2, Gift, ScanSearch, ShieldCheck } from "lucide-vue-next"
+import { Bot, FilePenLine, FileSearch2, Gift, Menu, PanelLeftClose, PanelLeftOpen, ScanSearch, ShieldCheck, X } from "lucide-vue-next"
 import { computed, onMounted, onUnmounted, ref, watch } from "vue"
 import { RouterLink, useRoute, useRouter } from "vue-router"
 
+import { useShellLayout } from "../composables/useShellLayout"
 import { userHttp } from "../lib/http"
 import { clearUserSession, getUserNavigationConfig, getUserToken, setUserNavigationConfig } from "../lib/session"
 import { normalizeUserNavigationConfig } from "../lib/userNavigation"
@@ -128,6 +182,13 @@ const MENU_ICON_MAP = {
 
 const router = useRouter()
 const route = useRoute()
+const {
+  isMobile,
+  isCollapsedDesktop,
+  isDrawerOpen,
+  toggleSidebar,
+  closeDrawer,
+} = useShellLayout({ storageKey: "wuhong_user_shell_collapsed" })
 const hasUserToken = ref(false)
 const isNoticeDialogOpen = ref(false)
 const cachedNavigation = getUserNavigationConfig()
@@ -166,6 +227,9 @@ const shouldHideTopbar = computed(() => {
   if (props.hideTopbar) return true
   return isRouteMatch(route.path, "/app/profile") || isRouteMatch(route.path, "/app/referral")
 })
+const isBuyActive = computed(() => isRouteMatch(route.path, "/app/buy"))
+const isPrimaryAccountActionActive = computed(() => (hasUserToken.value ? isRouteMatch(route.path, "/app/profile") : isRouteMatch(route.path, "/login")))
+const isSecondaryAccountActionActive = computed(() => (!hasUserToken.value ? isRouteMatch(route.path, "/register") : false))
 const noticeTitle = computed(() => String(noticeState.value.title || "公告"))
 const showNoticeEntry = computed(() => noticeState.value.enabled)
 const noticeBodyText = computed(() => {
@@ -175,6 +239,9 @@ const noticeBodyText = computed(() => {
   return String(noticeState.value.content || DEFAULT_HEADER_NOTICE_TEXT)
 })
 const noticeUpdatedLabel = computed(() => formatNoticeTime(noticeState.value.updated_at))
+const sidebarToggleIcon = computed(() => (isCollapsedDesktop.value ? PanelLeftOpen : PanelLeftClose))
+const sidebarToggleLabel = computed(() => (isCollapsedDesktop.value ? "展开侧边导航" : "折叠侧边导航"))
+const mobileMenuLabel = computed(() => (isDrawerOpen.value ? "关闭侧边导航" : "打开侧边导航"))
 
 onMounted(() => {
   syncTokenState()
@@ -187,7 +254,10 @@ onUnmounted(() => {
 
 watch(
   () => route.fullPath,
-  () => syncTokenState()
+  () => {
+    syncTokenState()
+    closeDrawer()
+  }
 )
 
 async function loadShellOptions() {
@@ -334,13 +404,30 @@ function isRouteMatch(currentPath, targetPath) {
       #1d4ed8 82%,
       #2563eb 100%
     );
-  --sider-width: 236px;
+  --sider-width-expanded: 236px;
+  --sider-width-collapsed: 88px;
+  --sider-width-current: var(--sider-width-expanded);
   min-height: 100vh;
+  min-height: 100svh;
   display: grid;
-  grid-template-columns: var(--sider-width) minmax(0, 1fr);
+  grid-template-columns: var(--sider-width-current) minmax(0, 1fr);
   position: relative;
   background: var(--shell-band);
   color: var(--shell-ink);
+  transition: grid-template-columns 0.22s ease;
+}
+
+.app-shell.is-collapsed {
+  --sider-width-current: var(--sider-width-collapsed);
+}
+
+.shell-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 79;
+  border: 0;
+  background: rgba(10, 24, 51, 0.42);
+  backdrop-filter: blur(4px);
 }
 
 .sider-wrap {
@@ -352,6 +439,8 @@ function isRouteMatch(currentPath, targetPath) {
   border-right: 0;
   background: transparent;
   box-shadow: none;
+  z-index: 80;
+  transition: transform 0.22s ease, width 0.22s ease;
 }
 
 .sider-brand {
@@ -359,11 +448,25 @@ function isRouteMatch(currentPath, targetPath) {
   border-bottom: 0;
 }
 
+.sider-brand__top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.sider-brand__actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .brand-home {
   display: inline-flex;
   align-items: center;
   gap: 12px;
   text-decoration: none;
+  min-width: 0;
 }
 
 .brand-mark {
@@ -407,6 +510,44 @@ function isRouteMatch(currentPath, targetPath) {
   flex: 1;
   overflow: auto;
   padding: 18px 0 20px;
+}
+
+.shell-icon-btn {
+  width: 38px;
+  height: 38px;
+  border-radius: 12px;
+  border: 1px solid rgba(214, 226, 248, 0.92);
+  background: rgba(248, 251, 255, 0.96);
+  color: var(--shell-ink);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition:
+    transform 0.16s ease,
+    border-color 0.16s ease,
+    background-color 0.16s ease,
+    color 0.16s ease,
+    box-shadow 0.16s ease;
+}
+
+.shell-icon-btn:hover {
+  transform: translateY(-1px);
+  border-color: rgba(30, 91, 223, 0.24);
+  background: #ffffff;
+  box-shadow: 0 12px 24px rgba(30, 91, 223, 0.12);
+}
+
+.shell-icon-btn--ghost {
+  border-color: rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.12);
+  color: #ffffff;
+}
+
+.shell-icon-btn--ghost:hover {
+  border-color: rgba(255, 255, 255, 0.28);
+  background: rgba(255, 255, 255, 0.2);
+  color: #ffffff;
 }
 
 .el-menu {
@@ -521,10 +662,10 @@ function isRouteMatch(currentPath, targetPath) {
 
 .shell-main {
   min-width: 0;
-  min-height: 100vh;
+  min-height: 0;
   display: flex;
   flex-direction: column;
-  background: transparent;
+  background: #ffffff;
 }
 
 .header-wrap {
@@ -537,17 +678,24 @@ function isRouteMatch(currentPath, targetPath) {
   justify-content: space-between;
   gap: 16px;
   padding: 12px 24px;
-  background: transparent;
-  border-bottom: 0;
-  box-shadow: none;
+  background: rgba(255, 255, 255, 0.96);
+  border-bottom: 1px solid rgba(214, 226, 248, 0.88);
+  box-shadow: 0 8px 20px rgba(30, 91, 223, 0.04);
   backdrop-filter: blur(12px);
+}
+
+.header-left {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
 }
 
 .header-title {
   min-width: 0;
   font-size: 18px;
   font-weight: 700;
-  color: #ffffff;
+  color: var(--shell-ink);
   letter-spacing: 0.04em;
   white-space: nowrap;
   overflow: hidden;
@@ -571,9 +719,9 @@ function isRouteMatch(currentPath, targetPath) {
   min-height: 34px;
   padding: 0 15px;
   border-radius: 10px;
-  border: 1px solid rgba(255, 255, 255, 0.18);
-  background: rgba(255, 255, 255, 0.12);
-  color: rgba(245, 249, 255, 0.92);
+  border: 1px solid rgba(214, 226, 248, 0.92);
+  background: rgba(248, 251, 255, 0.96);
+  color: var(--shell-ink-soft);
   font-size: 12.5px;
   font-weight: 600;
   line-height: 1;
@@ -585,18 +733,26 @@ function isRouteMatch(currentPath, targetPath) {
     transform 0.16s ease;
 }
 
+.header-notice-btn.is-active,
+.header-link.is-active {
+  background: linear-gradient(135deg, #4a84ff 0%, #1e5bdf 100%);
+  border-color: rgba(30, 91, 223, 0.24);
+  color: #ffffff;
+  box-shadow: 0 12px 24px rgba(30, 91, 223, 0.16);
+}
+
 .header-topup {
   min-height: 34px;
   padding: 0 15px;
   border-radius: 10px;
-  border: 1px solid rgba(255, 255, 255, 0.26);
-  background: rgba(255, 255, 255, 0.95);
-  color: var(--shell-accent);
+  border: 1px solid rgba(214, 226, 248, 0.92);
+  background: rgba(248, 251, 255, 0.96);
+  color: var(--shell-ink-soft);
   font-size: 12.5px;
   font-weight: 700;
   line-height: 1;
   cursor: pointer;
-  box-shadow: 0 12px 24px rgba(15, 44, 120, 0.18);
+  box-shadow: none;
   transition:
     background-color 0.16s ease,
     color 0.16s ease,
@@ -605,44 +761,53 @@ function isRouteMatch(currentPath, targetPath) {
     box-shadow 0.16s ease;
 }
 
+.header-topup.is-active {
+  background: linear-gradient(135deg, #4a84ff 0%, #1e5bdf 100%);
+  border-color: rgba(30, 91, 223, 0.24);
+  color: #ffffff;
+  box-shadow: 0 12px 24px rgba(30, 91, 223, 0.18);
+}
+
 .header-notice-btn:hover,
 .header-link:hover,
 .header-link--muted:hover {
-  background: rgba(255, 255, 255, 0.18);
-  color: #ffffff;
-  border-color: rgba(255, 255, 255, 0.24);
+  background: #ffffff;
+  color: var(--shell-ink);
+  border-color: rgba(30, 91, 223, 0.18);
   transform: translateY(-1px);
 }
 
 .header-topup:hover {
   background: #ffffff;
-  color: var(--shell-accent-deep);
-  border-color: rgba(255, 255, 255, 0.3);
+  color: var(--shell-ink);
+  border-color: rgba(30, 91, 223, 0.18);
   transform: translateY(-1px);
-  box-shadow: 0 14px 26px rgba(15, 44, 120, 0.2);
+  box-shadow: none;
 }
 
 .header-notice-btn:active,
 .header-link:active,
 .header-link--muted:active {
-  background: rgba(255, 255, 255, 0.14);
-  color: #ffffff;
+  background: rgba(244, 248, 255, 0.98);
+  color: var(--shell-ink);
   transform: translateY(0);
 }
 
 .header-topup:active {
-  background: rgba(255, 255, 255, 0.92);
-  color: var(--shell-accent-deep);
+  background: rgba(244, 248, 255, 0.98);
+  color: var(--shell-ink);
   transform: translateY(0);
 }
 
 .header-link--muted {
   background: transparent;
+  color: var(--shell-ink-faint);
 }
 
 .main-wrap {
   flex: 1;
   min-width: 0;
+  min-height: 0;
   padding: 24px;
   background: #ffffff;
 }
@@ -788,67 +953,101 @@ function isRouteMatch(currentPath, targetPath) {
   white-space: pre-wrap;
 }
 
+.app-shell.is-collapsed .sider-brand {
+  padding-inline: 14px;
+}
+
+.app-shell.is-collapsed .sider-brand__top {
+  justify-content: center;
+}
+
+.app-shell.is-collapsed .brand-home {
+  justify-content: center;
+  gap: 0;
+}
+
+.app-shell.is-collapsed .brand-copy,
+.app-shell.is-collapsed .subMenu_title_box,
+.app-shell.is-collapsed .menu-beta-badge {
+  display: none;
+}
+
+.app-shell.is-collapsed .el-menu {
+  padding-inline: 10px;
+}
+
+.app-shell.is-collapsed .el-menu-item {
+  justify-content: center;
+  gap: 0;
+  padding-inline: 12px;
+  min-height: 50px;
+}
+
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
   .header-wrap {
     backdrop-filter: none;
   }
 }
 
-@media (max-width: 980px) {
+@media (max-width: 1023px) {
   .app-shell {
     display: block;
+    min-height: 100svh;
   }
 
   .sider-wrap {
-    position: static;
-    height: auto;
-    border-right: 0;
-    border-bottom: 1px solid rgba(164, 186, 218, 0.38);
-    box-shadow: none;
+    position: fixed;
+    inset: 0 auto 0 0;
+    width: min(82vw, 320px);
+    height: 100vh;
+    height: 100svh;
+    border-right: 1px solid rgba(255, 255, 255, 0.14);
+    border-bottom: 0;
+    transform: translateX(-104%);
+    box-shadow: 0 24px 44px rgba(8, 26, 66, 0.26);
+  }
+
+  .sider-wrap.is-open {
+    transform: translateX(0);
   }
 
   .scrollbar-wrapper {
-    overflow-x: auto;
-    padding: 10px 0 12px;
-  }
-
-  .el-menu {
-    display: flex;
-    min-width: max-content;
-    padding: 0 8px;
-    gap: 10px;
+    overflow: auto;
+    padding: 12px 0 22px;
   }
 
   .nav-divider {
-    width: 1px;
-    margin: 10px 8px;
-    border-top: 0;
-    border-left: 1px solid rgba(164, 186, 218, 0.3);
-  }
-
-  .el-menu-item {
-    width: auto;
-    min-width: 140px;
-    margin: 0;
+    display: none;
   }
 
   .header-wrap {
     min-height: auto;
-    padding: 10px 12px;
-    flex-direction: column;
-    align-items: flex-start;
+    padding: calc(10px + env(safe-area-inset-top, 0px)) 14px 10px;
+    align-items: stretch;
   }
 
   .header-right {
     width: 100%;
+    justify-content: flex-start;
   }
 
   .main-wrap {
-    padding: 14px 12px;
+    padding: 14px 12px calc(18px + env(safe-area-inset-bottom, 0px));
+  }
+
+  .navbarCon {
+    padding: 10px 12px;
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .navbarCon_right {
+    display: flex;
+    justify-content: flex-end;
   }
 }
 
-@media (max-width: 768px) {
+@media (max-width: 720px) {
   .brand-copy span {
     display: none;
   }
@@ -865,8 +1064,17 @@ function isRouteMatch(currentPath, targetPath) {
     font-size: 12px;
   }
 
-  .navbarCon {
-    padding: 8px 10px;
+  .header-right > * {
+    flex: 1 1 calc(50% - 8px);
+    justify-content: center;
+  }
+
+  .header-title {
+    font-size: 16px;
+  }
+
+  .main-wrap {
+    padding-inline: 10px;
   }
 }
 </style>

@@ -16,17 +16,6 @@
         <p class="aigc-page-head__quota">围绕高重复风险内容进行表达重构与语序优化，兼顾原意保留与查重率控制。</p>
       </section>
       <div class="aigc-page-head__divider" aria-hidden="true"></div>
-      <section class="service-benefit-banner">
-        <div class="service-benefit-banner__badge">邀请有礼</div>
-        <div class="service-benefit-banner__body">
-          <h3>邀请好友使用可得奖励与返利</h3>
-          <p>好友注册、首充和持续使用后可累计邀请奖励，相关权益与流水可在推广福利页查看。</p>
-        </div>
-        <div class="service-benefit-banner__side">
-          <strong>推广福利</strong>
-          <button type="button" class="service-benefit-banner__action" @click="router.push('/app/referral')">查看权益</button>
-        </div>
-      </section>
 
       <div class="uploadLiterature_content">
         <div class="uploadLit_content panels-container">
@@ -161,6 +150,8 @@
           </div>
         </div>
       </div>
+
+      <WorkbenchTaskFeed task-type="dedup" />
     </section>
 
     <BuyCreditsPanel v-if="showBuy" @paid="afterPaid" />
@@ -173,6 +164,7 @@ import { useRoute, useRouter } from "vue-router"
 
 import BuyCreditsPanel from "../../components/BuyCreditsPanel.vue"
 import UserShell from "../../components/UserShell.vue"
+import WorkbenchTaskFeed from "../../components/WorkbenchTaskFeed.vue"
 import { useUserProfile } from "../../composables/useUserProfile"
 import { userHttp } from "../../lib/http"
 import {
@@ -180,6 +172,7 @@ import {
   isTaskSubmitTimeoutError,
   recoverSubmittedTask,
 } from "../../lib/taskSubmitRecovery"
+import { derivePaperTitleFromFilename, shouldAutoFillPaperTitle } from "../../lib/paperTitle"
 import { TASK_PLATFORM_OPTIONS } from "../../lib/taskPlatform"
 import { ensureUserLogin } from "../../lib/requireLogin"
 import { getUserToken } from "../../lib/session"
@@ -233,6 +226,7 @@ const fieldErrors = reactive({
 
 const dragMain = ref(false)
 const paperFile = ref(null)
+const autoFilledTitle = ref("")
 const submitting = ref(false)
 const errorText = ref("")
 const successText = ref("")
@@ -284,6 +278,12 @@ function setMainFile(file) {
     return
   }
   paperFile.value = file
+  const detectedTitle = derivePaperTitleFromFilename(file.name)
+  if (detectedTitle && shouldAutoFillPaperTitle(form.title, autoFilledTitle.value)) {
+    form.title = detectedTitle
+    autoFilledTitle.value = detectedTitle
+    fieldErrors.title = ""
+  }
 }
 
 function validateForm() {

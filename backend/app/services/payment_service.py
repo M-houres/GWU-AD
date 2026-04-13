@@ -1,6 +1,7 @@
 ﻿from __future__ import annotations
 
 import base64
+from decimal import Decimal
 from datetime import datetime, timedelta, timezone
 import hashlib
 import hmac
@@ -17,6 +18,7 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 from app.config import get_settings
 from app.exceptions import BizError
+from app.money import cny_to_display, cny_to_fen, fen_to_cny, to_cny_decimal
 from app.models import Order, SystemConfig
 
 settings = get_settings()
@@ -122,27 +124,31 @@ def enabled_payment_providers(db, *, scene: str = "web") -> list[str]:
     normalized_scene = str(scene or "web").strip().lower().replace("-", "_")
     provider = normalize_payment_provider(cfg.get("provider", "wechatpay_v3"))
     test_mode = bool(cfg.get("test_mode", settings.payment_test_mode))
+    provider_ready = is_payment_provider_ready(cfg, provider)
+
+    if settings.is_prod:
+        if normalized_scene == "miniprogram":
+            if provider == "wechatpay_v3" and provider_ready:
+                return ["wechat"]
+            return []
+        if provider == "wechatpay_v3" and provider_ready:
+            return ["wechat"]
+        if provider == "alipay" and provider_ready:
+            return ["alipay"]
+        return []
 
     if normalized_scene == "miniprogram":
-        if provider == "wechatpay_v3" and is_payment_provider_ready(cfg, provider):
+        if provider == "wechatpay_v3" and provider_ready:
             return ["wechat"]
-        # Keep miniapp payment flows testable in local/dev even when the primary
-        # provider is still set to web-only channels such as Alipay.
-        if test_mode or settings.app_env != "prod":
+        if test_mode or not provider_ready or provider in {"mock", "gateway_proxy"}:
             return ["mock"]
         return []
 
-    if test_mode:
-        return ["mock"]
-
-    if provider == "wechatpay_v3" and is_payment_provider_ready(cfg, provider):
+    if provider == "wechatpay_v3" and provider_ready:
         return ["wechat"]
-    if provider == "alipay" and is_payment_provider_ready(cfg, provider):
+    if provider == "alipay" and provider_ready:
         return ["alipay"]
-    if provider == "mock":
-        return ["mock"] if settings.app_env != "prod" else []
-    if settings.app_env != "prod":
-        # Keep payment flow testable in non-prod when real channel isn't ready.
+    if test_mode or not provider_ready or provider in {"mock", "gateway_proxy"}:
         return ["mock"]
     return []
 
@@ -251,7 +257,7 @@ def parse_wechatpay_notify(
         "provider": "wechat",
         "order_no": str(trade.get("out_trade_no", "")).strip(),
         "status": _map_wechat_trade_state(trade_state),
-        "amount_cny": round(total_cents / 100, 2) if total_cents else None,
+        "amount_cny": fen_to_cny(total_cents) if total_cents else None,
         "provider_trade_no": str(trade.get("transaction_id", "")).strip(),
         "paid_at": str(trade.get("success_time", "")).strip(),
         "raw": trade,
@@ -274,7 +280,7 @@ def parse_alipay_notify(form_data: Mapping[str, Any], db) -> dict:
         raise BizError(code=4204, message="支付宝回调验签失败")
     trade_status = str(params.get("trade_status", "")).upper()
     total_amount = str(params.get("total_amount", "")).strip()
-    amount_cny = round(float(total_amount), 2) if total_amount else None
+    amount_cny = to_cny_decimal(total_amount, allow_none=True)
     return {
         "provider": "alipay",
         "order_no": str(params.get("out_trade_no", "")).strip(),
@@ -287,28 +293,30 @@ def parse_alipay_notify(form_data: Mapping[str, Any], db) -> dict:
 
 
 def _canonical_payload(payload: Mapping[str, Any]) -> str:
-    return json.dumps(payload, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
+    def _json_default(value):
+        if isinstance(value, Decimal):
+            return float(value)
+        raise TypeError(f"unsupported type: {type(value)!r}")
+
+    return json.dumps(payload, ensure_ascii=False, separators=(",", ":"), sort_keys=True, default=_json_default)
 
 
 def _resolve_payment_secret(db=None) -> str:
-    if db is None:
-        secret = str(settings.payment_sign_secret or "").strip()
-        if secret and secret != "change_me_payment_sign_key":
-            return secret
-        return settings.jwt_secret
-    row = (
-        db.query(SystemConfig)
-        .filter(SystemConfig.category == "system", SystemConfig.config_key == "payment")
-        .first()
-    )
-    if row and isinstance(row.config_value, dict):
-        from_db = str(row.config_value.get("callback_secret", "")).strip()
-        if from_db:
-            return from_db
+    if db is not None:
+        row = (
+            db.query(SystemConfig)
+            .filter(SystemConfig.category == "system", SystemConfig.config_key == "payment")
+            .first()
+        )
+        if row and isinstance(row.config_value, dict):
+            from_db = str(row.config_value.get("callback_secret", "")).strip()
+            if from_db:
+                return from_db
+
     secret = str(settings.payment_sign_secret or "").strip()
     if secret and secret != "change_me_payment_sign_key":
         return secret
-    return settings.jwt_secret
+    raise BizError(code=4204, message="支付回调验签密钥未配置")
 
 
 def sign_payload(payload: Mapping[str, Any], db=None) -> str:
@@ -332,7 +340,7 @@ def _create_wechat_native_order(cfg: Mapping[str, Any], *, order: Order, package
         "out_trade_no": order.order_no,
         "notify_url": notify_url,
         "amount": {
-            "total": int(round(float(order.amount_cny) * 100)),
+            "total": cny_to_fen(order.amount_cny),
             "currency": "CNY",
         },
         "time_expire": (datetime.now(timezone.utc) + timedelta(minutes=5)).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
@@ -379,7 +387,7 @@ def _create_wechat_jsapi_order(
         "out_trade_no": order.order_no,
         "notify_url": notify_url,
         "amount": {
-            "total": int(round(float(order.amount_cny) * 100)),
+            "total": cny_to_fen(order.amount_cny),
             "currency": "CNY",
         },
         "payer": {"openid": payer_openid},
@@ -448,7 +456,7 @@ def _query_wechat_order(cfg: Mapping[str, Any], *, order: Order) -> dict:
     total_cents = int(amount.get("payer_total") or amount.get("total") or 0)
     return {
         "status": _map_wechat_trade_state(trade_state),
-        "amount_cny": round(total_cents / 100, 2) if total_cents else None,
+        "amount_cny": fen_to_cny(total_cents) if total_cents else None,
         "provider_trade_no": str(payload.get("transaction_id", "")).strip(),
         "paid_at": str(payload.get("success_time", "")).strip(),
         "raw": payload,
@@ -459,7 +467,7 @@ def _create_alipay_precreate(cfg: Mapping[str, Any], *, order: Order, package_na
     notify_url = build_provider_notify_url(cfg, "alipay")
     biz_content = {
         "out_trade_no": order.order_no,
-        "total_amount": f"{float(order.amount_cny):.2f}",
+        "total_amount": cny_to_display(order.amount_cny),
         "subject": f"鏍肩墿瀛︽湳 {package_name}",
         "timeout_express": "5m",
         "product_code": "FACE_TO_FACE_PAYMENT",
@@ -488,7 +496,7 @@ def _query_alipay_order(cfg: Mapping[str, Any], *, order: Order) -> dict:
 
     trade_status = str(payload.get("trade_status", "")).upper()
     total_amount = str(payload.get("total_amount", "")).strip()
-    amount_cny = round(float(total_amount), 2) if total_amount else None
+    amount_cny = to_cny_decimal(total_amount, allow_none=True)
     return {
         "status": _map_alipay_trade_status(trade_status),
         "amount_cny": amount_cny,

@@ -242,6 +242,76 @@ def test_create_payment_session_builds_wechat_miniprogram_params(
     assert params["paySign"]
 
 
+def test_create_payment_session_uses_exact_cents_for_wechat_native_order(
+    db_session: Session,
+    monkeypatch,
+) -> None:
+    captured: dict = {}
+
+    class _MockResponse:
+        status_code = 200
+
+        @staticmethod
+        def raise_for_status():
+            return None
+
+        @staticmethod
+        def json():
+            return {"code_url": "weixin://wxpay/exact-cents"}
+
+    def _mock_post(_url, *, content=None, headers=None, timeout=None):
+        captured["content"] = content.decode("utf-8") if isinstance(content, bytes) else content
+        captured["headers"] = headers
+        captured["timeout"] = timeout
+        return _MockResponse()
+
+    monkeypatch.setattr("app.services.payment_service.httpx.post", _mock_post)
+    monkeypatch.setattr("app.services.payment_service._sign_rsa_sha256_base64", lambda *_args, **_kwargs: "mock_sign")
+
+    user = User(phone="13800006670", nickname="u4e", credits=0)
+    db_session.add(user)
+    db_session.add(
+        SystemConfig(
+            category="system",
+            config_key="payment",
+            config_value={
+                "provider": "wechatpay_v3",
+                "test_mode": False,
+                "app_id": "wx123456780",
+                "merchant_id": "1900000109",
+                "merchant_serial_no": "SERIAL001",
+                "merchant_private_key_pem": "-----BEGIN PRIVATE KEY-----\nmock\n-----END PRIVATE KEY-----",
+                "api_v3_key": "12345678901234567890123456789012",
+                "notify_url": "https://example.com",
+            },
+            updated_by=1,
+        )
+    )
+    db_session.flush()
+
+    order = Order(
+        order_no="GW202604060002",
+        user_id=user.id,
+        amount_cny=9.9,
+        credits=10000,
+        source="web",
+        status="created",
+        provider="wechat",
+        is_first_pay=False,
+    )
+    db_session.add(order)
+    db_session.flush()
+
+    session = create_payment_session(
+        db_session,
+        order=order,
+        package_name="test_pack",
+        scene="web",
+    )
+    assert session["pay_url"] == "weixin://wxpay/exact-cents"
+    assert '"total":990' in captured["content"]
+
+
 def test_payment_mock_provider_switch_between_non_prod_and_prod(
     client: TestClient,
     db_session: Session,

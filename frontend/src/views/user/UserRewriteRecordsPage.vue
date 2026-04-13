@@ -1,13 +1,13 @@
 <template>
   <UserShell
-    title="降AIGC"
+    title="降AIGC率"
     subtitle="任务按时间倒序展示，最新提交优先在顶部显示。"
     :credits="userCredits"
     :hide-topbar="true"
     @buy="showBuy = !showBuy"
   >
     <section class="aigc-record-head">
-      <div class="aigc-record-head__title">降AIGC</div>
+      <div class="aigc-record-head__title">降AIGC率</div>
       <p class="aigc-record-head__hint">
         <span>i</span>
         保留论点结构并降低AI痕迹，完成后可下载处理文档。
@@ -54,7 +54,7 @@
 
     <section v-else-if="pagedTasks.length === 0" class="aigc-empty">
       <div class="aigc-empty__icon">R</div>
-      <h3>暂无降AIGC记录</h3>
+      <h3>暂无降AIGC率记录</h3>
       <p>提交任务后，这里会显示处理进度与结果下载入口。</p>
       <button class="scholar-button" type="button" @click="goUpload">立即上传</button>
     </section>
@@ -88,7 +88,7 @@
           <template v-if="item.status === 'completed'">
             <span class="service-status-tag service-status-tag--success">已完成</span>
             <div class="aigc-record-item__score">{{ changeRate(item) }}</div>
-            <div class="aigc-record-item__score-note">降AIGC幅度</div>
+            <div class="aigc-record-item__score-note">降AIGC率幅度</div>
           </template>
           <template v-else-if="item.status === 'running' || item.status === 'pending'">
             <span class="service-status-tag service-status-tag--processing">处理中</span>
@@ -144,7 +144,7 @@
           <div class="flex flex-wrap items-start justify-between gap-3">
             <div>
               <div class="scholar-kicker">Task Result</div>
-              <h3 class="scholar-subtitle">降AIGC结果详情</h3>
+              <h3 class="scholar-subtitle">降AIGC率结果详情</h3>
               <p class="scholar-lead">{{ taskResultSummary(selectedTask) }}</p>
             </div>
             <button class="scholar-button scholar-button--secondary" type="button" @click="selectedTask = null">

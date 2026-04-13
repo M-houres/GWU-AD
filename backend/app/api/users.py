@@ -5,20 +5,23 @@ from sqlalchemy import desc, func
 from sqlalchemy.orm import Session
 
 from app.deps import current_user, db_dep
-from app.models import CreditTransaction, Notification, ReferralRelation, ReferralReward, Task, TaskStatus, TaskType, User, UserInviteCode
+from app.exceptions import BizError
+from app.models import CreditTransaction, Notification, Task, TaskStatus, TaskType, User
 from app.pagination import paginate
 from app.responses import ok
 from app.schemas import APIResp
 from app.services.aigc_quota_service import get_aigc_daily_quota
+from app.services.promo_center_service import (
+    build_promo_center_payload,
+    create_classroom,
+    grant_subsidy_share_claim,
+    join_classroom,
+    submit_share_review,
+)
 from app.services.process_strategy_service import sanitize_user_result_json
-from app.services.referral_service import mask_phone
-from app.utils_qrcode import build_qrcode_data_url
+from app.services.referral_module import raise_referral_module_disabled
 
 router = APIRouter()
-
-
-def _build_invite_qrcode(link: str) -> str:
-    return build_qrcode_data_url(link)
 
 
 def _frontend_base_url(request: Request) -> str:
@@ -173,34 +176,119 @@ def me_summary(user: User = Depends(current_user), db: Session = Depends(db_dep)
     )
 
 
+@router.get("/me/promo-center", response_model=APIResp)
+def my_promo_center(request: Request, user: User = Depends(current_user), db: Session = Depends(db_dep)) -> APIResp:
+    data = build_promo_center_payload(db, user=user, frontend_base_url=_frontend_base_url(request))
+    db.commit()
+    return ok(data=data)
+
+
+@router.post("/me/promo-center/subsidy/claim", response_model=APIResp)
+def claim_promo_subsidy(payload: dict, user: User = Depends(current_user), db: Session = Depends(db_dep)) -> APIResp:
+    task_key = str(payload.get("task_key", "")).strip().lower()
+    try:
+        record, idempotent = grant_subsidy_share_claim(db, user=user, task_key=task_key)
+    except ValueError:
+        raise BizError(code=4410, message="无效的积分补贴任务", http_status=422)
+    db.commit()
+    return ok(
+        data={
+            "id": record.id,
+            "task_key": task_key,
+            "credit_delta": record.credit_delta,
+            "idempotent": idempotent,
+        }
+    )
+
+
+@router.post("/me/promo-center/classrooms", response_model=APIResp)
+def create_promo_classroom(payload: dict, user: User = Depends(current_user), db: Session = Depends(db_dep)) -> APIResp:
+    classroom = create_classroom(db, user=user, name=str(payload.get("name", "")).strip())
+    db.commit()
+    return ok(
+        data={
+            "id": classroom.id,
+            "name": classroom.name,
+            "invite_code": classroom.invite_code,
+            "level": classroom.level,
+            "member_count": classroom.member_count,
+            "activity_score": classroom.activity_score,
+        }
+    )
+
+
+@router.post("/me/promo-center/classrooms/join", response_model=APIResp)
+def join_promo_classroom(payload: dict, user: User = Depends(current_user), db: Session = Depends(db_dep)) -> APIResp:
+    invite_code = str(payload.get("invite_code", "")).strip().upper()
+    try:
+        classroom = join_classroom(db, user=user, invite_code=invite_code)
+    except ValueError:
+        raise BizError(code=4411, message="班级口令不存在", http_status=404)
+    db.commit()
+    return ok(
+        data={
+            "id": classroom.id,
+            "name": classroom.name,
+            "invite_code": classroom.invite_code,
+            "level": classroom.level,
+            "member_count": classroom.member_count,
+            "activity_score": classroom.activity_score,
+        }
+    )
+
+
+@router.post("/me/promo-center/shares", response_model=APIResp)
+def submit_promo_share(
+    payload: dict,
+    user: User = Depends(current_user),
+    db: Session = Depends(db_dep),
+) -> APIResp:
+    try:
+        row = submit_share_review(
+            db,
+            user=user,
+            platform=str(payload.get("platform", "")).strip().lower(),
+            tier_key=str(payload.get("tier_key", "")).strip().lower(),
+            share_link=str(payload.get("share_link", "")).strip(),
+            payout_account=str(payload.get("account_name", "")).strip(),
+            payout_name=str(payload.get("real_name", "")).strip(),
+            note=str(payload.get("note", "")).strip(),
+        )
+    except ValueError:
+        raise BizError(code=4412, message="分享平台或奖励档位不支持", http_status=422)
+    db.commit()
+    return ok(
+        data={
+            "id": row.id,
+            "platform": row.platform,
+            "tier_key": row.tier_key,
+            "status": row.status.value,
+        }
+    )
+
+
 @router.get("/me/invite-code", response_model=APIResp)
-def my_invite_code(request: Request, user: User = Depends(current_user), db: Session = Depends(db_dep)) -> APIResp:
-    row = db.query(UserInviteCode).filter(UserInviteCode.user_id == user.id).first()
-    if row is None:
-        row = UserInviteCode(user_id=user.id, invite_code=f"U{user.id:07d}")
-        db.add(row)
-        db.commit()
-    base = _frontend_base_url(request) + "/register"
-    link = f"{base}?ref={row.invite_code}"
-    return ok(data={"invite_code": row.invite_code, "invite_link": link, "qrcode_data_url": _build_invite_qrcode(link)})
+def my_invite_code(user: User = Depends(current_user)) -> APIResp:
+    raise_referral_module_disabled()
+    return ok()
 
 
 @router.get("/me/invite-qrcode", response_model=APIResp)
-def my_invite_qrcode(request: Request, user: User = Depends(current_user), db: Session = Depends(db_dep)) -> APIResp:
-    row = db.query(UserInviteCode).filter(UserInviteCode.user_id == user.id).first()
-    if row is None:
-        row = UserInviteCode(user_id=user.id, invite_code=f"U{user.id:07d}")
-        db.add(row)
-        db.commit()
+def my_invite_qrcode(user: User = Depends(current_user)) -> APIResp:
+    raise_referral_module_disabled()
+    return ok()
 
-    link = f"{_frontend_base_url(request)}/register?ref={row.invite_code}"
-    return ok(
-        data={
-            "invite_code": row.invite_code,
-            "invite_link": link,
-            "qrcode_data_url": _build_invite_qrcode(link),
-        }
-    )
+
+@router.get("/me/growth-center", response_model=APIResp)
+def my_growth_center(user: User = Depends(current_user)) -> APIResp:
+    raise_referral_module_disabled()
+    return ok()
+
+
+@router.post("/me/share-tasks/submit", response_model=APIResp)
+def submit_share_task(user: User = Depends(current_user)) -> APIResp:
+    raise_referral_module_disabled()
+    return ok()
 
 
 @router.get("/me/credit-transactions", response_model=APIResp)
@@ -243,42 +331,9 @@ def my_referrals(
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=100),
     user: User = Depends(current_user),
-    db: Session = Depends(db_dep),
 ) -> APIResp:
-    base_query = (
-        db.query(ReferralRelation, User.phone)
-        .join(User, User.id == ReferralRelation.invitee_id)
-        .filter(ReferralRelation.inviter_id == user.id)
-    )
-    total = base_query.count()
-    rows = (
-        base_query.order_by(desc(ReferralRelation.created_at))
-        .offset((page - 1) * page_size)
-        .limit(page_size)
-        .all()
-    )
-    items = []
-    for relation, phone in rows:
-        reward_sum = (
-            db.query(func.coalesce(func.sum(ReferralReward.credits), 0))
-            .filter(
-                ReferralReward.inviter_id == user.id,
-                ReferralReward.invitee_id == relation.invitee_id,
-            )
-            .scalar()
-            or 0
-        )
-        items.append(
-            {
-                "invitee_id": relation.invitee_id,
-                "invitee_phone_masked": mask_phone(phone),
-                "status": relation.status,
-                "source": relation.source,
-                "created_at": relation.created_at,
-                "reward_credits": int(reward_sum),
-            }
-        )
-    return ok(data={"items": items, "pagination": paginate(total, page, page_size)})
+    raise_referral_module_disabled()
+    return ok()
 
 
 @router.get("/me/referral-rewards", response_model=APIResp)
@@ -286,34 +341,9 @@ def my_referral_rewards(
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=100),
     user: User = Depends(current_user),
-    db: Session = Depends(db_dep),
 ) -> APIResp:
-    base_query = db.query(ReferralReward).filter(
-        (ReferralReward.inviter_id == user.id) | (ReferralReward.invitee_id == user.id)
-    )
-    total = base_query.count()
-    rows = (
-        base_query.order_by(desc(ReferralReward.created_at))
-        .offset((page - 1) * page_size)
-        .limit(page_size)
-        .all()
-    )
-    items = []
-    for row in rows:
-        role = "邀请人奖励" if row.inviter_id == user.id else "被邀请福利"
-        items.append(
-            {
-                "id": row.id,
-                "role": role,
-                "invitee_id": row.invitee_id,
-                "reward_type": row.reward_type.value,
-                "credits": row.credits,
-                "status": row.status,
-                "source": row.source,
-                "created_at": row.created_at,
-            }
-        )
-    return ok(data={"items": items, "pagination": paginate(total, page, page_size)})
+    raise_referral_module_disabled()
+    return ok()
 
 
 @router.get("/me/notifications", response_model=APIResp)

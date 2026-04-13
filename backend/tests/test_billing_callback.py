@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+from decimal import Decimal
 
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
@@ -122,3 +123,21 @@ def test_payment_callback_uses_payment_config_secret(
     sign = sign_payload(payload, db=db_session)
     resp = client.post("/api/v1/billing/callback", json={**payload, "sign": sign})
     assert resp.status_code == 200
+
+
+def test_payment_callback_signature_is_stable_between_float_and_decimal_amounts(
+    settings_override,
+) -> None:
+    payload_float = {
+        "order_no": "ODCALLBACK_DECIMAL_001",
+        "user_id": 1,
+        "package_name": "入门包",
+        "amount_cny": 9.9,
+        "paid_at": int(datetime.now(timezone.utc).timestamp()),
+        "status": "paid",
+        "provider": "wechat",
+        "nonce": "nonce-decimal-001",
+    }
+    payload_decimal = {**payload_float, "amount_cny": Decimal("9.90")}
+
+    assert sign_payload(payload_float) == sign_payload(payload_decimal)

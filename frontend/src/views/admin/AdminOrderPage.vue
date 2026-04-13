@@ -50,7 +50,7 @@
         </div>
       </div>
 
-      <div class="overflow-x-auto">
+      <div class="overflow-x-auto admin-order-table-shell">
         <table class="min-w-full text-sm">
           <thead>
             <tr class="border-b border-[#e1e6eb] text-left text-[#5a6671]">
@@ -91,6 +91,34 @@
             </tr>
           </tbody>
         </table>
+      </div>
+
+      <div class="admin-order-mobile-list">
+        <article v-for="row in rows" :key="`mobile-${row.order_no}`" class="admin-order-card">
+          <div class="admin-order-card__head">
+            <div>
+              <div class="admin-order-card__eyebrow">订单号</div>
+              <strong class="admin-order-card__title">{{ row.order_no }}</strong>
+            </div>
+            <span :class="statusClass(row.status)" class="inline-flex items-center rounded-full border px-2 py-1 text-xs">{{ mapStatus(row.status) }}</span>
+          </div>
+
+          <div class="admin-order-card__grid">
+            <div><span>用户</span><strong>#{{ row.user_id }}</strong></div>
+            <div><span>金额</span><strong>¥{{ row.amount_cny }}</strong></div>
+            <div><span>积分</span><strong>{{ row.credits }}</strong></div>
+            <div><span>支付方式</span><strong>{{ mapProvider(row.provider) }}</strong></div>
+            <div><span>来源</span><strong>{{ mapSource(row.source) }}</strong></div>
+            <div><span>首充</span><strong>{{ row.is_first_pay ? '是' : '否' }}</strong></div>
+            <div><span>时间</span><strong>{{ formatTime(row.created_at) }}</strong></div>
+          </div>
+
+          <div class="admin-order-card__actions">
+            <button class="scholar-button scholar-button--compact" @click="openDetail(row.order_no)">详情</button>
+            <button v-if="canRefund" class="scholar-button scholar-button--secondary scholar-button--compact" :disabled="row.status !== 'paid'" @click="refund(row)">退款</button>
+          </div>
+        </article>
+        <div v-if="rows.length === 0" class="text-sm text-[#5b6771]">暂无订单</div>
       </div>
     </section>
 
@@ -249,3 +277,94 @@ function formatTime(value) {
   return value ? String(value).slice(0, 19).replace("T", " ") : "-"
 }
 </script>
+
+<style scoped>
+.admin-order-mobile-list {
+  display: none;
+}
+
+.admin-order-card {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+  border: 1px solid #e1e6eb;
+  border-radius: 18px;
+  background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+}
+
+.admin-order-card + .admin-order-card {
+  margin-top: 12px;
+}
+
+.admin-order-card__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.admin-order-card__eyebrow {
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #5f6d79;
+}
+
+.admin-order-card__title {
+  display: block;
+  margin-top: 6px;
+  font-size: 15px;
+  line-height: 1.6;
+  color: #111111;
+  word-break: break-all;
+}
+
+.admin-order-card__grid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.admin-order-card__grid div {
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  border: 1px solid #e7edf3;
+  background: #ffffff;
+}
+
+.admin-order-card__grid span {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #5f6d79;
+}
+
+.admin-order-card__grid strong {
+  font-size: 13px;
+  line-height: 1.6;
+  color: #17222b;
+  word-break: break-word;
+}
+
+.admin-order-card__actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+@media (max-width: 768px) {
+  .admin-order-table-shell {
+    display: none;
+  }
+
+  .admin-order-mobile-list {
+    display: block;
+  }
+
+  .admin-order-card__grid {
+    grid-template-columns: 1fr;
+  }
+}
+</style>

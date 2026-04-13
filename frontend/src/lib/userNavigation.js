@@ -7,7 +7,7 @@ export const USER_NAV_GROUP_LABELS = {
 export const USER_NAV_PRESETS = [
   {
     key: "rewrite",
-    label: "降AIGC",
+    label: "降AIGC率",
     path: "/app/rewrite",
     group: "core",
     visible: true,

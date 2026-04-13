@@ -19,7 +19,7 @@ def test_process_task_failure_refunds_credits(db_session: Session, tmp_path: Pat
         user_id=user.id,
         task_type=TaskType.DEDUP,
         platform="cnki",
-        status=TaskStatus.PENDING,
+        status=TaskStatus.QUEUED,
         source_filename="source.txt",
         source_path=str(source_path),
         char_count=50,

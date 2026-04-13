@@ -1,13 +1,13 @@
 <template>
   <AdminShell title="配置中心" subtitle="运营填写后即可生效，支持审计与就绪检查">
-    <div class="grid gap-4 xl:grid-cols-[220px_minmax(0,1fr)_300px]">
-      <section class="rounded-2xl border border-[#d9dee4] bg-white p-4">
+    <div class="admin-config-layout">
+      <section class="admin-config-sidebar rounded-2xl border border-[#d9dee4] bg-white p-4">
         <div class="text-[11px] uppercase tracking-[0.18em] text-[#73808b]">配置导航</div>
-        <div class="mt-3 space-y-2">
+        <div class="admin-config-tabs mt-3 space-y-2">
           <button
             v-for="tab in tabs"
             :key="tab.key"
-            class="w-full rounded-2xl border px-3 py-3 text-left transition"
+            class="admin-config-tab-btn w-full rounded-2xl border px-3 py-3 text-left transition"
             :class="[activeTab === tab.key ? 'border-[#0f7a5f] bg-[linear-gradient(150deg,#edf7f3,#f8fcfb)]' : 'border-[#d6dee6] bg-white hover:border-[#9ab8ac]', { 'is-active': activeTab === tab.key }]"
             @click="activeTab = tab.key"
           >
@@ -24,7 +24,7 @@
         </div>
       </section>
 
-      <section class="rounded-2xl border border-[#d9dee4] bg-white p-5">
+      <section class="admin-config-main rounded-2xl border border-[#d9dee4] bg-white p-5">
         <div class="border-b border-[#e6ebef] pb-4">
           <div class="text-[11px] uppercase tracking-[0.18em] text-[#73808b]">{{ currentGuide.code }}</div>
           <h3 class="mt-2 text-xl font-semibold text-[#18242b]">{{ currentTab.label }}</h3>
@@ -382,16 +382,6 @@
             </section>
           </template>
 
-          <template v-else-if="activeTab === 'referral'">
-            <div class="grid gap-3 md:grid-cols-2">
-              <label class="space-y-1 text-sm"><span>邀请人注册奖励</span><input v-model.number="forms.referral.register_inviter_credits" type="number" min="0" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" /></label>
-              <label class="space-y-1 text-sm"><span>被邀请人注册福利</span><input v-model.number="forms.referral.register_invitee_bonus" type="number" min="0" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" /></label>
-              <label class="space-y-1 text-sm"><span>首单返佣比例（%）</span><input v-model.number="referralFirstPayPct" type="number" min="0" max="100" step="0.01" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" /></label>
-              <label class="space-y-1 text-sm"><span>复购返佣比例（%）</span><input v-model.number="referralRecurringPct" type="number" min="0" max="100" step="0.01" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" /></label>
-              <label class="space-y-1 text-sm md:col-span-2"><span>同 IP 24 小时注册上限</span><input v-model.number="forms.referral.ip_limit_24h" type="number" min="1" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" /></label>
-            </div>
-          </template>
-
           <template v-else-if="activeTab === 'user_navigation'">
             <section class="rounded-2xl border border-[#dce4eb] bg-white p-4">
               <div class="text-sm font-semibold text-[#1f2c35]">左侧导航编排</div>
@@ -456,7 +446,7 @@
         <p v-if="errorText" class="mt-3 text-sm text-[#af3f33]">{{ errorText }}</p>
       </section>
 
-      <section class="space-y-4">
+      <section class="admin-config-guide space-y-4">
         <article class="rounded-2xl border border-[#d9dee4] bg-white p-4">
           <div class="text-[11px] uppercase tracking-[0.18em] text-[#73808b]">使用说明</div>
           <h4 class="mt-2 text-sm font-semibold text-[#1b2730]">{{ currentGuide.title }}</h4>
@@ -488,7 +478,6 @@ const tabs = [
   { key: "login", label: "登录配置", desc: "短信与微信登录" },
   { key: "payment", label: "支付配置", desc: "微信支付 / 支付宝" },
   { key: "billing", label: "计费规则", desc: "按字符扣费" },
-  { key: "referral", label: "推广规则", desc: "奖励与返佣" },
   { key: "user_navigation", label: "前台导航", desc: "左侧功能编排" },
   { key: "llm", label: "大模型配置", desc: "国内外主流模型" },
   { key: "miniapp", label: "小程序配置", desc: "参数与域名" },
@@ -637,17 +626,6 @@ const guideMap = {
       { label: "支付宝 开发文档", href: "https://opendocs.alipay.com/apis/api_1/alipay.trade.precreate" },
     ],
   },
-  referral: {
-    code: "Growth Setup",
-    lead: "推广规则要让运营看得懂奖励从哪里出、返到哪里去。",
-    title: "返佣规则必须简单",
-    desc: "保存后邀请码奖励和返佣会自动按这里执行。",
-    checklist: [
-      "先定注册奖励，再定首单和复购返佣。",
-      "返佣比例按百分比理解。",
-    ],
-    docs: [{ label: "运营配置参考", href: "https://help.openai.com/en/articles/5112595-best-practices-for-api-key-safety" }],
-  },
   user_navigation: {
     code: "Frontend Navigation",
     lead: "在后台直接控制左侧功能顺序与是否展示，前台刷新后立即生效。",
@@ -726,13 +704,6 @@ const forms = ref({
     send_code_ip_1h_limit: 30,
     login_ip_10m_limit: 120,
   },
-  referral: {
-    register_inviter_credits: 500,
-    register_invitee_bonus: 500,
-    first_pay_ratio: 0.1,
-    recurring_ratio: 0.05,
-    ip_limit_24h: 3,
-  },
   user_navigation: normalizeUserNavigationConfig(),
   miniapp: normalizeMiniappConfig(defaultMiniappConfig),
 })
@@ -741,8 +712,6 @@ const readinessMap = ref({})
 const hintText = ref("")
 const errorText = ref("")
 const saving = ref(false)
-const referralFirstPayPct = ref(10)
-const referralRecurringPct = ref(5)
 
 const currentTab = computed(() => tabs.find((tab) => tab.key === activeTab.value) || tabs[0])
 const currentGuide = computed(() => guideMap[activeTab.value] || guideMap.login)
@@ -811,10 +780,6 @@ async function loadTab(category) {
     forms.value.login.send_code_ip_1h_limit = Number(forms.value.login.send_code_ip_1h_limit ?? 30)
     forms.value.login.login_ip_10m_limit = Number(forms.value.login.login_ip_10m_limit ?? 120)
   }
-  if (category === "referral") {
-    referralFirstPayPct.value = Number(((forms.value.referral.first_pay_ratio || 0) * 100).toFixed(2))
-    referralRecurringPct.value = Number(((forms.value.referral.recurring_ratio || 0) * 100).toFixed(2))
-  }
   if (category === "miniapp") {
     forms.value.miniapp = normalizeMiniappConfig(forms.value.miniapp)
   }
@@ -869,14 +834,6 @@ function validateCurrent() {
       names.add(pkg.name)
       if (!(Number(pkg.price) > 0)) return `套餐 ${pkg.name} 价格必须大于 0`
       if (!(Number(pkg.credits) > 0)) return `套餐 ${pkg.name} 积分必须大于 0`
-    }
-  }
-  if (activeTab.value === "referral") {
-    if (referralFirstPayPct.value < 0 || referralFirstPayPct.value > 100) {
-      return "首单返佣比例必须在 0~100%"
-    }
-    if (referralRecurringPct.value < 0 || referralRecurringPct.value > 100) {
-      return "复购返佣比例必须在 0~100%"
     }
   }
   if (activeTab.value === "user_navigation") {
@@ -943,10 +900,6 @@ function payloadFor(category) {
     }
   }
   const payload = { ...(forms.value[category] || {}) }
-  if (category === "referral") {
-    payload.first_pay_ratio = Number((Number(referralFirstPayPct.value || 0) / 100).toFixed(4))
-    payload.recurring_ratio = Number((Number(referralRecurringPct.value || 0) / 100).toFixed(4))
-  }
   if (category === "billing") {
     const normalized = normalizeBillingForm(payload)
     payload.packages = normalized.packages.map((pkg) => ({
@@ -1128,4 +1081,61 @@ async function saveCurrent() {
   }
 }
 </script>
+
+<style scoped>
+.admin-config-layout {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: 220px minmax(0, 1fr) 300px;
+}
+
+.admin-config-sidebar,
+.admin-config-main,
+.admin-config-guide {
+  min-width: 0;
+}
+
+.admin-config-tab-btn {
+  min-width: 0;
+}
+
+@media (max-width: 1279px) {
+  .admin-config-layout {
+    grid-template-columns: 220px minmax(0, 1fr);
+  }
+
+  .admin-config-guide {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 768px) {
+  .admin-config-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-config-sidebar,
+  .admin-config-main,
+  .admin-config-guide {
+    padding: 14px;
+  }
+
+  .admin-config-tabs {
+    display: flex;
+    gap: 10px;
+    overflow-x: auto;
+    padding-bottom: 4px;
+    margin-right: -4px;
+  }
+
+  .admin-config-tabs::-webkit-scrollbar {
+    display: none;
+  }
+
+  .admin-config-tab-btn {
+    flex: 0 0 240px;
+    width: 240px !important;
+  }
+}
+</style>
 

@@ -16,17 +16,6 @@
         <p class="aigc-page-head__quota">{{ pageHeadQuotaText }}</p>
       </section>
       <div class="aigc-page-head__divider" aria-hidden="true"></div>
-      <section class="aigc-free-banner">
-        <div class="aigc-free-banner__badge">AIGC 检测权益</div>
-        <div class="aigc-free-banner__body">
-          <h3>每日前 {{ quotaLimit }} 篇免费检测</h3>
-          <p>{{ quotaBannerText }}</p>
-        </div>
-        <div class="aigc-free-banner__side">
-          <strong>{{ quotaBannerValue }}</strong>
-          <span>{{ quotaBannerLabel }}</span>
-        </div>
-      </section>
 
       <div class="uploadLiterature_content">
         <div class="uploadLit_content panels-container">
@@ -162,6 +151,8 @@
           </div>
         </div>
       </div>
+
+      <WorkbenchTaskFeed task-type="aigc_detect" />
     </section>
 
     <BuyCreditsPanel v-if="showBuy" @paid="afterPaid" />
@@ -174,6 +165,7 @@ import { useRoute, useRouter } from "vue-router"
 
 import BuyCreditsPanel from "../../components/BuyCreditsPanel.vue"
 import UserShell from "../../components/UserShell.vue"
+import WorkbenchTaskFeed from "../../components/WorkbenchTaskFeed.vue"
 import { useUserProfile } from "../../composables/useUserProfile"
 import { userHttp } from "../../lib/http"
 import {
@@ -181,6 +173,7 @@ import {
   isTaskSubmitTimeoutError,
   recoverSubmittedTask,
 } from "../../lib/taskSubmitRecovery"
+import { derivePaperTitleFromFilename, shouldAutoFillPaperTitle } from "../../lib/paperTitle"
 import { AIGC_PLATFORM_OPTIONS } from "../../lib/taskPlatform"
 import { ensureUserLogin } from "../../lib/requireLogin"
 import { getUserToken } from "../../lib/session"
@@ -189,8 +182,6 @@ const router = useRouter()
 const route = useRoute()
 const showBuy = ref(false)
 const { user, refreshUser } = useUserProfile()
-const DEFAULT_AIGC_DAILY_FREE_LIMIT = 6
-
 const userCredits = computed(() => {
   const value = user.value && user.value.credits
   return typeof value === "number" ? value : null
@@ -236,64 +227,13 @@ const features = [
 const submitting = ref(false)
 const dragActive = ref(false)
 const paperFile = ref(null)
+const autoFilledTitle = ref("")
 const errorText = ref("")
 const successText = ref("")
-const quotaInfo = ref(null)
-
-const quotaLimit = computed(() => {
-  const raw = Number(quotaInfo.value?.daily_free_limit)
-  return Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_AIGC_DAILY_FREE_LIMIT
-})
-
-const quotaRemaining = computed(() => {
-  const raw = Number(quotaInfo.value?.free_remaining_today)
-  return Number.isFinite(raw) && raw >= 0 ? raw : null
-})
-
-const quotaUsed = computed(() => {
-  const raw = Number(quotaInfo.value?.free_used_today)
-  return Number.isFinite(raw) && raw >= 0 ? raw : null
-})
-
-const pageHeadQuotaText = computed(() => {
-  if (quotaRemaining.value == null) {
-    return `AIGC 检测每日前 ${quotaLimit.value} 篇免费，登录后可实时查看今日剩余次数。`
-  }
-  return `今日免费检测剩余 ${quotaRemaining.value} / ${quotaLimit.value} 篇，超出后按字数计费。`
-})
-
-const quotaBannerText = computed(() => {
-  if (quotaRemaining.value == null || quotaUsed.value == null) {
-    return `当前 AIGC 检测每日前 ${quotaLimit.value} 篇可免费提交，超出免费次数后系统会按字数计费。`
-  }
-  if (quotaRemaining.value <= 0) {
-    return `今日 ${quotaLimit.value} 篇免费次数已用完，继续提交仍可检测，但会按字数计费。`
-  }
-  return `今日已免费使用 ${quotaUsed.value} 篇，当前还可免费检测 ${quotaRemaining.value} 篇，本次提交会优先抵扣免费次数。`
-})
-
-const quotaBannerValue = computed(() => {
-  if (quotaRemaining.value == null) {
-    return `${quotaLimit.value} 篇`
-  }
-  return `${quotaRemaining.value} / ${quotaLimit.value}`
-})
-
-const quotaBannerLabel = computed(() => (quotaRemaining.value == null ? "每日免费额度" : "今日剩余免费次数"))
-
-const submitQuotaHint = computed(() => {
-  if (quotaRemaining.value == null) {
-    return `提醒：AIGC 检测每日前 ${quotaLimit.value} 篇免费，登录后会自动显示实时剩余次数。`
-  }
-  if (quotaRemaining.value <= 0) {
-    return "提醒：今日免费次数已用完，当前继续提交会按字数计费。"
-  }
-  return `提醒：当前还可免费检测 ${quotaRemaining.value} 篇，本次提交将优先抵扣今日免费额度。`
-})
 
 onMounted(async () => {
   if (getUserToken()) {
-    await Promise.all([refreshUser(), loadQuotaInfo()])
+    await refreshUser()
   }
   const platform = String(route.query.platform || "")
   if (platformCards.some((item) => item.value === platform)) {
@@ -339,6 +279,12 @@ function setPaperFile(file) {
     return
   }
   paperFile.value = file
+  const detectedTitle = derivePaperTitleFromFilename(file.name)
+  if (detectedTitle && shouldAutoFillPaperTitle(form.title, autoFilledTitle.value)) {
+    form.title = detectedTitle
+    autoFilledTitle.value = detectedTitle
+    fieldErrors.title = ""
+  }
 }
 
 function validateForm() {
@@ -386,7 +332,6 @@ async function submitTask() {
     const data = await userHttp.post("/tasks/submit", payload, {
       timeout: 120000,
     })
-    quotaInfo.value = data?.billing?.quota || quotaInfo.value
 
     successText.value = `提交成功，任务 #${data.id} 已创建`
     try {
@@ -433,99 +378,8 @@ async function submitTask() {
 async function afterPaid() {
   await refreshUser()
 }
-
-async function loadQuotaInfo() {
-  if (!getUserToken()) {
-    quotaInfo.value = null
-    return
-  }
-  try {
-    const data = await userHttp.get("/users/me/summary")
-    quotaInfo.value = data?.aigc_quota || null
-  } catch {
-    quotaInfo.value = null
-  }
-}
 </script>
 
 <style scoped>
-.aigc-free-banner {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  gap: 16px;
-  align-items: center;
-  margin: 0 0 22px;
-  padding: 18px 22px;
-  border: 1px solid rgba(180, 117, 33, 0.18);
-  border-radius: 20px;
-  background: linear-gradient(135deg, rgba(255, 248, 234, 0.96), rgba(255, 255, 255, 0.98));
-  box-shadow: 0 16px 38px rgba(168, 118, 40, 0.08);
-}
-
-.aigc-free-banner__badge {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 34px;
-  padding: 0 14px;
-  border-radius: 999px;
-  background: #a86722;
-  color: #fffdf8;
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-}
-
-.aigc-free-banner__body h3 {
-  margin: 0;
-  color: #2d210f;
-  font-size: 22px;
-  font-weight: 700;
-}
-
-.aigc-free-banner__body p {
-  margin: 6px 0 0;
-  color: rgba(45, 33, 15, 0.78);
-  font-size: 14px;
-  line-height: 1.7;
-}
-
-.aigc-free-banner__side {
-  display: grid;
-  gap: 4px;
-  justify-items: end;
-  min-width: 120px;
-  text-align: right;
-}
-
-.aigc-free-banner__side strong {
-  color: #8a5417;
-  font-size: 28px;
-  line-height: 1;
-}
-
-.aigc-free-banner__side span {
-  color: rgba(45, 33, 15, 0.62);
-  font-size: 12px;
-}
-
-.aigc-submit-tip {
-  margin: 12px 0 0;
-  color: rgba(45, 33, 15, 0.74);
-  font-size: 13px;
-  line-height: 1.7;
-}
-
-@media (max-width: 960px) {
-  .aigc-free-banner {
-    grid-template-columns: 1fr;
-  }
-
-  .aigc-free-banner__side {
-    justify-items: start;
-    min-width: 0;
-    text-align: left;
-  }
-}
 </style>
 

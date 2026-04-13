@@ -1,7 +1,7 @@
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
-from app.models import AdminUser
+from app.models import AdminAuditLog, AdminUser
 
 
 def test_config_audit_logs_include_changed_fields(
@@ -37,4 +37,39 @@ def test_config_audit_logs_include_changed_fields(
     assert readiness.status_code == 200
     readiness_items = readiness.json()["data"]["items"]
     categories = {item["category"] for item in readiness_items}
-    assert {"llm", "payment", "billing", "login", "notice", "miniapp", "referral", "user_navigation"} <= categories
+    assert {"llm", "payment", "billing", "login", "notice", "miniapp", "user_navigation"} <= categories
+
+
+def test_config_audit_logs_do_not_store_payment_secrets_in_plaintext(
+    client: TestClient,
+    db_session: Session,
+    admin_override,
+) -> None:
+    db_session.add(AdminUser(id=1, username="admin", password_hash="x", role="super_admin"))
+    db_session.commit()
+
+    resp = client.post(
+        "/api/v1/admin/configs/payment",
+        json={
+            "provider": "alipay",
+            "test_mode": False,
+            "app_id": "2026000111111111",
+            "gateway_url": "https://openapi.alipay.com/gateway.do",
+            "notify_url": "https://pay.example.com/callback/alipay",
+            "app_private_key_pem": "-----BEGIN PRIVATE KEY-----\nsecret\n-----END PRIVATE KEY-----",
+            "alipay_public_key": "-----BEGIN PUBLIC KEY-----\nxyz\n-----END PUBLIC KEY-----",
+            "callback_secret": "callback_secret_plaintext",
+        },
+    )
+    assert resp.status_code == 200
+
+    audit = (
+        db_session.query(AdminAuditLog)
+        .filter(AdminAuditLog.action == "config_update", AdminAuditLog.target_type == "payment")
+        .order_by(AdminAuditLog.id.desc())
+        .first()
+    )
+    assert audit is not None
+    assert "BEGIN PRIVATE KEY" not in str(audit.after_json)
+    assert "callback_secret_plaintext" not in str(audit.after_json)
+    assert audit.after_json["app_private_key_pem"] == "********"

@@ -1,8 +1,7 @@
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
-from app import worker_tasks
-from app.models import RegistrationRiskLog, SystemConfig, User, UserInviteCode
+from app.models import RegistrationRiskLog, SystemConfig, User
 
 
 def _login_with_code(
@@ -29,31 +28,6 @@ def _login_with_code(
     return client.post("/api/v1/auth/login", json=payload, headers=headers)
 
 
-def _prepare_referral_rules(db_session: Session, ip_limit_24h: int) -> None:
-    db_session.add(
-        SystemConfig(
-            category="referral",
-            config_key="rules",
-            config_value={
-                "register_inviter_credits": 500,
-                "register_invitee_bonus": 500,
-                "first_pay_ratio": 0.1,
-                "recurring_ratio": 0.05,
-                "ip_limit_24h": ip_limit_24h,
-            },
-        )
-    )
-    db_session.commit()
-
-
-def _prepare_inviter(db_session: Session, phone: str, invite_code: str) -> None:
-    inviter = User(phone=phone, nickname="inviter", credits=0)
-    db_session.add(inviter)
-    db_session.flush()
-    db_session.add(UserInviteCode(user_id=inviter.id, invite_code=invite_code))
-    db_session.commit()
-
-
 def test_banned_user_login_records_risk_log(client: TestClient, db_session: Session) -> None:
     banned_user = User(phone="13800001234", nickname="banned", credits=0, is_banned=True)
     db_session.add(banned_user)
@@ -72,63 +46,6 @@ def test_banned_user_login_records_risk_log(client: TestClient, db_session: Sess
     )
     assert logs
     assert logs[0].reason == "banned_user_login_attempt"
-
-
-def test_same_ip_over_limit_will_be_logged(client: TestClient, db_session: Session, monkeypatch) -> None:
-    monkeypatch.setattr(worker_tasks.grant_register_rewards_async, "delay", lambda *_args, **_kwargs: None)
-    _prepare_referral_rules(db_session, ip_limit_24h=1)
-    _prepare_inviter(db_session, phone="13800001001", invite_code="U9000001")
-
-    first = _login_with_code(client, phone="13800002001", referrer_code="U9000001", user_agent="risk-ip-agent")
-    assert first.status_code == 200
-    assert first.json()["code"] == 0
-
-    second = _login_with_code(client, phone="13800002002", referrer_code="U9000001", user_agent="risk-ip-agent")
-    assert second.status_code == 200
-    assert second.json()["code"] == 0
-
-    logs = (
-        db_session.query(RegistrationRiskLog)
-        .filter(RegistrationRiskLog.phone == "13800002002")
-        .order_by(RegistrationRiskLog.id.desc())
-        .all()
-    )
-    assert logs
-    reasons = {row.reason for row in logs}
-    assert "same_ip_over_1_24h" in reasons
-
-
-def test_same_device_over_threshold_will_be_logged(
-    client: TestClient,
-    db_session: Session,
-    monkeypatch,
-) -> None:
-    monkeypatch.setattr(worker_tasks.grant_register_rewards_async, "delay", lambda *_args, **_kwargs: None)
-    _prepare_referral_rules(db_session, ip_limit_24h=99)
-    _prepare_inviter(db_session, phone="13800001002", invite_code="U9000002")
-
-    for idx in range(4):
-        phone = f"1380000300{idx + 1}"
-        resp = _login_with_code(
-            client,
-            phone=phone,
-            referrer_code="U9000002",
-            user_agent="risk-device-agent",
-            device_fingerprint="same-device-fp",
-        )
-        assert resp.status_code == 200
-        assert resp.json()["code"] == 0
-
-    logs = (
-        db_session.query(RegistrationRiskLog)
-        .filter(RegistrationRiskLog.phone == "13800003004")
-        .order_by(RegistrationRiskLog.id.desc())
-        .all()
-    )
-    assert logs
-    reasons = {row.reason for row in logs}
-    assert "same_device_over_3_24h" in reasons
-
 
 def test_send_code_ip_rate_limit(client: TestClient) -> None:
     from app.config import get_settings

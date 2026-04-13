@@ -341,7 +341,7 @@ def _build_template_readme(spec: BuiltinPackageSpec) -> str:
 
 _AIGC_VERSION = "1.4.0"
 _AIGC_VERSION_TAG = _AIGC_VERSION.replace(".", "_")
-_CNKI_AIGC_VERSION = "1.6.0"
+_CNKI_AIGC_VERSION = "1.8.1"
 _CNKI_AIGC_VERSION_TAG = _CNKI_AIGC_VERSION.replace(".", "_")
 _CNKI_TEXT_VERSION = "1.2.0"
 _CNKI_TEXT_VERSION_TAG = _CNKI_TEXT_VERSION.replace(".", "_")
@@ -955,6 +955,48 @@ def _cnki_aigc_detect_code_v5() -> str:
             ]
             CITATION_PATTERNS = [r"\\[\\d+\\]", r"（\\d{{4}}）", r"\\(\\d{{4}}\\)", r"表\\d+", r"图\\d+", r"\\d+%"]
             EVIDENCE_PATTERNS = [r"\\bN\\s*=\\s*\\d+", r"样本量", r"问卷", r"访谈", r"实验", r"受访者", r"统计", r"案例", r"调查", r"表\\d+"]
+            HUMAN_CASE_PATTERNS = [
+                r"幼儿|孩子|家长|教师|老师|妈妈|爸爸|爷爷|奶奶|家人|亲子|家园|园所|本园|我园|班级|晨圈|绘本|贺卡|甜汤|社区老人",
+                r"捶背|摆碗筷|倒了杯热水|讲一讲这周存了什么|家长感悟接龙|家长体验课|家长助教活动|献给妈妈的歌|母亲节|重阳节",
+                r"看得见|摸得着|拥抱|眼神|红了眼眶|流露出的困惑和落寞",
+            ]
+            RHETORICAL_PATTERNS = [
+                r"该项目旨在",
+                r"核心问题不是.+而是",
+                r"以节日为(?:媒介|载体)",
+                r"从“?.+?”?到“?.+?”?",
+                r"变化发生在可以观察到的细节里",
+                r"让.+更有仪式感与温度",
+                r"家园同心，共育花开",
+                r"这个机制的意外收获是",
+            ]
+            PRACTICE_CHAIN_PATTERNS = [
+                r"课程融合|晨圈分享|家长参与|成效与反思",
+                r"绘本阅读|手工绘画|演唱活动|家人小调查|家长体验课|家长助教活动|家长感悟接龙",
+                r"角色互换|双向流动|情感共鸣|进入社区|主动参与|表达更主动|参与质量",
+                r"制作贺卡|爱心甜汤|调查活动|分享环节|晨圈时间|节日活动",
+            ]
+            SUMMARY_WRAPUP_PATTERNS = [
+                r"最核心的教育逻辑|最本质的教育逻辑",
+                r"可迁移性体现在两个层面|具有极强的可迁移性",
+                r"形成系列化的家园共育体系",
+                r"推广价值|生命底色|不长在课堂里",
+            ]
+            ROUGH_EDIT_PATTERNS = [
+                r"此种",
+                r"做媒介",
+                r"渐渐去",
+                r"不断施行",
+                r"分明感受到",
+                r"中心，也",
+                r"多数敷衍",
+                r"成为“孩子”",
+            ]
+            FRONT_MATTER_PATTERNS = [
+                r"分类号", r"密级", r"学号", r"独创性说明", r"知识产权声明", r"学位论文作者签名",
+                r"指导教师签名", r"保密论文待解密后适用本声明", r"论文题目[:：]", r"学科名称[:：]",
+                r"本人郑重声明", r"本人完全了解学校有关保护知识产权的规定",
+            ]
             SECTION_KEYWORDS = {{
                 "abstract": ["摘要", "中英文摘要", "英文摘要", "abstract"],
                 "intro": ["绪论", "引言", "前言"],
@@ -1046,12 +1088,63 @@ def _cnki_aigc_detect_code_v5() -> str:
                 return min(0.16, sum(len(re.findall(pattern, str(text or ""), flags=re.IGNORECASE)) for pattern in EVIDENCE_PATTERNS) * 0.018)
 
 
+            def _human_case_relief(text):
+                content = str(text or "")
+                hit_count = sum(len(re.findall(pattern, content, flags=re.IGNORECASE)) for pattern in HUMAN_CASE_PATTERNS)
+                density = hit_count / max(len(content) / 110.0, 1.0)
+                return _clamp(min(0.22, density * 0.075))
+
+
+            def _rhetorical_polish_signal(text):
+                content = str(text or "")
+                hit_count = sum(len(re.findall(pattern, content, flags=re.IGNORECASE)) for pattern in RHETORICAL_PATTERNS)
+                density = hit_count / max(len(content) / 120.0, 1.0)
+                return _clamp(min(0.30, density * 0.16))
+
+
+            def _practice_chain_signal(text):
+                content = str(text or "")
+                hit_count = sum(len(re.findall(pattern, content, flags=re.IGNORECASE)) for pattern in PRACTICE_CHAIN_PATTERNS)
+                density = hit_count / max(len(content) / 120.0, 1.0)
+                return _clamp(min(0.24, density * 0.11))
+
+
+            def _summary_wrapup_relief(text):
+                content = str(text or "")
+                hit_count = sum(len(re.findall(pattern, content, flags=re.IGNORECASE)) for pattern in SUMMARY_WRAPUP_PATTERNS)
+                density = hit_count / max(len(content) / 110.0, 1.0)
+                return _clamp(min(0.20, density * 0.12))
+
+
+            def _rough_edit_relief(text):
+                content = str(text or "")
+                hit_count = sum(len(re.findall(pattern, content, flags=re.IGNORECASE)) for pattern in ROUGH_EDIT_PATTERNS)
+                density = hit_count / max(len(content) / 120.0, 1.0)
+                return _clamp(min(0.18, density * 0.14))
+
+
             def _artifact_signal(text):
                 content = str(text or "")
                 hits = [marker for marker in ARTIFACT_MARKERS if marker in content]
                 density = len(hits) / max(len(content) / 120.0, 1.0)
                 score = min(0.2, density * 0.14 + (0.04 if hits else 0.0))
                 return _clamp(score), hits[:4]
+
+
+            def _is_no_ai_fragment(text):
+                clean = " ".join(str(text or "").split())
+                compact = re.sub(r"\\s+", "", clean)
+                if not clean:
+                    return True
+                if _is_heading(clean):
+                    return True
+                if any(re.search(pattern, compact, flags=re.IGNORECASE) for pattern in FRONT_MATTER_PATTERNS):
+                    return True
+                if _citation_relief(clean) >= 0.08 and len(clean) <= 90:
+                    return True
+                if len(clean) <= 10 and not re.search(r"[\\u4e00-\\u9fffA-Za-z]{{4,}}", clean):
+                    return True
+                return False
 
 
             def _english_abstract_signal(text, section):
@@ -1085,7 +1178,9 @@ def _cnki_aigc_detect_code_v5() -> str:
                     return "high"
                 if score >= 0.42:
                     return "medium"
-                return "low"
+                if score >= 0.18:
+                    return "low"
+                return "clean"
 
 
             def _fragment_band(score):
@@ -1134,7 +1229,7 @@ def _cnki_aigc_detect_code_v5() -> str:
                         paragraph_payloads.append({{
                             "index": index,
                             "score": 0.0,
-                            "label": "low",
+                            "label": "clean",
                             "excerpt": paragraph[:110],
                             "char_count": len(paragraph),
                             "sentence_count": 0,
@@ -1145,33 +1240,64 @@ def _cnki_aigc_detect_code_v5() -> str:
                         continue
 
                     sentences = _split_sentences(paragraph)
+                    if _is_no_ai_fragment(paragraph):
+                        paragraph_payloads.append({{
+                            "index": index,
+                            "score": 0.0,
+                            "label": "clean",
+                            "excerpt": paragraph[:110],
+                            "char_count": len(paragraph),
+                            "sentence_count": len(sentences),
+                            "section": current_section,
+                            "suspicious_segments": [],
+                            "signals": {{"template_signal": 0.0, "repeat_signal": 0.0, "uniformity_signal": 0.0, "opening_signal": 0.0, "artifact_signal": 0.0, "english_signal": 0.0, "human_case_relief": 0.0, "rhetorical_signal": 0.0, "rough_edit_relief": 0.0}},
+                        }})
+                        continue
+
                     template_signal, template_hits = _template_signal(paragraph)
                     repeat_signal = _repeat_signal(paragraph)
                     uniformity_signal = _uniformity_signal(sentences)
                     opening_signal = _opening_signal(paragraph)
                     citation_relief = _citation_relief(paragraph)
                     evidence_relief = _evidence_relief(paragraph)
+                    human_case_relief = _human_case_relief(paragraph)
+                    rhetorical_signal = _rhetorical_polish_signal(paragraph)
+                    practice_chain_signal = _practice_chain_signal(paragraph)
+                    summary_wrapup_relief = _summary_wrapup_relief(paragraph)
+                    rough_edit_relief = _rough_edit_relief(paragraph)
                     artifact_signal, artifact_hits = _artifact_signal(paragraph)
                     english_signal = _english_abstract_signal(paragraph, current_section)
                     artifact_hit_count += len(artifact_hits)
+                    human_relief_weight = 0.60
+                    if rhetorical_signal >= 0.12 or opening_signal >= 0.18:
+                        human_relief_weight = 0.38
+                    elif practice_chain_signal >= 0.10 and summary_wrapup_relief < 0.10:
+                        human_relief_weight = 0.26
 
                     avg_len = sum(len(seg) for seg in sentences) / max(len(sentences), 1)
                     seed = int(hashlib.md5(paragraph.encode("utf-8")).hexdigest()[:8], 16)
                     jitter = ((seed % 11) - 5) / 1000.0
                     score = _clamp(
-                        0.28
-                        + max(0.0, (avg_len - 18.0) / 60.0) * 0.14
+                        0.18
+                        + max(0.0, (avg_len - 20.0) / 75.0) * 0.10
                         + template_signal * 0.18
-                        + repeat_signal * 0.12
-                        + uniformity_signal * 0.10
+                        + repeat_signal * 0.10
+                        + uniformity_signal * 0.06
                         + opening_signal * 0.08
+                        + rhetorical_signal * 0.34
+                        + practice_chain_signal * 0.18
                         + artifact_signal * 0.12
-                        + english_signal * 0.10
+                        + english_signal * 0.08
                         + _section_bias(current_section)
                         - citation_relief
                         - evidence_relief
+                        - human_case_relief * human_relief_weight
+                        - summary_wrapup_relief * 0.22
+                        - rough_edit_relief * 1.02
                         + jitter
                     )
+                    if rough_edit_relief >= 0.12 and human_case_relief >= 0.16 and rhetorical_signal < 0.08 and template_signal < 0.12 and opening_signal < 0.18:
+                        score = min(score, 0.18)
                     label = _score_to_label(score)
                     if current_section == "abstract":
                         abstract_scores.append(score * 100)
@@ -1190,27 +1316,48 @@ def _cnki_aigc_detect_code_v5() -> str:
                         sentence_repeat = _repeat_signal(sentence)
                         sentence_uniformity = _uniformity_signal(_split_sentences(sentence))
                         sentence_opening = _opening_signal(sentence)
+                        sentence_human_case = _human_case_relief(sentence)
+                        sentence_rhetorical = _rhetorical_polish_signal(sentence)
+                        sentence_practice_chain = _practice_chain_signal(sentence)
+                        sentence_summary_wrapup = _summary_wrapup_relief(sentence)
+                        sentence_rough_edit = _rough_edit_relief(sentence)
                         sentence_artifact, _artifact_hits = _artifact_signal(sentence)
                         sentence_english = _english_abstract_signal(sentence, current_section)
+                        sentence_human_weight = 0.56
+                        if sentence_rhetorical >= 0.12 or sentence_opening >= 0.18:
+                            sentence_human_weight = 0.36
+                        elif sentence_practice_chain >= 0.08 and sentence_summary_wrapup < 0.10:
+                            sentence_human_weight = 0.24
                         seg_score = _clamp(
-                            0.24
+                            0.14
                             + sentence_template * 0.22
-                            + sentence_repeat * 0.16
-                            + sentence_uniformity * 0.10
+                            + sentence_repeat * 0.12
+                            + sentence_uniformity * 0.06
                             + sentence_opening * 0.08
-                            + sentence_artifact * 0.12
+                            + sentence_rhetorical * 0.30
+                            + sentence_practice_chain * 0.18
+                            + sentence_artifact * 0.10
                             + sentence_english * 0.08
                             + _section_bias(current_section) * 0.8
                             - _citation_relief(sentence)
                             - _evidence_relief(sentence)
+                            - sentence_human_case * sentence_human_weight
+                            - sentence_summary_wrapup * 0.24
+                            - sentence_rough_edit * 0.96
                         )
-                        if seg_score < 0.42 and sentence_template < 0.2 and sentence_artifact < 0.08:
+                        if sentence_rough_edit >= 0.10 and sentence_human_case >= 0.14 and sentence_rhetorical < 0.08 and sentence_template < 0.15:
+                            seg_score = min(seg_score, 0.18)
+                        if sentence_summary_wrapup >= 0.10 and seg_score < 0.46:
+                            continue
+                        if seg_score < 0.42 and sentence_template < 0.2 and sentence_artifact < 0.08 and sentence_rhetorical < 0.08:
                             continue
                         reason_bits = []
                         if current_section in ("abstract", "intro") and sentence_template >= 0.18:
                             reason_bits.append("摘要/绪论模板化偏强")
                         if sentence_template >= 0.22:
                             reason_bits.append("模板连接词偏多")
+                        if sentence_rhetorical >= 0.12:
+                            reason_bits.append("表达方式过于顺滑完整")
                         if sentence_repeat >= 0.3:
                             reason_bits.append("重复表达偏多")
                         if sentence_artifact >= 0.08:
@@ -1236,6 +1383,11 @@ def _cnki_aigc_detect_code_v5() -> str:
                             "opening_signal": round(opening_signal, 4),
                             "artifact_signal": round(artifact_signal, 4),
                             "english_signal": round(english_signal, 4),
+                            "human_case_relief": round(human_case_relief, 4),
+                            "rhetorical_signal": round(rhetorical_signal, 4),
+                            "practice_chain_signal": round(practice_chain_signal, 4),
+                            "summary_wrapup_relief": round(summary_wrapup_relief, 4),
+                            "rough_edit_relief": round(rough_edit_relief, 4),
                             "template_hits": template_hits,
                             "artifact_hits": artifact_hits,
                         }},
@@ -1278,10 +1430,13 @@ def _cnki_aigc_detect_code_v5() -> str:
                         else:
                             score_ratio = _clamp(paragraph_ratio * 0.72 + _template_signal(compact)[0] * 0.18 + _artifact_signal(compact)[0] * 0.10)
                             label = _score_to_label(score_ratio)
-                            band = _fragment_band(score_ratio)
-                            if band:
-                                display_count[band] += 1
-                                display_chars[band] += len(compact)
+                            if label == "clean":
+                                label = "no_ai"
+                            else:
+                                band = _fragment_band(score_ratio)
+                                if band:
+                                    display_count[band] += 1
+                                    display_chars[band] += len(compact)
                         count_map[label] += 1
                         char_map[label] += len(compact)
 
@@ -1298,7 +1453,9 @@ def _cnki_aigc_detect_code_v5() -> str:
                 streak_ratio = longest_streak / max(paragraph_total, 1)
                 abstract_ratio = (sum(abstract_scores) / max(len(abstract_scores), 1) / 100.0) if abstract_scores else 0.0
                 intro_ratio = (sum(intro_scores) / max(len(intro_scores), 1) / 100.0) if intro_scores else 0.0
-                score = _clamp(mean_score * 0.46 + peak_score * 0.18 + segment_score * 0.12 + coverage_ratio * 0.06 + streak_ratio * 0.03 + opening_similarity * 0.03 + abstract_ratio * 0.08 + intro_ratio * 0.05)
+                rough_edit_total = sum(item.get("signals", {{}}).get("rough_edit_relief", 0.0) for item in paragraph_payloads if item["sentence_count"] > 0)
+                rough_document_relief = min(0.06, rough_edit_total * 0.10)
+                score = _clamp(mean_score * 0.46 + peak_score * 0.18 + segment_score * 0.12 + coverage_ratio * 0.06 + streak_ratio * 0.03 + opening_similarity * 0.03 + abstract_ratio * 0.08 + intro_ratio * 0.05 - rough_document_relief)
 
                 decision_basis = []
                 if abstract_scores and sum(abstract_scores) / max(len(abstract_scores), 1) >= 50:
@@ -1343,6 +1500,7 @@ def _cnki_aigc_detect_code_v5() -> str:
                         "abstract_avg_score": round(sum(abstract_scores) / max(len(abstract_scores), 1), 2) if abstract_scores else 0.0,
                         "intro_avg_score": round(sum(intro_scores) / max(len(intro_scores), 1), 2) if intro_scores else 0.0,
                         "artifact_hit_count": artifact_hit_count,
+                        "rough_edit_relief_total": round(rough_edit_total, 4),
                     }},
                     "decision_basis": decision_basis[:5],
                     "outline": outline[:20],

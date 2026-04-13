@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from app.config import get_settings
 from app.deps import current_user
 from app.main import app
-from app.models import SystemConfig, Task, User
+from app.models import SystemConfig, Task, TaskStatus, User
 from app.services.algo_package_service import install_algorithm_package
 
 
@@ -69,7 +69,11 @@ def test_submit_task_uses_billing_config_rate(
     db_session.refresh(user)
     _activate_slot(db_session, platform="cnki", function_type="dedup")
 
-    monkeypatch.setattr("app.worker_tasks.process_task_async.delay", lambda *_args, **_kwargs: None)
+    settings = get_settings()
+    monkeypatch.setattr(settings, "task_submit_user_1m_limit", 0)
+    monkeypatch.setattr(settings, "task_submit_ip_1m_limit", 0)
+    monkeypatch.setattr(settings, "task_submit_user_inflight_limit", 0)
+    monkeypatch.setattr("app.worker_tasks.preprocess_submission_async.delay", lambda *_args, **_kwargs: None)
     app.dependency_overrides[current_user] = lambda: user
     try:
         file_bytes = _make_docx_bytes("abcdefghij")
@@ -81,10 +85,12 @@ def test_submit_task_uses_billing_config_rate(
         assert resp.status_code == 200
         data = resp.json()["data"]
         assert data["cost_credits"] == 50
+        assert data["status"] == TaskStatus.PENDING.value
 
         row = db_session.get(Task, data["id"])
         assert row is not None
         assert row.cost_credits == 50
+        assert row.status == TaskStatus.PENDING
     finally:
         app.dependency_overrides.pop(current_user, None)
 
@@ -101,7 +107,11 @@ def test_submit_dedup_requires_docx_source(
     db_session.refresh(user)
     _activate_slot(db_session, platform="cnki", function_type="dedup")
 
-    monkeypatch.setattr("app.worker_tasks.process_task_async.delay", lambda *_args, **_kwargs: None)
+    settings = get_settings()
+    monkeypatch.setattr(settings, "task_submit_user_1m_limit", 0)
+    monkeypatch.setattr(settings, "task_submit_ip_1m_limit", 0)
+    monkeypatch.setattr(settings, "task_submit_user_inflight_limit", 0)
+    monkeypatch.setattr("app.worker_tasks.preprocess_submission_async.delay", lambda *_args, **_kwargs: None)
     app.dependency_overrides[current_user] = lambda: user
     try:
         file_bytes = BytesIO("abcdefghij".encode("utf-8"))
@@ -130,7 +140,11 @@ def test_submit_rewrite_rejects_non_full_report(
     db_session.refresh(user)
     _activate_slot(db_session, platform="cnki", function_type="rewrite")
 
-    monkeypatch.setattr("app.worker_tasks.process_task_async.delay", lambda *_args, **_kwargs: None)
+    settings = get_settings()
+    monkeypatch.setattr(settings, "task_submit_user_1m_limit", 0)
+    monkeypatch.setattr(settings, "task_submit_ip_1m_limit", 0)
+    monkeypatch.setattr(settings, "task_submit_user_inflight_limit", 0)
+    monkeypatch.setattr("app.worker_tasks.preprocess_submission_async.delay", lambda *_args, **_kwargs: None)
     app.dependency_overrides[current_user] = lambda: user
     try:
         paper_bytes = _make_docx_bytes("这是一篇用于改写任务的论文正文，长度足够用于计费。")
@@ -146,7 +160,6 @@ def test_submit_rewrite_rejects_non_full_report(
         assert resp.status_code == 422
         body = resp.json()
         assert body["code"] == 4115
-        assert "全文AIGC检测报告" in body["message"]
     finally:
         app.dependency_overrides.pop(current_user, None)
 
@@ -167,8 +180,13 @@ def test_submit_rewrite_invalid_report_cleans_uploaded_files(
     settings = get_settings()
     patched_upload_dir = tmp_path / "uploads"
     monkeypatch.setattr(type(settings), "upload_dir", property(lambda self: patched_upload_dir))
+    monkeypatch.setattr(settings, "task_submit_user_inflight_limit", 0)
 
-    monkeypatch.setattr("app.worker_tasks.process_task_async.delay", lambda *_args, **_kwargs: None)
+    settings = get_settings()
+    monkeypatch.setattr(settings, "task_submit_user_1m_limit", 0)
+    monkeypatch.setattr(settings, "task_submit_ip_1m_limit", 0)
+    monkeypatch.setattr(settings, "task_submit_user_inflight_limit", 0)
+    monkeypatch.setattr("app.worker_tasks.preprocess_submission_async.delay", lambda *_args, **_kwargs: None)
     app.dependency_overrides[current_user] = lambda: user
     try:
         paper_bytes = _make_docx_bytes("这是一篇用于清理无效报告测试的论文正文，长度足够用于计费。")

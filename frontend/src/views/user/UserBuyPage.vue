@@ -1,15 +1,5 @@
 <template>
-  <UserShell title="购买积分" subtitle="前台套餐实时同步，可直接选择方案完成充值。" :credits="userCredits" @buy="noop">
-    <section class="scholar-panel scholar-panel--soft">
-      <div class="scholar-panel__body">
-        <div class="scholar-kicker">Purchase Notes</div>
-        <h3 class="scholar-subtitle">购买前说明</h3>
-        <p class="scholar-lead">
-          可以先查看套餐与计费口径，创建支付订单时再登录即可。支付成功后积分会自动到账，并同步刷新前台余额。
-        </p>
-      </div>
-    </section>
-
+  <UserShell title="" subtitle="" :credits="userCredits" :hide-topbar="true" :hide-header-title="true" @buy="noop">
     <BuyCreditsPanel @paid="afterPaid" />
   </UserShell>
 </template>

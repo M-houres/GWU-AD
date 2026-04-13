@@ -470,7 +470,7 @@ def test_builtin_aigc_package_returns_full_text_payload(
     )
 
     assert isinstance(result, dict)
-    assert result["algorithm"].startswith("cnki_like_aigc_sim_v1_6_0")
+    assert result["algorithm"].startswith("cnki_like_aigc_sim_v1_8_1")
     assert len(result["paragraphs"]) >= 2
     assert "distribution" in result
     assert "fragment_distribution" in result

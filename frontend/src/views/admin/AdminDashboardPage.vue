@@ -2,12 +2,10 @@
   <AdminShell title="后台总览" subtitle="每 30 秒自动刷新一次，关注任务、收入与模式状态。">
     <section
       v-if="switchStatus.current_mode === 'ALGO_ONLY'"
-      class="scholar-note scholar-note--danger"
+      class="scholar-note scholar-note--danger dashboard-alert"
     >
-      当前系统处于算法降级模式，原因：{{ switchStatus.last_switch_reason || "大模型异常" }}。
-      <button class="scholar-button scholar-button--danger" type="button" style="margin-left: 12px" @click="recoverMode">
-        手动恢复大模型模式
-      </button>
+      <div class="dashboard-alert__text">当前系统处于算法降级模式，原因：{{ switchStatus.last_switch_reason || "大模型异常" }}。</div>
+      <button class="scholar-button scholar-button--danger" type="button" @click="recoverMode">手动恢复大模型模式</button>
     </section>
 
     <section class="scholar-grid scholar-grid--stats">
@@ -26,48 +24,48 @@
       </article>
     </section>
 
-    <section class="scholar-hero-grid">
-      <article class="scholar-chart-card">
-        <div class="flex items-start justify-between gap-3">
+    <section class="scholar-hero-grid dashboard-grid">
+      <article class="scholar-chart-card dashboard-chart-card">
+        <div class="dashboard-chart-head">
           <div>
             <div class="scholar-kicker">Task Trend</div>
             <h3 class="scholar-subtitle">近 7 天任务趋势</h3>
           </div>
           <button class="scholar-button scholar-button--secondary" type="button" @click="loadData">刷新</button>
         </div>
-        <div ref="taskChartEl" class="mt-4 h-72 w-full"></div>
+        <div ref="taskChartEl" class="mt-4 h-72 w-full dashboard-chart-area"></div>
       </article>
 
-      <article class="scholar-chart-card">
-        <div class="flex items-start justify-between gap-3">
+      <article class="scholar-chart-card dashboard-chart-card">
+        <div class="dashboard-chart-head">
           <div>
             <div class="scholar-kicker">Revenue Trend</div>
             <h3 class="scholar-subtitle">近 7 天收入趋势</h3>
           </div>
           <button class="scholar-button scholar-button--secondary" type="button" @click="loadData">刷新</button>
         </div>
-        <div ref="revenueChartEl" class="mt-4 h-72 w-full"></div>
+        <div ref="revenueChartEl" class="mt-4 h-72 w-full dashboard-chart-area"></div>
       </article>
     </section>
 
     <section class="scholar-grid scholar-grid--halves">
-      <article class="scholar-chart-card">
+      <article class="scholar-chart-card dashboard-chart-card">
         <div class="scholar-kicker">Usage Distribution</div>
         <h3 class="scholar-subtitle">功能使用占比</h3>
-        <div ref="taskTypeChartEl" class="mt-4 h-60 w-full"></div>
+        <div ref="taskTypeChartEl" class="mt-4 h-60 w-full dashboard-chart-area dashboard-chart-area--short"></div>
       </article>
 
-      <article class="scholar-chart-card">
+      <article class="scholar-chart-card dashboard-chart-card">
         <div class="scholar-kicker">Platform Distribution</div>
         <h3 class="scholar-subtitle">平台使用量对比</h3>
-        <div ref="platformChartEl" class="mt-4 h-60 w-full"></div>
+        <div ref="platformChartEl" class="mt-4 h-60 w-full dashboard-chart-area dashboard-chart-area--short"></div>
       </article>
     </section>
 
-    <section class="scholar-chart-card">
+    <section class="scholar-chart-card dashboard-chart-card">
       <div class="scholar-kicker">Conversion Funnel</div>
       <h3 class="scholar-subtitle">用户转化对比</h3>
-      <div ref="funnelChartEl" class="mt-4 h-56 w-full"></div>
+      <div ref="funnelChartEl" class="mt-4 h-56 w-full dashboard-chart-area dashboard-chart-area--compact"></div>
     </section>
   </AdminShell>
 </template>
@@ -347,3 +345,52 @@ function disposeCharts() {
   funnelChart = null
 }
 </script>
+
+<style scoped>
+.dashboard-alert {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.dashboard-alert__text {
+  min-width: 0;
+  flex: 1;
+}
+
+.dashboard-chart-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+@media (max-width: 768px) {
+  .dashboard-alert {
+    align-items: stretch;
+  }
+
+  .dashboard-alert .scholar-button,
+  .dashboard-chart-head .scholar-button {
+    width: 100%;
+  }
+
+  .dashboard-chart-head {
+    flex-direction: column;
+  }
+
+  .dashboard-chart-area {
+    height: 260px !important;
+  }
+
+  .dashboard-chart-area--short {
+    height: 220px !important;
+  }
+
+  .dashboard-chart-area--compact {
+    height: 200px !important;
+  }
+}
+</style>

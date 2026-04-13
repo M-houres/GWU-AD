@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
 from app.main import app
-from app.models import CreditTransaction, Order, ReferralRelation, SystemConfig, Task, User, UserInviteCode
+from app.models import CreditTransaction, Order, SystemConfig, Task, User
 from app.services.algo_package_service import install_algorithm_package
 
 
@@ -44,10 +44,6 @@ def test_client_source_flows_through_login_task_and_payment(
     monkeypatch,
     settings_override,
 ) -> None:
-    inviter = User(phone="13800002000", nickname="inviter", source="web", credits=0)
-    db_session.add(inviter)
-    db_session.flush()
-    db_session.add(UserInviteCode(user_id=inviter.id, invite_code="INVITE20"))
     db_session.add(
         SystemConfig(
             category="system",
@@ -68,7 +64,7 @@ def test_client_source_flows_through_login_task_and_payment(
 
     login_resp = client.post(
         "/api/v1/auth/login",
-        json={"phone": "13800002001", "code": debug_code, "referrer_code": "INVITE20"},
+        json={"phone": "13800002001", "code": debug_code},
         headers=source_headers,
     )
     assert login_resp.status_code == 200
@@ -88,10 +84,6 @@ def test_client_source_flows_through_login_task_and_payment(
     )
     assert init_tx is not None
     assert init_tx.source == "miniprogram"
-
-    relation = db_session.query(ReferralRelation).filter(ReferralRelation.invitee_id == user_id).first()
-    assert relation is not None
-    assert relation.source == "miniprogram"
 
     auth_headers = {
         "Authorization": f"Bearer {token}",

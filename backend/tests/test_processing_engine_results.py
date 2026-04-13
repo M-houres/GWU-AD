@@ -269,3 +269,231 @@ def test_transform_text_combined_mode_falls_back_to_algo_when_llm_empty(db_sessi
 
     assert output == "algo::source text"
     assert call_order == ["algo", "llm"]
+
+
+def test_split_detect_paragraphs_merges_wrapped_lines(db_session: Session) -> None:
+    engine = ProcessingEngine(db_session)
+    text = "\n".join(
+        [
+            "第一章 绪论",
+            "本研究围绕数智教学改革展开分析，系统梳理平台治理、课程设计与组织协同三方面问题，",
+            "研究表明该路径具备较强复制性，并且在多个应用场景中形成稳定的实施框架，",
+            "同时能够通过统一表达快速生成结构完整的段落内容。",
+            "此外，本研究进一步从资源统筹角度提出建议，",
+            "强调通过过程监督与结果复核提升治理质量。",
+        ]
+    )
+
+    paragraphs = engine._split_detect_paragraphs(text)
+
+    assert paragraphs[0] == "第一章 绪论"
+    assert len(paragraphs) == 3
+    assert paragraphs[1].startswith("本研究围绕数智教学改革展开分析")
+    assert paragraphs[2].startswith("此外，本研究进一步从资源统筹角度提出建议")
+
+
+def test_detect_label_supports_clean_band(db_session: Session) -> None:
+    engine = ProcessingEngine(db_session)
+    profile = engine._platform_detect_profile("cnki")
+
+    assert engine._score_to_detect_label(0.12, profile) == "clean"
+    assert engine._score_to_detect_label(0.24, profile) == "low"
+    assert engine._score_to_detect_label(0.50, profile) == "medium"
+
+
+def test_detect_label_prefers_higher_risk_between_algo_and_score(db_session: Session) -> None:
+    engine = ProcessingEngine(db_session)
+
+    assert engine._prefer_higher_risk_detect_label("clean", "low") == "low"
+    assert engine._prefer_higher_risk_detect_label("low", "medium") == "medium"
+    assert engine._prefer_higher_risk_detect_label("high", "low") == "high"
+
+
+def test_cnki_borderline_paragraph_is_not_kept_clean(db_session: Session, monkeypatch) -> None:
+    engine = ProcessingEngine(db_session)
+    profile = engine._platform_detect_profile("cnki")
+
+    monkeypatch.setattr(ProcessingEngine, "_extract_algo_paragraphs", lambda self, _algo: [])
+    monkeypatch.setattr(ProcessingEngine, "_local_suspicious_segments_v2", lambda self, _paragraph, _platform, _profile: [])
+    monkeypatch.setattr(
+        ProcessingEngine,
+        "_simulate_platform_detect_score",
+        lambda self, _platform, _text, _base: (
+            0.155,
+            profile,
+            {
+                "template_signal": 0.0,
+                "repeat_signal": 0.0,
+                "context_signal": 0.0,
+                "opening_signal": 0.0,
+                "artifact_signal": 0.0,
+                "english_abstract_signal": 0.0,
+                "citation_relief": 0.0,
+                "evidence_relief": 0.0,
+                "style_signal": 0.0,
+                "template_hits": [],
+            },
+        ),
+    )
+
+    rows = engine._build_detect_paragraph_details(
+        "这是一段足够长的正文内容，用于验证知网正文段落在边界分数附近不会继续被压成 clean 标签，而是至少进入 low 标签。",
+        "cnki",
+        profile,
+        None,
+    )
+
+    assert rows[0]["label"] == "low"
+
+
+def test_cnki_short_doc_heading_inherits_following_risk(db_session: Session, monkeypatch) -> None:
+    engine = ProcessingEngine(db_session)
+    profile = engine._platform_detect_profile("cnki")
+
+    monkeypatch.setattr(ProcessingEngine, "_extract_algo_paragraphs", lambda self, _algo: [])
+    monkeypatch.setattr(ProcessingEngine, "_local_suspicious_segments_v2", lambda self, _paragraph, _platform, _profile: [])
+
+    score_map = {
+        "（三）课程融合：在一日生活中埋下种子": 0.11,
+        "第一段正文用于模拟连续风险内容，这里保持较长文本以便进入边界判断。": 0.24,
+        "第二段正文继续承接上一段，维持明显的疑似风险分数，用于让标题继承低风险标签。": 0.19,
+    }
+
+    def _fake_simulate(self, _platform: str, text: str, _base: float):
+        return (
+            score_map[text],
+            profile,
+            {
+                "template_signal": 0.0,
+                "repeat_signal": 0.0,
+                "context_signal": 0.0,
+                "opening_signal": 0.0,
+                "artifact_signal": 0.0,
+                "english_abstract_signal": 0.0,
+                "citation_relief": 0.0,
+                "evidence_relief": 0.0,
+                "style_signal": 0.0,
+                "template_hits": [],
+            },
+        )
+
+    monkeypatch.setattr(ProcessingEngine, "_simulate_platform_detect_score", _fake_simulate)
+
+    rows = engine._build_detect_paragraph_details(
+        "\n".join(score_map.keys()),
+        "cnki",
+        profile,
+        None,
+    )
+
+    assert rows[0]["label"] == "low"
+    assert rows[0]["suspicious_segments"][0]["label"] == "low"
+    assert rows[0]["suspicious_segments"][0]["reason"] == "风险区标题延续"
+
+
+def test_cnki_risky_segment_uses_high_label_when_doc_not_clean(db_session: Session, monkeypatch) -> None:
+    engine = ProcessingEngine(db_session)
+    profile = engine._platform_detect_profile("cnki")
+
+    monkeypatch.setattr(
+        ProcessingEngine,
+        "_extract_algo_paragraphs",
+        lambda self, _algo: [
+            {
+                "index": 1,
+                "label": "low",
+                "score_ratio": 0.26,
+                "segments": [{"text": "可疑句段", "score": 35.0, "reason": "测试"}],
+            }
+        ],
+    )
+    monkeypatch.setattr(ProcessingEngine, "_local_suspicious_segments_v2", lambda self, _paragraph, _platform, _profile: [])
+    monkeypatch.setattr(ProcessingEngine, "_extract_algo_label", lambda self, _algo: "low")
+    monkeypatch.setattr(ProcessingEngine, "_extract_algo_score", lambda self, _algo: 0.2)
+    monkeypatch.setattr(
+        ProcessingEngine,
+        "_simulate_platform_detect_score",
+        lambda self, _platform, _text, _base: (
+            0.26,
+            profile,
+            {
+                "template_signal": 0.0,
+                "repeat_signal": 0.0,
+                "context_signal": 0.0,
+                "opening_signal": 0.0,
+                "artifact_signal": 0.0,
+                "english_abstract_signal": 0.0,
+                "citation_relief": 0.0,
+                "evidence_relief": 0.0,
+                "style_signal": 0.0,
+                "template_hits": [],
+            },
+        ),
+    )
+
+    rows = engine._build_detect_paragraph_details(
+        "这是一段用于测试片段标签升级的正文内容，长度足够，且应该被识别为可疑。",
+        "cnki",
+        profile,
+        {"label": "low", "ai_score": 0.2},
+    )
+
+    assert rows[0]["suspicious_segments"][0]["label"] == "high"
+
+
+def test_local_suspicious_segments_v2_skips_weak_sentences(db_session: Session, monkeypatch) -> None:
+    engine = ProcessingEngine(db_session)
+    profile = engine._platform_detect_profile("cnki")
+
+    def _fake_simulate(self, _platform: str, _text: str, _base_score: float):
+        return (
+            0.39,
+            profile,
+            {
+                "template_signal": 0.05,
+                "repeat_signal": 0.08,
+                "context_signal": 0.10,
+                "opening_signal": 0.02,
+                "artifact_signal": 0.0,
+                "english_abstract_signal": 0.0,
+                "citation_relief": 0.0,
+                "evidence_relief": 0.0,
+                "template_hits": [],
+            },
+        )
+
+    monkeypatch.setattr(ProcessingEngine, "_simulate_platform_detect_score", _fake_simulate)
+
+    segments = engine._local_suspicious_segments_v2("这是一个正常句子。这里继续补充说明。", "cnki", profile)
+
+    assert segments == []
+
+
+def test_local_suspicious_segments_v2_skips_cnki_summary_wrapup_sentences(db_session: Session) -> None:
+    engine = ProcessingEngine(db_session)
+    profile = engine._platform_detect_profile("cnki")
+
+    segments = engine._local_suspicious_segments_v2(
+        "这一模式的可迁移性体现在两个层面，最核心的教育逻辑在于形成系列化的家园共育体系。",
+        "cnki",
+        profile,
+    )
+
+    assert segments == []
+
+
+def test_is_no_ai_fragment_filters_thesis_front_matter(db_session: Session) -> None:
+    engine = ProcessingEngine(db_session)
+
+    assert engine._is_no_ai_fragment("学 位 论 文 独 创 性 说 明")
+    assert engine._is_no_ai_fragment("本人郑重声明：所呈交的学位论文是我个人在导师指导下进行的研究工作。")
+
+
+def test_human_case_relief_signal_prefers_practice_paragraphs(db_session: Session) -> None:
+    engine = ProcessingEngine(db_session)
+    text = (
+        "在日常观察中发现，幼儿对“爱家人”这件事不是没有感情，而是缺少一种看得见、摸得着的表达渠道。"
+        "正是立足这一现实，本园设计并推行“爱的存折”家园共育项目，尝试把孝亲教育转变为可记录、可反馈的生活实践。"
+    )
+
+    assert engine._human_case_relief_signal(text) >= 0.12

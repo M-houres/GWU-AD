@@ -1,6 +1,7 @@
 from functools import lru_cache
 from pathlib import Path
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -11,6 +12,7 @@ class Settings(BaseSettings):
     app_env: str = "dev"
     app_host: str = "0.0.0.0"
     app_port: int = 8000
+    cors_allow_origins: str = "*"
 
     jwt_secret: str = "change_me_in_prod"
     jwt_expire_minutes: int = 60 * 24 * 7
@@ -39,6 +41,8 @@ class Settings(BaseSettings):
     auth_send_code_ip_1h_limit: int = 30
     auth_login_ip_10m_limit: int = 120
     auth_return_debug_code: bool = False
+    admin_login_ip_10m_limit: int = 30
+    admin_login_user_10m_limit: int = 10
 
     admin_init_username: str = "admin"
     admin_init_password: str = "admin123456"
@@ -59,6 +63,49 @@ class Settings(BaseSettings):
     llm_api_key: str = ""
     llm_model: str = "gpt-4o-mini"
     llm_timeout_seconds: int = 25
+
+    db_pool_size: int = 5
+    db_max_overflow: int = 5
+    db_pool_timeout: int = 30
+    db_pool_recycle: int = 3600
+
+    task_submit_ip_1m_limit: int = 60
+    task_submit_user_1m_limit: int = 20
+    task_submit_user_inflight_limit: int = 5
+    task_submit_queue_backlog_limit: int = 2000
+    task_processing_global_concurrency: int = 4
+    task_processing_user_concurrency: int = 2
+    task_processing_retry_countdown_seconds: int = 5
+    celery_local_fallback_enabled: bool = True
+
+    @field_validator("app_env", mode="before")
+    @classmethod
+    def _normalize_app_env(cls, value):
+        raw = str(value or "dev").strip().lower()
+        aliases = {
+            "production": "prod",
+            "release": "prod",
+            "online": "prod",
+            "local": "dev",
+            "development": "dev",
+            "test": "test",
+            "testing": "test",
+            "staging": "staging",
+        }
+        return aliases.get(raw, raw or "dev")
+
+    @property
+    def is_prod(self) -> bool:
+        return self.app_env == "prod"
+
+    @property
+    def cors_allow_origin_list(self) -> list[str]:
+        raw = str(self.cors_allow_origins or "").strip()
+        if not raw:
+            return []
+        if raw == "*":
+            return ["*"]
+        return [item.strip() for item in raw.split(",") if item.strip()]
 
     @property
     def mysql_dsn(self) -> str:

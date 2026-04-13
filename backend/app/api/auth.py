@@ -17,15 +17,14 @@ from app.client_source import DEFAULT_CLIENT_SOURCE, get_client_source
 from app.config import get_settings
 from app.deps import db_dep, get_redis
 from app.exceptions import BizError
-from app.models import CreditType, RegistrationRiskLog, SystemConfig, User, UserInviteCode
+from app.models import CreditType, RegistrationRiskLog, SystemConfig, User
 from app.responses import ok
 from app.schemas import APIResp, LoginReq, MiniProgramLoginReq, MiniProgramPhoneLoginReq, SendCodeReq
 from app.security import create_token
 from app.services.credit_service import change_credits
-from app.services.referral_service import bind_referral_relation
-from app.services.referral_service import get_referral_rules
+from app.services.promo_center_service import bind_promo_referral_relation, ensure_user_invite_code
 from app.services.user_navigation_service import default_user_navigation_config, normalize_user_navigation_config
-from app.utils import gen_code, is_phone_valid, make_invite_code
+from app.utils import gen_code, is_phone_valid
 from app.utils_qrcode import build_qrcode_data_url
 
 router = APIRouter()
@@ -668,8 +667,7 @@ def _upsert_wechat_user(
             related_id=f"wx_user_init:{user.id}",
             source=source,
         )
-        db.add(UserInviteCode(user_id=user.id, invite_code=make_invite_code(user.id)))
-        db.flush()
+        ensure_user_invite_code(db, user)
         return user, is_new_user
 
     setattr(user, openid_attr, openid)
@@ -731,8 +729,7 @@ def _upsert_miniprogram_phone_user(
             related_id=f"wx_user_init:{user.id}",
             source=source,
         )
-        db.add(UserInviteCode(user_id=user.id, invite_code=make_invite_code(user.id)))
-        db.flush()
+        ensure_user_invite_code(db, user)
         return user, is_new_user
 
     user.phone = phone
@@ -886,7 +883,6 @@ def login(req: LoginReq, request: Request, db: Session = Depends(db_dep), redis_
     fp = _get_device_fingerprint(request, req.device_fingerprint)
     client_source = get_client_source(request)
     is_new_user = False
-    register_relation_id: int | None = None
 
     try:
         user = db.query(User).filter(User.phone == req.phone).with_for_update().first()
@@ -923,65 +919,14 @@ def login(req: LoginReq, request: Request, db: Session = Depends(db_dep), redis_
                 related_id=f"user_init:{user.id}",
                 source=client_source,
             )
-            db.add(UserInviteCode(user_id=user.id, invite_code=make_invite_code(user.id)))
-            db.flush()
-
-            relation = None
+            ensure_user_invite_code(db, user)
             if req.referrer_code:
-                relation = bind_referral_relation(
+                bind_promo_referral_relation(
                     db,
                     invitee=user,
-                    referrer_code=req.referrer_code.strip().upper(),
+                    referrer_code=str(req.referrer_code).strip().upper(),
                     source=client_source,
                 )
-
-            suspicious = False
-            if relation:
-                inviter_fp = redis_client.get(f"user:fp:{relation.inviter_id}")
-                ip_key = f"risk:register_ip:{ip}"
-                rules = get_referral_rules(db)
-                ip_limit = int(rules.get("ip_limit_24h", 3))
-                ip_count = redis_client.incr(ip_key) if ip else 0
-                if ip and ip_count == 1:
-                    redis_client.expire(ip_key, 24 * 3600)
-                if ip and ip_count > ip_limit:
-                    suspicious = True
-                    db.add(
-                        RegistrationRiskLog(
-                            phone=req.phone,
-                            ip=ip,
-                            user_agent=ua,
-                            reason=f"same_ip_over_{ip_limit}_24h",
-                        )
-                    )
-
-                fp_hash = hashlib.sha256(fp.encode("utf-8")).hexdigest()
-                fp_key = f"risk:register_fp:{fp_hash}"
-                fp_count = redis_client.incr(fp_key)
-                if fp_count == 1:
-                    redis_client.expire(fp_key, 24 * 3600)
-                if fp_count > 3:
-                    suspicious = True
-                    db.add(
-                        RegistrationRiskLog(
-                            phone=req.phone,
-                            ip=ip,
-                            user_agent=ua,
-                            reason="same_device_over_3_24h",
-                        )
-                    )
-                if inviter_fp and inviter_fp == fp:
-                    suspicious = True
-                    db.add(
-                        RegistrationRiskLog(
-                            phone=req.phone,
-                            ip=ip,
-                            user_agent=ua,
-                            reason="same_device_with_inviter",
-                        )
-                    )
-                if not suspicious:
-                    register_relation_id = relation.id
         elif not user.source:
             user.source = client_source
 
@@ -991,11 +936,6 @@ def login(req: LoginReq, request: Request, db: Session = Depends(db_dep), redis_
     except Exception:
         db.rollback()
         raise
-
-    if register_relation_id:
-        from app.worker_tasks import dispatch_background_task, grant_register_rewards_async
-
-        dispatch_background_task(grant_register_rewards_async, register_relation_id)
 
     logger.info(
         "auth_login_success",
@@ -1040,7 +980,6 @@ def wx_mini_login(
     is_new_user = False
     fp = _get_device_fingerprint(request, req.device_fingerprint)
     client_source = get_client_source(request)
-    register_relation_id: int | None = None
     try:
         user, is_new_user = _upsert_wechat_user(
             db,
@@ -1057,25 +996,18 @@ def wx_mini_login(
             ),
         )
         if is_new_user and req.referrer_code:
-            relation = bind_referral_relation(
+            bind_promo_referral_relation(
                 db,
                 invitee=user,
                 referrer_code=str(req.referrer_code).strip().upper(),
                 source=client_source,
             )
-            if relation:
-                register_relation_id = relation.id
         token = create_token(subject=str(user.id), scope="user")
         redis_client.setex(f"user:fp:{user.id}", 30 * 24 * 3600, fp)
         db.commit()
     except Exception:
         db.rollback()
         raise
-
-    if register_relation_id:
-        from app.worker_tasks import dispatch_background_task, grant_register_rewards_async
-
-        dispatch_background_task(grant_register_rewards_async, register_relation_id)
 
     return ok(
         data={
@@ -1120,8 +1052,6 @@ def wx_mini_phone_login(
 
     fp = _get_device_fingerprint(request, req.device_fingerprint)
     client_source = get_client_source(request)
-    register_relation_id: int | None = None
-
     try:
         user, is_new_user = _upsert_miniprogram_phone_user(
             db,
@@ -1138,25 +1068,18 @@ def wx_mini_phone_login(
             ),
         )
         if is_new_user and req.referrer_code:
-            relation = bind_referral_relation(
+            bind_promo_referral_relation(
                 db,
                 invitee=user,
                 referrer_code=str(req.referrer_code).strip().upper(),
                 source=client_source,
             )
-            if relation:
-                register_relation_id = relation.id
         token = create_token(subject=str(user.id), scope="user")
         redis_client.setex(f"user:fp:{user.id}", 30 * 24 * 3600, fp)
         db.commit()
     except Exception:
         db.rollback()
         raise
-
-    if register_relation_id:
-        from app.worker_tasks import dispatch_background_task, grant_register_rewards_async
-
-        dispatch_background_task(grant_register_rewards_async, register_relation_id)
 
     return ok(
         data={
@@ -1258,6 +1181,7 @@ def wx_callback(
                 max_value=1_000_000,
             ),
         )
+        ensure_user_invite_code(db, user)
         token = create_token(subject=str(user.id), scope="user")
         db.commit()
     except Exception:

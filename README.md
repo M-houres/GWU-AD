@@ -56,6 +56,15 @@
   - `JWT_SECRET`
   - `PAYMENT_SIGN_SECRET`
   - `ADMIN_INIT_PASSWORD`
+  - `CELERY_LOCAL_FALLBACK_ENABLED` 必须为 `false`
+
+## 生产启动说明
+
+- 生产环境不要再依赖应用进程内自动迁移。
+- 推荐先执行一次：
+  - `cd backend`
+  - `python -m app.bootstrap`
+- `docker-compose.prod.yml` 已改为容器启动前先执行 `python -m app.bootstrap`，避免多 worker 并发跑迁移/补表。
 
 ## 关键接口（新增）
 

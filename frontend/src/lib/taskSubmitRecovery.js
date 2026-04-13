@@ -1,5 +1,9 @@
 import { fetchAllUserTasks } from "./userRecords"
 
+function sleep(ms) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms))
+}
+
 function normalizeText(value) {
   return String(value || "").trim().toLowerCase()
 }
@@ -101,6 +105,8 @@ export async function recoverSubmittedTask({
   authors,
   sourceFilename,
   submittedAt = Date.now(),
+  attempts = 3,
+  retryDelayMs = 900,
 }) {
   if (!taskType) {
     return null
@@ -113,44 +119,50 @@ export async function recoverSubmittedTask({
     derivedTitle: deriveTitleFromFilename(sourceFilename),
   }
 
-  try {
-    const items = await fetchAllUserTasks(
-      { task_type: taskType },
-      { pageSize: 100, maxPages: 10 }
-    )
-    const windowStart = submittedAt - 10 * 60 * 1000
-    const windowEnd = Date.now() + 2 * 60 * 1000
-
-    const recentCandidates = items
-      .map((task) => ({ task, createdAt: parseTimestamp(task?.created_at) }))
-      .filter((item) => item.createdAt !== null && item.createdAt >= windowStart && item.createdAt <= windowEnd)
-      .map((item) => ({ ...item, score: scoreCandidate(item.task, matcher, submittedAt, item.createdAt) }))
-      .filter((item) => item.score >= 6)
-      .sort((left, right) => right.score - left.score || right.createdAt - left.createdAt)
-
-    if (recentCandidates.length > 0 && recentCandidates[0].score >= 10) {
-      return recentCandidates[0].task
-    }
-
-    const nearTasks = items
-      .map((task) => ({ task, createdAt: parseTimestamp(task?.created_at) }))
-      .filter((item) => item.createdAt !== null)
-      .filter((item) => Math.abs(item.createdAt - submittedAt) <= 45 * 1000)
-      .sort(
-        (left, right) =>
-          Math.abs(left.createdAt - submittedAt) - Math.abs(right.createdAt - submittedAt) ||
-          right.createdAt - left.createdAt
+  for (let attempt = 0; attempt < Math.max(1, attempts); attempt += 1) {
+    try {
+      const items = await fetchAllUserTasks(
+        { task_type: taskType },
+        { pageSize: 100, maxPages: 10 }
       )
+      const windowStart = submittedAt - 10 * 60 * 1000
+      const windowEnd = Date.now() + 2 * 60 * 1000
 
-    if (recentCandidates.length > 0 && nearTasks.length <= 2) {
-      return recentCandidates[0].task
+      const recentCandidates = items
+        .map((task) => ({ task, createdAt: parseTimestamp(task?.created_at) }))
+        .filter((item) => item.createdAt !== null && item.createdAt >= windowStart && item.createdAt <= windowEnd)
+        .map((item) => ({ ...item, score: scoreCandidate(item.task, matcher, submittedAt, item.createdAt) }))
+        .filter((item) => item.score >= 6)
+        .sort((left, right) => right.score - left.score || right.createdAt - left.createdAt)
+
+      if (recentCandidates.length > 0 && recentCandidates[0].score >= 10) {
+        return recentCandidates[0].task
+      }
+
+      const nearTasks = items
+        .map((task) => ({ task, createdAt: parseTimestamp(task?.created_at) }))
+        .filter((item) => item.createdAt !== null)
+        .filter((item) => Math.abs(item.createdAt - submittedAt) <= 45 * 1000)
+        .sort(
+          (left, right) =>
+            Math.abs(left.createdAt - submittedAt) - Math.abs(right.createdAt - submittedAt) ||
+            right.createdAt - left.createdAt
+        )
+
+      if (recentCandidates.length > 0 && nearTasks.length <= 2) {
+        return recentCandidates[0].task
+      }
+
+      if (nearTasks.length === 1) {
+        return nearTasks[0].task
+      }
+    } catch (error) {
+      console.warn("recover_submitted_task_failed", error)
     }
 
-    if (nearTasks.length === 1) {
-      return nearTasks[0].task
+    if (attempt < attempts - 1) {
+      await sleep(retryDelayMs)
     }
-  } catch (error) {
-    console.warn("recover_submitted_task_failed", error)
   }
 
   return null

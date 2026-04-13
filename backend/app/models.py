@@ -1,3 +1,4 @@
+from decimal import Decimal
 from datetime import datetime
 from enum import Enum
 
@@ -7,10 +8,10 @@ from sqlalchemy import (
     Boolean,
     DateTime,
     Enum as SQLEnum,
-    Float,
     ForeignKey,
     Index,
     Integer,
+    Numeric,
     String,
     Text,
     UniqueConstraint,
@@ -31,6 +32,8 @@ class TaskType(str, Enum):
 
 class TaskStatus(str, Enum):
     PENDING = "pending"
+    PREPROCESSING = "preprocessing"
+    QUEUED = "queued"
     RUNNING = "running"
     COMPLETED = "completed"
     FAILED = "failed"
@@ -52,7 +55,32 @@ class CreditType(str, Enum):
     REFERRAL_BONUS = "referral_bonus"
     REFERRAL_FIRST_PAY = "referral_first_pay"
     REFERRAL_RECURRING = "referral_recurring"
+    SHARE_REWARD = "share_reward"
     ADMIN_ADJUST = "admin_adjust"
+
+
+class ShareTaskStatus(str, Enum):
+    TODO = "todo"
+    PENDING = "pending"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+
+
+class PromoBenefitType(str, Enum):
+    CREDITS = "credits"
+    COUPON = "coupon"
+    CASH = "cash"
+
+
+class PromoBenefitStatus(str, Enum):
+    GRANTED = "granted"
+    REVOKED = "revoked"
+
+
+class PromoShareSubmissionStatus(str, Enum):
+    SUBMITTED = "submitted"
+    APPROVED = "approved"
+    REJECTED = "rejected"
 
 
 class User(Base):
@@ -119,7 +147,7 @@ class Order(Base):
     id: Mapped[int] = mapped_column(ID_PK_TYPE, primary_key=True, autoincrement=True)
     order_no: Mapped[str] = mapped_column(String(64), unique=True, index=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
-    amount_cny: Mapped[float] = mapped_column(Float)
+    amount_cny: Mapped[Decimal] = mapped_column(Numeric(10, 2))
     credits: Mapped[int] = mapped_column(Integer)
     source: Mapped[str] = mapped_column(String(20), default="web", index=True)
     status: Mapped[str] = mapped_column(String(20), default="created")
@@ -163,6 +191,7 @@ class Task(Base):
     source_path: Mapped[str] = mapped_column(String(500))
     report_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
     output_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    idempotency_key: Mapped[str | None] = mapped_column(String(128), nullable=True)
     char_count: Mapped[int] = mapped_column(Integer, default=0)
     cost_credits: Mapped[int] = mapped_column(Integer, default=0)
     refund_done: Mapped[bool] = mapped_column(Boolean, default=False)
@@ -174,7 +203,9 @@ class Task(Base):
     user: Mapped[User] = relationship(back_populates="tasks")
 
     __table_args__ = (
+        UniqueConstraint("user_id", "idempotency_key", name="uk_tasks_user_idempotency_key"),
         Index("ix_tasks_user_recent", "user_id", "id"),
+        Index("ix_tasks_status_id", "status", "id"),
     )
 
 
@@ -235,6 +266,28 @@ class Notification(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
 
+class UserShareTaskSubmission(Base):
+    __tablename__ = "user_share_task_submissions"
+
+    id: Mapped[int] = mapped_column(ID_PK_TYPE, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    platform: Mapped[str] = mapped_column(String(32), index=True)
+    reward_credits: Mapped[int] = mapped_column(Integer, default=0)
+    status: Mapped[ShareTaskStatus] = mapped_column(SQLEnum(ShareTaskStatus), default=ShareTaskStatus.PENDING, index=True)
+    screenshot_path: Mapped[str] = mapped_column(String(500))
+    original_filename: Mapped[str] = mapped_column(String(255), default="")
+    share_text: Mapped[str] = mapped_column(String(500), default="")
+    review_note: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    reviewed_by: Mapped[int | None] = mapped_column(ForeignKey("admin_users.id"), nullable=True, index=True)
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "platform", name="uk_user_share_task_platform"),
+    )
+
+
 class RegistrationRiskLog(Base):
     __tablename__ = "registration_risk_logs"
 
@@ -244,6 +297,88 @@ class RegistrationRiskLog(Base):
     user_agent: Mapped[str] = mapped_column(String(300), default="")
     reason: Mapped[str] = mapped_column(String(120))
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
+class PromoBenefitRecord(Base):
+    __tablename__ = "promo_benefit_records"
+
+    id: Mapped[int] = mapped_column(ID_PK_TYPE, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    scene: Mapped[str] = mapped_column(String(32), index=True)
+    benefit_code: Mapped[str] = mapped_column(String(64), index=True)
+    benefit_type: Mapped[PromoBenefitType] = mapped_column(SQLEnum(PromoBenefitType), index=True)
+    status: Mapped[PromoBenefitStatus] = mapped_column(SQLEnum(PromoBenefitStatus), default=PromoBenefitStatus.GRANTED, index=True)
+    title: Mapped[str] = mapped_column(String(120))
+    credit_delta: Mapped[int] = mapped_column(Integer, default=0)
+    amount_cny: Mapped[Decimal] = mapped_column(Numeric(10, 2), default=0)
+    coupon_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    coupon_count: Mapped[int] = mapped_column(Integer, default=0)
+    payout_status: Mapped[str] = mapped_column(String(16), default="pending", index=True)
+    paid_by: Mapped[int | None] = mapped_column(ForeignKey("admin_users.id"), nullable=True, index=True)
+    paid_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    meta_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    granted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "scene", "benefit_code", name="uk_promo_benefit_user_scene_code"),
+    )
+
+
+class PromoClassroom(Base):
+    __tablename__ = "promo_classrooms"
+
+    id: Mapped[int] = mapped_column(ID_PK_TYPE, primary_key=True, autoincrement=True)
+    owner_user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    name: Mapped[str] = mapped_column(String(120))
+    invite_code: Mapped[str] = mapped_column(String(24), unique=True, index=True)
+    level: Mapped[str] = mapped_column(String(24), default="青铜班")
+    member_count: Mapped[int] = mapped_column(Integer, default=1)
+    activity_score: Mapped[int] = mapped_column(Integer, default=60)
+    status: Mapped[str] = mapped_column(String(16), default="active", index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
+
+
+class PromoClassroomMember(Base):
+    __tablename__ = "promo_classroom_members"
+
+    id: Mapped[int] = mapped_column(ID_PK_TYPE, primary_key=True, autoincrement=True)
+    classroom_id: Mapped[int] = mapped_column(ForeignKey("promo_classrooms.id"), index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    role: Mapped[str] = mapped_column(String(16), default="member")
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+    __table_args__ = (
+        UniqueConstraint("classroom_id", "user_id", name="uk_promo_classroom_member"),
+    )
+
+
+class PromoShareSubmission(Base):
+    __tablename__ = "promo_share_submissions"
+
+    id: Mapped[int] = mapped_column(ID_PK_TYPE, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    platform: Mapped[str] = mapped_column(String(32), index=True)
+    tier_key: Mapped[str] = mapped_column(String(24))
+    share_link: Mapped[str] = mapped_column(String(500))
+    payout_account: Mapped[str] = mapped_column(String(120), default="")
+    payout_name: Mapped[str] = mapped_column(String(120), default="")
+    note: Mapped[str] = mapped_column(String(500), default="")
+    status: Mapped[PromoShareSubmissionStatus] = mapped_column(SQLEnum(PromoShareSubmissionStatus), default=PromoShareSubmissionStatus.SUBMITTED, index=True)
+    reward_credits: Mapped[int] = mapped_column(Integer, default=0)
+    reward_amount_cny: Mapped[Decimal] = mapped_column(Numeric(10, 2), default=0)
+    coupon_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    coupon_count: Mapped[int] = mapped_column(Integer, default=0)
+    review_note: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    reviewed_by: Mapped[int | None] = mapped_column(ForeignKey("admin_users.id"), nullable=True, index=True)
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "platform", name="uk_promo_share_user_platform"),
+    )
 
 
 class SystemConfig(Base):

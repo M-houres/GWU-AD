@@ -7,6 +7,7 @@ from types import SimpleNamespace
 import zipfile
 
 from docx import Document
+import pytest
 from sqlalchemy.orm import Session
 
 from app import worker_tasks
@@ -96,6 +97,51 @@ def test_submit_task_stores_metadata_and_unique_storage_paths(
         app.dependency_overrides.pop(current_user, None)
 
 
+def test_submit_task_still_returns_success_when_dispatch_fails_after_commit(
+    client,
+    db_session: Session,
+    monkeypatch,
+    settings_override,
+) -> None:
+    settings = get_settings()
+    old_env = settings.app_env
+    user = User(phone="13800007770", nickname="dispatch-user", credits=10000)
+    db_session.add(user)
+    db_session.commit()
+    db_session.refresh(user)
+    _activate_slot(db_session, platform="cnki", function_type="dedup")
+
+    monkeypatch.setattr("app.worker_tasks.dispatch_background_task", lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("queue down")))
+    app.dependency_overrides[current_user] = lambda: user
+    try:
+        settings.app_env = "dev"
+        resp = client.post(
+            "/api/v1/tasks/submit",
+            data={
+                "task_type": "dedup",
+                "platform": "cnki",
+                "paper_title": "派发异常测试",
+                "authors": "测试作者",
+            },
+            files={
+                "paper": (
+                    "dispatch.docx",
+                    _make_docx_bytes("这是用于验证派发失败后仍返回成功的正文内容。"),
+                    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                )
+            },
+        )
+        assert resp.status_code == 200
+        payload = resp.json()["data"]
+        assert payload["dispatch_mode"] == "failed"
+        task = db_session.get(Task, payload["id"])
+        assert task is not None
+        assert task.result_json["paper_title"] == "派发异常测试"
+    finally:
+        settings.app_env = old_env
+        app.dependency_overrides.pop(current_user, None)
+
+
 def test_process_task_preserves_submission_metadata(
     db_session: Session,
     tmp_path: Path,
@@ -154,9 +200,10 @@ def test_process_task_preserves_submission_metadata(
     assert task.result_json["authors"] == "王五"
 
 
-def test_dispatch_background_task_falls_back_to_local_queue_in_prod(monkeypatch) -> None:
+def test_dispatch_background_task_rejects_local_fallback_in_prod(monkeypatch) -> None:
     settings = get_settings()
     old_env = settings.app_env
+    old_local_fallback = settings.celery_local_fallback_enabled
 
     class _DummyQueue:
         def __init__(self) -> None:
@@ -172,14 +219,14 @@ def test_dispatch_background_task_falls_back_to_local_queue_in_prod(monkeypatch)
         def delay(*_args, **_kwargs):
             raise AssertionError("delay should not be called when broker is unavailable")
 
-    queue = _DummyQueue()
     settings.app_env = "prod"
+    settings.celery_local_fallback_enabled = True
     monkeypatch.setattr(worker_tasks, "_celery_broker_available", lambda: False)
     monkeypatch.setattr(worker_tasks, "_ensure_local_worker", lambda: None)
-    monkeypatch.setattr(worker_tasks, "_local_task_queue", queue)
     try:
-        mode = worker_tasks.dispatch_background_task(_DummyTask(), 1, foo="bar")
-        assert mode == "local-queue"
-        assert len(queue.items) == 1
+        with pytest.raises(RuntimeError) as exc_info:
+            worker_tasks.dispatch_background_task(_DummyTask(), 1, foo="bar")
+        assert "celery broker unavailable" in str(exc_info.value)
     finally:
         settings.app_env = old_env
+        settings.celery_local_fallback_enabled = old_local_fallback

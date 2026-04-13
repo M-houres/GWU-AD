@@ -1,219 +1,112 @@
 <template>
-  <section class="scholar-panel">
-    <div class="scholar-panel__header">
-      <div class="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <div class="scholar-kicker">Credits Packages</div>
-          <h3 class="scholar-subtitle">积分套餐</h3>
-          <p class="scholar-lead">
-            充值页套餐实时同步，当前支持微信支付和联调模式。
-          </p>
-        </div>
-        <span class="scholar-badge" :class="paymentTestMode ? 'scholar-badge--warn' : 'scholar-badge--info'">
+  <section class="pricing-stage">
+    <div class="pricing-stage__intro">
+      <div class="pricing-stage__top-tags">
+        <span class="pricing-stage__tag pricing-stage__tag--solid">微信支付</span>
+        <span class="pricing-stage__tag" :class="paymentTestMode ? 'pricing-stage__tag--warn' : 'pricing-stage__tag--soft'">
           {{ paymentTipText }}
         </span>
       </div>
     </div>
 
-    <div class="scholar-panel__body">
-      <p v-if="paymentTestMode" class="scholar-note scholar-note--warn">
-        当前为联调支付模式，二维码仅用于测试链路，不代表真实扣款。
-      </p>
+    <p v-if="paymentTestMode" class="scholar-note scholar-note--warn" style="margin-top: 18px">
+      当前为联调支付模式，二维码仅用于测试链路，不代表真实扣款。
+    </p>
+    <p v-if="errorText" class="scholar-note scholar-note--danger" style="margin-top: 18px">
+      {{ errorText }}
+    </p>
+    <p v-if="okText" class="scholar-note scholar-note--success" style="margin-top: 18px">
+      {{ okText }}
+    </p>
 
-      <div class="scholar-option-grid md:grid-cols-2" style="margin-top: 18px">
-        <button
-          v-for="item in packages"
-          :key="item.name"
-          type="button"
-          class="scholar-option-card"
-          :disabled="loading"
-          @click="openPay(item)"
-        >
-          <div class="flex items-start justify-between gap-3">
-            <div class="text-lg font-bold tracking-[0.01em] text-[var(--ink)]">{{ item.name }}</div>
-            <span v-if="item.badge" class="scholar-badge scholar-badge--success">{{ item.badge }}</span>
-          </div>
-          <div class="mt-3 text-sm leading-7 text-[var(--ink-soft)]">
-            {{ packageDescription(item) }}
-          </div>
-          <div class="mt-5 flex items-end justify-between gap-3">
-            <div class="text-3xl font-semibold text-[var(--ink)]">¥{{ Number(item.price).toFixed(2) }}</div>
-            <div class="text-sm font-medium text-[var(--accent)]">
-              {{ Number(item.credits).toLocaleString() }} 积分
+    <div v-if="featuredPackages.length" class="pricing-stage__grid">
+      <button
+        v-for="item in featuredPackages"
+        :key="item.packageName"
+        type="button"
+        class="pricing-card"
+        :class="[`is-${item.theme}`, { 'is-selected': selectedPackage?.packageName === item.packageName, 'is-recommended': item.recommended }]"
+        :disabled="loading && selectedPackage?.packageName !== item.packageName"
+        @click="selectPackage(item)"
+      >
+        <div class="pricing-card__flag-row">
+          <span class="pricing-card__flag">{{ item.badge }}</span>
+          <span v-if="item.recommended" class="pricing-card__flag pricing-card__flag--dark">主推</span>
+        </div>
+
+        <div class="pricing-card__head">
+          <div class="pricing-card__name">{{ item.displayName }}</div>
+          <div class="pricing-card__audience">{{ item.audience }}</div>
+        </div>
+
+        <div class="pricing-card__price">
+          <strong>¥{{ item.priceLabel }}</strong>
+          <span>{{ item.creditsLabel }}</span>
+        </div>
+
+        <p class="pricing-card__summary">{{ item.summary }}</p>
+
+        <div class="pricing-card__estimate">
+          <div class="pricing-card__estimate-label">按约 12000 字论文估算</div>
+          <div class="pricing-card__estimate-grid">
+            <div v-for="estimate in item.estimates" :key="estimate.label" class="pricing-card__estimate-item">
+              <span>{{ estimate.label }}</span>
+              <strong>{{ estimate.value }}</strong>
             </div>
-          </div>
-        </button>
-      </div>
-
-      <p v-if="errorText" class="scholar-note scholar-note--danger" style="margin-top: 18px">
-        {{ errorText }}
-      </p>
-      <p v-if="okText" class="scholar-note scholar-note--success" style="margin-top: 18px">
-        {{ okText }}
-      </p>
-    </div>
-
-    <div v-if="showModal" class="scholar-modal" @click.self="closeModal">
-      <div class="scholar-modal__dialog buy-credits-modal">
-        <div class="scholar-panel__header">
-          <div class="flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <div class="scholar-kicker">Payment Order</div>
-              <h3 class="scholar-subtitle">支付订单</h3>
-              <p class="scholar-lead">
-                {{ selectedPackage?.name || "-" }} / ¥{{ selectedPackage?.price || "-" }}
-              </p>
-            </div>
-            <button class="scholar-button scholar-button--secondary" type="button" @click="closeModal">
-              关闭
-            </button>
           </div>
         </div>
 
-        <div class="scholar-panel__body">
-          <div class="scholar-inline-actions buy-credits__providers">
-            <button
-              v-for="p in providers"
-              :key="p.value"
-              type="button"
-              class="scholar-chip"
-              :class="{ 'is-active': provider === p.value }"
-              @click="switchProvider(p.value)"
-            >
-              {{ p.label }}
-            </button>
-          </div>
+        <div class="pricing-card__footer">
+          <span class="pricing-card__cta">{{ selectedPackage?.packageName === item.packageName ? "当前方案" : "选择方案" }}</span>
+        </div>
+      </button>
+    </div>
 
-          <div v-if="isGuest" class="scholar-note" style="margin-top: 18px">
-            <div>游客可先查看套餐与支付方式，真正创建订单时再登录。</div>
-            <div class="scholar-inline-actions" style="margin-top: 14px">
-              <button class="scholar-button" type="button" @click="goLoginForOrder">登录后创建订单</button>
-              <button class="scholar-button scholar-button--secondary" type="button" @click="closeModal">
-                继续浏览
-              </button>
+    <section v-if="selectedPackage" class="pricing-checkout">
+      <div class="pricing-checkout__payment pricing-checkout__payment--solo">
+        <div class="pricing-checkout__mini-head">
+          <strong class="pricing-checkout__mini-name">{{ selectedPackage.displayName }}</strong>
+          <span class="pricing-checkout__mini-method">{{ providerMeta.label }}</span>
+        </div>
+
+        <div v-if="isGuest" class="pricing-checkout__guest">
+          <div class="pricing-checkout__qr-wrap">
+            <div class="pricing-checkout__qr-frame">
+              <div class="pricing-checkout__qr-placeholder">
+                <span class="pricing-checkout__qr-spinner"></span>
+                <span>登录后生成二维码</span>
+              </div>
+            </div>
+            <div class="pricing-checkout__qr-caption">
+              <span class="pricing-checkout__qr-method">{{ providerMeta.label }}</span>
+              <strong>¥{{ selectedPackage.priceLabel }}</strong>
+            </div>
+          </div>
+          <button class="scholar-button" type="button" @click="goLoginForOrder">登录后购买</button>
+        </div>
+
+        <div v-else class="pricing-checkout__pay-body">
+          <div class="pricing-checkout__qr-wrap">
+            <div class="pricing-checkout__qr-frame" :class="{ 'is-loading': loading && !qrCodeDataUrl }">
+              <img v-if="qrCodeDataUrl" :src="qrCodeDataUrl" alt="微信支付二维码" class="pricing-checkout__qr-image" />
+              <div v-else class="pricing-checkout__qr-placeholder">
+                <span class="pricing-checkout__qr-spinner"></span>
+                <span>{{ loading ? "正在生成支付码..." : "支付码待生成" }}</span>
+              </div>
+            </div>
+            <div class="pricing-checkout__qr-caption">
+              <span class="pricing-checkout__qr-method">{{ providerMeta.label }}</span>
+              <strong>¥{{ selectedPackage.priceLabel }}</strong>
             </div>
           </div>
 
-          <div v-else class="buy-credits-paydesk">
-            <section class="buy-credits-summary">
-              <div class="buy-credits-summary__head">
-                <span class="buy-credits-summary__eyebrow">订单摘要</span>
-                <span class="scholar-badge" :class="orderStatusBadgeClass">{{ orderStatusText }}</span>
-              </div>
-
-              <div class="buy-credits-summary__package">
-                <div class="buy-credits-summary__title">{{ selectedPackage?.name || "-" }}</div>
-                <p class="buy-credits-summary__desc">
-                  订单创建后系统会自动轮询支付状态，到账后立即刷新积分，无需手动提交回执。
-                </p>
-              </div>
-
-              <div class="buy-credits-summary__amount">
-                <span class="buy-credits-summary__amount-label">应付金额</span>
-                <strong>¥{{ selectedPackage?.price || "-" }}</strong>
-              </div>
-
-              <div class="buy-credits-summary__facts">
-                <article class="buy-credits-summary__fact">
-                  <span>支付方式</span>
-                  <strong>{{ providerMeta.label }}</strong>
-                </article>
-                <article class="buy-credits-summary__fact">
-                  <span>到账积分</span>
-                  <strong>{{ selectedPackage ? Number(selectedPackage.credits).toLocaleString() : "-" }}</strong>
-                </article>
-                <article class="buy-credits-summary__fact">
-                  <span>订单号</span>
-                  <strong>{{ orderNo || "-" }}</strong>
-                </article>
-                <article class="buy-credits-summary__fact">
-                  <span>剩余时间</span>
-                  <strong>{{ formattedRemain }}</strong>
-                </article>
-              </div>
-
-              <div class="buy-credits-summary__timeline">
-                <div class="buy-credits-summary__timeline-label">
-                  <span>支付时效</span>
-                  <span>{{ remainSeconds }} 秒</span>
-                </div>
-                <div class="buy-credits-summary__timeline-track">
-                  <div class="buy-credits-summary__timeline-fill" :style="{ width: `${countdownProgress}%` }"></div>
-                </div>
-              </div>
-
-              <div class="buy-credits-summary__notice">
-                <div class="buy-credits-summary__notice-title">支付说明</div>
-                <p>{{ providerMeta.notice }}</p>
-              </div>
-            </section>
-
-            <section class="buy-credits-qrpanel" :class="providerMeta.themeClass">
-              <div class="buy-credits-qrpanel__top">
-                <div>
-                  <div class="buy-credits-qrpanel__brand">{{ providerMeta.panelLabel }}</div>
-                  <h4 class="buy-credits-qrpanel__title">请使用{{ providerMeta.scanWith }}扫码支付</h4>
-                  <p class="buy-credits-qrpanel__desc">{{ providerMeta.description }}</p>
-                </div>
-                <div class="buy-credits-qrpanel__signal">
-                  <span class="buy-credits-qrpanel__signal-dot"></span>
-                  <span>{{ qrStatusText }}</span>
-                </div>
-              </div>
-
-              <div class="buy-credits-qrpanel__stage">
-                <div class="buy-credits-qrpanel__frame" :class="{ 'is-loading': loading && !qrCodeDataUrl }">
-                  <span class="buy-credits-qrpanel__corner buy-credits-qrpanel__corner--lt"></span>
-                  <span class="buy-credits-qrpanel__corner buy-credits-qrpanel__corner--rt"></span>
-                  <span class="buy-credits-qrpanel__corner buy-credits-qrpanel__corner--lb"></span>
-                  <span class="buy-credits-qrpanel__corner buy-credits-qrpanel__corner--rb"></span>
-
-                  <img
-                    v-if="qrCodeDataUrl"
-                    :src="qrCodeDataUrl"
-                    alt="payment qrcode"
-                    class="buy-credits-qrpanel__image"
-                  />
-                  <div v-else class="buy-credits-qrpanel__placeholder">
-                    <span class="buy-credits-qrpanel__spinner"></span>
-                    <span>{{ loading ? "正在生成支付码..." : "支付码待生成" }}</span>
-                  </div>
-                </div>
-
-                <div class="buy-credits-qrpanel__caption">
-                  <strong>{{ providerMeta.caption }}</strong>
-                  <span>{{ providerMeta.captionSubtext }}</span>
-                </div>
-              </div>
-
-              <ol class="buy-credits-steps">
-                <li v-for="step in providerMeta.steps" :key="step.title" class="buy-credits-steps__item">
-                  <span class="buy-credits-steps__index">{{ step.index }}</span>
-                  <div class="buy-credits-steps__content">
-                    <strong>{{ step.title }}</strong>
-                    <span>{{ step.text }}</span>
-                  </div>
-                </li>
-              </ol>
-
-              <div class="buy-credits-qrpanel__actions">
-                <button class="scholar-button scholar-button--secondary" type="button" @click="refreshOrder">
-                  刷新二维码
-                </button>
-                <button
-                  v-if="paymentTestMode"
-                  class="scholar-button"
-                  type="button"
-                  @click="mockPay"
-                >
-                  模拟已支付
-                </button>
-              </div>
-            </section>
+          <div class="pricing-checkout__actions">
+            <button class="scholar-button scholar-button--secondary" type="button" @click="refreshOrder">刷新二维码</button>
+            <button v-if="paymentTestMode" class="scholar-button" type="button" @click="mockPay">模拟已支付</button>
           </div>
         </div>
       </div>
-    </div>
+    </section>
   </section>
 </template>
 
@@ -225,18 +118,62 @@ import { userHttp } from "../lib/http"
 import { ensureUserLogin } from "../lib/requireLogin"
 import { getUserToken } from "../lib/session"
 
+const FEATURE_PRESETS = [
+  {
+    displayName: "轻量自检包",
+    audience: "适合初稿自查、先看 AI 风险",
+    badge: "低门槛开始",
+    summary: "先做一轮基础体检，快速判断论文当前的风险与修改方向。",
+    note: "适合第一次购买、先小范围验证",
+    theme: "slate",
+    recommended: false,
+  },
+  {
+    displayName: "毕业冲刺包",
+    audience: "适合定稿前集中检测、降AIGC、降重复率",
+    badge: "毕业季主推",
+    summary: "覆盖最常见的论文处理路径，适合定稿前反复检测与集中优化。",
+    note: "性价比最高，适合作为主力方案",
+    theme: "azure",
+    recommended: true,
+  },
+  {
+    displayName: "团队共享包",
+    audience: "适合同学拼单、多人共用、长期使用",
+    badge: "长期高频",
+    summary: "适合多人拼单或高频使用，覆盖多轮检测与反复修改。",
+    note: "适合毕业季高频处理和长期储备",
+    theme: "amber",
+    recommended: false,
+  },
+  {
+    displayName: "长期储备包",
+    audience: "适合导师组、工作室、长期论文处理",
+    badge: "大额储备",
+    summary: "适合长期储备积分，单次成本最低，覆盖多篇论文连续处理。",
+    note: "适合多篇论文和长期使用场景",
+    theme: "graphite",
+    recommended: false,
+  },
+]
+
 const emit = defineEmits(["paid"])
 const router = useRouter()
 const route = useRoute()
 
-const packages = ref([])
+const rawPackages = ref([])
+const featuredPackages = ref([])
+const taskRates = ref({
+  aigc_rate: 1,
+  dedup_rate: 3,
+  rewrite_rate: 2,
+})
 const loading = ref(false)
 const errorText = ref("")
 const okText = ref("")
 const paymentTestMode = ref(false)
 const supportedProviderValues = ref([])
 
-const showModal = ref(false)
 const selectedPackage = ref(null)
 const provider = ref("mock")
 const orderNo = ref("")
@@ -249,18 +186,17 @@ let countdownTimer = null
 let pollTimer = null
 
 const isGuest = computed(() => !getUserToken())
-const frontendVisibleProviders = new Set(["mock", "wechat"])
 const allProviders = [
   { value: "mock", label: "测试支付" },
   { value: "wechat", label: "微信支付" },
-  { value: "alipay", label: "支付宝" },
 ]
 const providers = computed(() => {
-  const visibleProviders = allProviders.filter((item) => frontendVisibleProviders.has(item.value))
   if (supportedProviderValues.value.length > 0) {
-    return visibleProviders.filter((item) => supportedProviderValues.value.includes(item.value))
+    return allProviders.filter((item) => supportedProviderValues.value.includes(item.value))
   }
-  return paymentTestMode.value ? visibleProviders.filter((item) => item.value === "mock") : visibleProviders.filter((item) => item.value === "wechat")
+  return paymentTestMode.value
+    ? allProviders.filter((item) => item.value === "mock")
+    : allProviders.filter((item) => item.value === "wechat")
 })
 
 const orderStatusText = computed(() => {
@@ -283,59 +219,20 @@ const orderStatusBadgeClass = computed(() => {
   return map[orderStatus.value] || "scholar-badge--info"
 })
 
-const paymentTipText = computed(() =>
-  paymentTestMode.value ? "联调支付模式" : "支持微信支付"
-)
+const paymentTipText = computed(() => (paymentTestMode.value ? "联调支付模式" : "微信支付已开通"))
 
 const providerMeta = computed(() => {
   const map = {
     wechat: {
       label: "微信支付",
-      panelLabel: "微信收银台",
-      scanWith: "微信",
-      description: "打开微信扫一扫完成支付，支付成功后页面会自动确认到账。",
-      notice: "请在当前设备保持本页打开，扫码完成后通常会在数秒内自动完成入账。",
-      caption: "请使用微信扫一扫",
-      captionSubtext: "推荐在手机端完成支付，支付成功后自动回到当前页面。",
-      themeClass: "is-wechat",
-      steps: [
-        { index: "01", title: "打开微信", text: "进入微信首页或聊天页，点击右上角扫一扫。" },
-        { index: "02", title: "扫描二维码", text: "对准右侧支付码，确认订单金额与套餐信息。" },
-        { index: "03", title: "等待到账", text: "支付成功后页面自动轮询，无需手动刷新列表。" },
-      ],
-    },
-    alipay: {
-      label: "支付宝",
-      panelLabel: "支付宝收银台",
-      scanWith: "支付宝",
-      description: "使用支付宝扫一扫完成支付，系统会持续检查订单状态并自动更新。",
-      notice: "如二维码过期，直接刷新即可生成新的支付码，原订单不会重复扣款。",
-      caption: "请使用支付宝扫一扫",
-      captionSubtext: "支付完成后保持页面停留片刻，系统会自动同步支付结果。",
-      themeClass: "is-alipay",
-      steps: [
-        { index: "01", title: "打开支付宝", text: "进入支付宝首页，点击扫一扫。" },
-        { index: "02", title: "确认订单", text: "核对当前套餐金额后完成支付。" },
-        { index: "03", title: "自动到账", text: "状态更新后系统会自动发放对应积分。" },
-      ],
+      captionText: "请使用微信扫一扫，支付成功后自动到账。",
     },
     mock: {
       label: "测试支付",
-      panelLabel: "联调收银台",
-      scanWith: "测试工具",
-      description: "当前为联调模式，二维码仅用于验证支付链路与前端流程，不会真实扣款。",
-      notice: "你可以直接点击“模拟已支付”验证充值到账流程，也可以刷新二维码重测下单链路。",
-      caption: "联调二维码",
-      captionSubtext: "仅用于联调与验收，不会触发真实支付。",
-      themeClass: "is-mock",
-      steps: [
-        { index: "01", title: "创建测试单", text: "系统先生成一笔测试订单并显示二维码。" },
-        { index: "02", title: "验证链路", text: "可扫码验证页面展示，或直接点击模拟支付。" },
-        { index: "03", title: "确认到账", text: "支付成功后检查积分到账与页面回调是否正常。" },
-      ],
+      captionText: "当前为联调模式，仅用于验证支付链路。",
     },
   }
-  return map[provider.value] || map.mock
+  return map[provider.value] || map.wechat
 })
 
 const formattedRemain = computed(() => {
@@ -351,58 +248,115 @@ const countdownProgress = computed(() => {
   return Math.round((remain / total) * 100)
 })
 
-const qrStatusText = computed(() => {
-  if (orderStatus.value === "paid") return "已到账"
-  if (orderStatus.value === "closed") return "二维码已过期"
-  if (loading.value && !qrCodeDataUrl.value) return "支付码生成中"
-  return `有效期 ${formattedRemain.value}`
-})
-
 onMounted(loadPackages)
 onUnmounted(stopTimers)
 
 async function loadPackages() {
   errorText.value = ""
   try {
-    const data = await userHttp.get("/billing/packages", { timeout: 30000 })
-    packages.value = data.items || []
-    if (typeof data.payment_test_mode === "boolean") {
-      paymentTestMode.value = data.payment_test_mode
+    const [packageData, rateData] = await Promise.all([
+      userHttp.get("/billing/packages", { timeout: 30000 }),
+      userHttp.get("/tasks/rates", { timeout: 30000 }).catch(() => null),
+    ])
+    rawPackages.value = Array.isArray(packageData?.items) ? packageData.items : []
+    featuredPackages.value = buildFeaturedPackages(rawPackages.value, rateData || {})
+
+    if (typeof packageData?.payment_test_mode === "boolean") {
+      paymentTestMode.value = packageData.payment_test_mode
     }
-    if (Array.isArray(data.supported_providers)) {
-      supportedProviderValues.value = data.supported_providers
+    if (Array.isArray(packageData?.supported_providers)) {
+      supportedProviderValues.value = packageData.supported_providers
     }
+    if (rateData && typeof rateData === "object") {
+      taskRates.value = {
+        aigc_rate: Number(rateData.aigc_rate || 1),
+        dedup_rate: Number(rateData.dedup_rate || 3),
+        rewrite_rate: Number(rateData.rewrite_rate || 2),
+      }
+    }
+
     const defaultProvider = providers.value[0]?.value
     if (defaultProvider) {
       provider.value = defaultProvider
     }
+    const defaultPackage = featuredPackages.value.find((item) => item.recommended) || featuredPackages.value[0] || null
+    if (defaultPackage) {
+      await selectPackage(defaultPackage, { silentWhenSame: false })
+    }
   } catch (error) {
-    packages.value = []
+    featuredPackages.value = []
+    rawPackages.value = []
     errorText.value = resolvePaymentError(error, "加载套餐失败，请稍后重试")
   }
 }
 
-function packageDescription(item) {
-  const text = String(item?.description || "").trim()
-  if (text) {
-    return text
+function buildFeaturedPackages(items, rateData) {
+  const source = Array.isArray(items) ? items.slice(0, 4) : []
+  const rates = {
+    aigc_rate: Number(rateData?.aigc_rate || taskRates.value.aigc_rate || 1),
+    dedup_rate: Number(rateData?.dedup_rate || taskRates.value.dedup_rate || 3),
+    rewrite_rate: Number(rateData?.rewrite_rate || taskRates.value.rewrite_rate || 2),
   }
-  return "适合常规论文处理场景，可用于 AIGC 检测、降重复率和降AIGC任务。"
+  return source.map((pkg, index) => {
+    const preset = FEATURE_PRESETS[index] || FEATURE_PRESETS[FEATURE_PRESETS.length - 1]
+    return {
+      packageName: pkg.name,
+      displayName: preset.displayName,
+      audience: preset.audience,
+      badge: pkg.badge || preset.badge,
+      summary: preset.summary,
+      theme: preset.theme,
+      recommended: preset.recommended,
+      price: Number(pkg.price || 0),
+      priceLabel: Number(pkg.price || 0).toFixed(2),
+      credits: Number(pkg.credits || 0),
+      creditsLabel: `${Number(pkg.credits || 0).toLocaleString()} 积分`,
+      description: String(pkg.description || "").trim(),
+      estimates: buildEstimateCards(Number(pkg.credits || 0), rates),
+    }
+  })
 }
 
-async function openPay(item) {
+function buildEstimateCards(credits, rates) {
+  const estimateCount = (rate) => {
+    const cost = Math.max(1, Number(rate || 1) * 12000)
+    const count = Math.floor(credits / cost)
+    return count <= 0 ? "< 1 次" : `${count} 次`
+  }
+  return [
+    { label: "AIGC检测", value: estimateCount(rates.aigc_rate) },
+    { label: "降AIGC率", value: estimateCount(rates.rewrite_rate) },
+    { label: "降重复率", value: estimateCount(rates.dedup_rate) },
+  ]
+}
+
+async function selectPackage(item, { silentWhenSame = true } = {}) {
+  if (!item) return
+  if (silentWhenSame && selectedPackage.value?.packageName === item.packageName) return
+  selectedPackage.value = item
   errorText.value = ""
   okText.value = ""
-  selectedPackage.value = item
-  provider.value = providers.value[0]?.value || "mock"
+  resetOrderState()
+  if (providers.value.length > 0) {
+    provider.value = providers.value[0].value
+  }
+  if (isGuest.value || providers.value.length === 0) {
+    return
+  }
+  await createOrder()
+}
+
+function resetOrderState() {
+  stopTimers()
   orderNo.value = ""
   qrCodeDataUrl.value = ""
   remainSeconds.value = 0
   expireSecondsTotal.value = 300
   orderStatus.value = "created"
-  showModal.value = true
-  stopTimers()
-  if (isGuest.value) {
+}
+
+async function refreshOrder() {
+  if (!ensureUserLogin(router, route, "/app/buy")) {
     return
   }
   await createOrder()
@@ -417,22 +371,19 @@ async function switchProvider(nextProvider) {
   await createOrder()
 }
 
-async function refreshOrder() {
-  if (!ensureUserLogin(router, route, "/app/buy")) {
-    return
-  }
-  await createOrder()
-}
-
 async function createOrder() {
   if (!selectedPackage.value) return
   loading.value = true
   errorText.value = ""
   try {
-    const data = await userHttp.post("/billing/create-order", {
-      package_name: selectedPackage.value.name,
-      provider: provider.value,
-    }, { timeout: 45000 })
+    const data = await userHttp.post(
+      "/billing/create-order",
+      {
+        package_name: selectedPackage.value.packageName,
+        provider: provider.value,
+      },
+      { timeout: 45000 }
+    )
     orderNo.value = data.order_no
     qrCodeDataUrl.value = data.qrcode_data_url
     expireSecondsTotal.value = Number(data.expire_seconds || 300)
@@ -448,7 +399,7 @@ async function createOrder() {
 
 function startTimers() {
   stopTimers()
-  countdownTimer = setInterval(() => {
+  countdownTimer = window.setInterval(() => {
     remainSeconds.value -= 1
     if (remainSeconds.value <= 0) {
       remainSeconds.value = 0
@@ -456,7 +407,7 @@ function startTimers() {
       orderStatus.value = "closed"
     }
   }, 1000)
-  pollTimer = setInterval(checkOrderStatus, 3000)
+  pollTimer = window.setInterval(checkOrderStatus, 3000)
 }
 
 function stopTimers() {
@@ -486,7 +437,7 @@ async function checkOrderStatus() {
       stopTimers()
     }
   } catch {
-    // Ignore polling failures to avoid interrupting the checkout flow.
+    // Keep polling silently to avoid interrupting checkout.
   }
 }
 
@@ -506,9 +457,7 @@ async function mockPay() {
 
 function resolvePaymentError(error, fallback = "操作失败") {
   const message = String(error?.message || "").trim()
-  if (!message) {
-    return fallback
-  }
+  if (!message) return fallback
   if (message.includes("网络连接异常")) {
     return "支付链路连接短暂波动，请稍候重试。若订单可能已创建，请先刷新二维码，避免重复支付。"
   }
@@ -524,14 +473,8 @@ function resolvePaymentError(error, fallback = "操作失败") {
 function onPaySuccess(data) {
   stopTimers()
   orderStatus.value = "paid"
-  showModal.value = false
   okText.value = `支付成功，订单号 ${orderNo.value}`
   emit("paid", data)
-}
-
-function closeModal() {
-  showModal.value = false
-  stopTimers()
 }
 
 function goLoginForOrder() {
@@ -540,543 +483,435 @@ function goLoginForOrder() {
 </script>
 
 <style scoped>
-.buy-credits-modal {
-  max-width: 1040px;
-  background:
-    linear-gradient(180deg, rgba(250, 253, 255, 0.99), rgba(244, 249, 255, 0.98)),
-    rgba(248, 252, 255, 0.97);
-}
-
-.buy-credits__providers {
-  gap: 10px;
-}
-
-.buy-credits-paydesk {
+.pricing-stage {
   display: grid;
-  grid-template-columns: minmax(280px, 0.92fr) minmax(360px, 1.08fr);
-  gap: 18px;
-  margin-top: 18px;
-  align-items: stretch;
-}
-
-.buy-credits-summary,
-.buy-credits-qrpanel {
-  position: relative;
-  overflow: hidden;
-  border-radius: 28px;
-}
-
-.buy-credits-summary {
-  display: flex;
-  flex-direction: column;
-  gap: 18px;
-  padding: 24px;
-  border: 1px solid rgba(46, 94, 179, 0.12);
-  background:
-    radial-gradient(circle at top left, rgba(53, 120, 231, 0.12), transparent 36%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(245, 249, 255, 0.92));
-  box-shadow:
-    0 22px 44px rgba(23, 60, 121, 0.08),
-    inset 0 1px 0 rgba(255, 255, 255, 0.72);
-}
-
-.buy-credits-summary__head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.buy-credits-summary__eyebrow {
-  display: inline-flex;
-  align-items: center;
-  min-height: 34px;
-  padding: 0 14px;
-  border-radius: 999px;
-  background: rgba(38, 110, 225, 0.1);
-  color: rgba(22, 66, 135, 0.92);
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-}
-
-.buy-credits-summary__package {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.buy-credits-summary__title {
-  color: #112a4d;
-  font-size: 26px;
-  line-height: 1.2;
-  font-weight: 700;
-  letter-spacing: -0.02em;
-}
-
-.buy-credits-summary__desc {
-  margin: 0;
-  color: #5a6a7d;
-  font-size: 14px;
-  line-height: 1.75;
-}
-
-.buy-credits-summary__amount {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 18px 20px;
-  border-radius: 24px;
-  background: rgba(255, 255, 255, 0.88);
-  border: 1px solid rgba(46, 94, 179, 0.1);
-}
-
-.buy-credits-summary__amount-label {
-  color: #6b7b8f;
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-}
-
-.buy-credits-summary__amount strong {
-  color: #102746;
-  font-size: 40px;
-  line-height: 1;
-  font-weight: 700;
-  letter-spacing: -0.04em;
-}
-
-.buy-credits-summary__facts {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
-}
-
-.buy-credits-summary__fact {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  min-height: 94px;
-  padding: 16px 18px;
-  border-radius: 22px;
-  background: rgba(255, 255, 255, 0.82);
-  border: 1px solid rgba(46, 94, 179, 0.1);
-}
-
-.buy-credits-summary__fact span {
-  color: #7a8796;
-  font-size: 12px;
-  line-height: 1.3;
-}
-
-.buy-credits-summary__fact strong {
-  color: #193457;
-  font-size: 15px;
-  line-height: 1.45;
-  font-weight: 700;
-  word-break: break-word;
-}
-
-.buy-credits-summary__timeline {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.buy-credits-summary__timeline-label {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  color: #5f7187;
-  font-size: 13px;
-  font-weight: 600;
-}
-
-.buy-credits-summary__timeline-track {
-  width: 100%;
-  height: 10px;
-  overflow: hidden;
-  border-radius: 999px;
-  background: rgba(57, 108, 189, 0.12);
-}
-
-.buy-credits-summary__timeline-fill {
-  height: 100%;
-  border-radius: inherit;
-  background: linear-gradient(90deg, #33b879 0%, #21a868 45%, #198754 100%);
-  box-shadow: 0 0 18px rgba(33, 168, 104, 0.32);
-  transition: width 0.32s ease;
-}
-
-.buy-credits-summary__notice {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 16px 18px;
-  border-radius: 22px;
-  background: rgba(16, 39, 70, 0.92);
-  color: rgba(242, 248, 255, 0.96);
-}
-
-.buy-credits-summary__notice-title {
-  font-size: 13px;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-}
-
-.buy-credits-summary__notice p {
-  margin: 0;
-  color: rgba(230, 238, 247, 0.9);
-  font-size: 13px;
-  line-height: 1.75;
-}
-
-.buy-credits-qrpanel {
-  display: flex;
-  flex-direction: column;
-  gap: 18px;
-  min-height: 100%;
-  padding: 24px;
-  border: 1px solid rgba(26, 62, 122, 0.12);
-  box-shadow:
-    0 26px 52px rgba(16, 53, 110, 0.1),
-    inset 0 1px 0 rgba(255, 255, 255, 0.78);
-}
-
-.buy-credits-qrpanel::before {
-  content: "";
-  position: absolute;
-  top: -80px;
-  right: -70px;
-  width: 220px;
-  height: 220px;
-  border-radius: 999px;
-  opacity: 0.8;
-  pointer-events: none;
-}
-
-.buy-credits-qrpanel.is-wechat {
-  background:
-    linear-gradient(180deg, rgba(239, 252, 245, 0.98), rgba(248, 255, 251, 0.96)),
-    #f7fff9;
-}
-
-.buy-credits-qrpanel.is-wechat::before {
-  background: radial-gradient(circle, rgba(21, 187, 107, 0.2), transparent 72%);
-}
-
-.buy-credits-qrpanel.is-alipay {
-  background:
-    linear-gradient(180deg, rgba(240, 249, 255, 0.98), rgba(247, 252, 255, 0.96)),
-    #f6fbff;
-}
-
-.buy-credits-qrpanel.is-alipay::before {
-  background: radial-gradient(circle, rgba(36, 149, 255, 0.2), transparent 72%);
-}
-
-.buy-credits-qrpanel.is-mock {
-  background:
-    linear-gradient(180deg, rgba(247, 244, 255, 0.98), rgba(252, 250, 255, 0.96)),
-    #fbf8ff;
-}
-
-.buy-credits-qrpanel.is-mock::before {
-  background: radial-gradient(circle, rgba(115, 90, 255, 0.18), transparent 72%);
-}
-
-.buy-credits-qrpanel__top {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
   gap: 16px;
 }
 
-.buy-credits-qrpanel__brand {
-  display: inline-flex;
-  align-items: center;
-  min-height: 32px;
-  padding: 0 12px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.76);
-  color: #21456f;
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
+.pricing-stage__intro {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
 }
 
-.buy-credits-qrpanel__title {
-  margin: 12px 0 8px;
-  color: #11294a;
-  font-size: 28px;
-  line-height: 1.15;
-  font-weight: 700;
-  letter-spacing: -0.03em;
+.pricing-stage__top-tags {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-start;
+  gap: 10px;
 }
 
-.buy-credits-qrpanel__desc {
-  margin: 0;
-  max-width: 420px;
-  color: #607187;
-  font-size: 14px;
-  line-height: 1.75;
-}
-
-.buy-credits-qrpanel__signal {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  min-height: 38px;
+.pricing-stage__tag {
+  min-height: 36px;
   padding: 0 14px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.72);
-  color: #274a74;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   font-size: 12px;
   font-weight: 700;
-  white-space: nowrap;
 }
 
-.buy-credits-qrpanel__signal-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 999px;
-  background: #21a868;
-  box-shadow: 0 0 0 6px rgba(33, 168, 104, 0.14);
+.pricing-stage__tag--solid {
+  background: linear-gradient(135deg, #1c6be4 0%, #174fc5 100%);
+  color: #ffffff;
 }
 
-.buy-credits-qrpanel__stage {
+.pricing-stage__tag--soft {
+  background: rgba(226, 238, 255, 0.96);
+  color: #184694;
+}
+
+.pricing-stage__tag--warn {
+  background: rgba(255, 239, 214, 0.96);
+  color: #9b641b;
+}
+
+.pricing-stage__grid {
   display: grid;
-  justify-items: center;
-  gap: 14px;
+  gap: 10px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
-.buy-credits-qrpanel__frame {
+.pricing-card {
   position: relative;
   display: grid;
-  place-items: center;
-  width: min(100%, 312px);
-  aspect-ratio: 1;
-  padding: 24px;
-  border-radius: 34px;
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(253, 255, 255, 0.98));
-  border: 1px solid rgba(31, 72, 141, 0.12);
-  box-shadow:
-    0 18px 44px rgba(15, 43, 89, 0.1),
-    inset 0 1px 0 rgba(255, 255, 255, 0.8);
+  gap: 10px;
+  padding: 14px;
+  border-radius: 22px;
+  border: 1px solid rgba(165, 184, 217, 0.2);
+  background: rgba(255, 255, 255, 0.96);
+  text-align: left;
+  cursor: pointer;
+  transition:
+    transform 0.18s ease,
+    border-color 0.18s ease,
+    box-shadow 0.18s ease;
 }
 
-.buy-credits-qrpanel__frame.is-loading {
-  animation: buy-credits-pulse 1.8s ease-in-out infinite;
+.pricing-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 22px 42px rgba(23, 58, 116, 0.08);
 }
 
-.buy-credits-qrpanel__corner {
-  position: absolute;
-  width: 34px;
-  height: 34px;
-  border-color: rgba(25, 98, 210, 0.72);
+.pricing-card.is-selected {
+  border-color: rgba(22, 84, 182, 0.36);
+  box-shadow: 0 26px 48px rgba(22, 84, 182, 0.12);
 }
 
-.buy-credits-qrpanel__corner--lt {
-  top: 16px;
-  left: 16px;
-  border-top: 3px solid currentColor;
-  border-left: 3px solid currentColor;
-  border-top-left-radius: 18px;
+.pricing-card.is-slate {
+  background: linear-gradient(180deg, #f5f8fd 0%, #fbfdff 100%);
 }
 
-.buy-credits-qrpanel__corner--rt {
-  top: 16px;
-  right: 16px;
-  border-top: 3px solid currentColor;
-  border-right: 3px solid currentColor;
-  border-top-right-radius: 18px;
+.pricing-card.is-azure {
+  background: linear-gradient(180deg, #eef5ff 0%, #fbfdff 100%);
 }
 
-.buy-credits-qrpanel__corner--lb {
-  bottom: 16px;
-  left: 16px;
-  border-bottom: 3px solid currentColor;
-  border-left: 3px solid currentColor;
-  border-bottom-left-radius: 18px;
+.pricing-card.is-amber {
+  background: linear-gradient(180deg, #fff7ee 0%, #fffdf9 100%);
 }
 
-.buy-credits-qrpanel__corner--rb {
-  right: 16px;
-  bottom: 16px;
-  border-right: 3px solid currentColor;
-  border-bottom: 3px solid currentColor;
-  border-bottom-right-radius: 18px;
+.pricing-card.is-graphite {
+  background: linear-gradient(180deg, #f4f7fb 0%, #fafcff 100%);
 }
 
-.buy-credits-qrpanel__image {
-  width: min(100%, 224px);
-  height: min(100%, 224px);
-  border-radius: 24px;
-  background: #fff;
-  object-fit: contain;
+.pricing-card__flag-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
-.buy-credits-qrpanel__placeholder {
-  display: grid;
-  justify-items: center;
-  gap: 12px;
-  color: #6d7b8d;
-  font-size: 14px;
-  font-weight: 600;
-}
-
-.buy-credits-qrpanel__spinner {
-  width: 36px;
-  height: 36px;
-  border: 3px solid rgba(37, 99, 235, 0.14);
-  border-top-color: rgba(37, 99, 235, 0.86);
+.pricing-card__flag {
+  min-height: 24px;
+  padding: 0 9px;
   border-radius: 999px;
-  animation: buy-credits-spin 1s linear infinite;
-}
-
-.buy-credits-qrpanel__caption {
-  display: grid;
-  justify-items: center;
-  gap: 6px;
-  text-align: center;
-}
-
-.buy-credits-qrpanel__caption strong {
-  color: #143152;
-  font-size: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.88);
+  color: #2752a5;
+  font-size: 10px;
   font-weight: 700;
-}
-
-.buy-credits-qrpanel__caption span {
-  color: #67788e;
-  font-size: 13px;
-  line-height: 1.65;
-}
-
-.buy-credits-steps {
-  display: grid;
-  gap: 12px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.buy-credits-steps__item {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  gap: 12px;
-  align-items: flex-start;
-  padding: 14px 16px;
-  border-radius: 20px;
-  background: rgba(255, 255, 255, 0.7);
-  border: 1px solid rgba(31, 72, 141, 0.08);
-}
-
-.buy-credits-steps__index {
-  display: grid;
-  place-items: center;
-  width: 42px;
-  height: 42px;
-  border-radius: 14px;
-  background: rgba(34, 104, 223, 0.1);
-  color: #17488d;
-  font-size: 12px;
-  font-weight: 800;
   letter-spacing: 0.08em;
 }
 
-.buy-credits-steps__content {
-  display: flex;
-  flex-direction: column;
+.pricing-card__flag--dark {
+  background: #11284b;
+  color: #ffffff;
+}
+
+.pricing-card__name {
+  font-size: 18px;
+  line-height: 1.08;
+  font-weight: 800;
+  color: #122d50;
+  letter-spacing: -0.04em;
+}
+
+.pricing-card__audience {
+  margin-top: 4px;
+  color: #5a6f90;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.pricing-card__price {
+  display: grid;
   gap: 4px;
 }
 
-.buy-credits-steps__content strong {
-  color: #183556;
+.pricing-card__price strong {
+  font-size: 28px;
+  line-height: 1;
+  color: #102848;
+  letter-spacing: -0.05em;
+}
+
+.pricing-card__price span {
+  color: #6b809f;
+  font-size: 11px;
+}
+
+.pricing-card__summary {
+  margin: 0;
+  color: #455d80;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.pricing-card__estimate {
+  display: grid;
+  gap: 6px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid rgba(157, 177, 214, 0.18);
+}
+
+.pricing-card__estimate-label {
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #6b809f;
+}
+
+.pricing-card__estimate-grid {
+  display: grid;
+  gap: 6px;
+}
+
+.pricing-card__estimate-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.pricing-card__estimate-item span {
+  color: #617796;
+  font-size: 10px;
+}
+
+.pricing-card__estimate-item strong {
+  color: #173b6d;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.pricing-card__footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding-top: 2px;
+  border-top: 1px solid rgba(162, 180, 213, 0.18);
+}
+
+.pricing-card__cta {
+  flex-shrink: 0;
+  color: #2157ca;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.pricing-checkout {
+  display: block;
+}
+
+.pricing-checkout__payment {
+  max-width: 320px;
+  margin: 0 auto;
+  border-radius: 22px;
+  overflow: hidden;
+  border: 1px solid rgba(163, 182, 217, 0.18);
+  background: rgba(255, 255, 255, 0.98);
+  box-shadow: 0 24px 46px rgba(18, 55, 113, 0.08);
+}
+
+.pricing-checkout__payment {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  background:
+    radial-gradient(circle at top right, rgba(37, 99, 235, 0.12), transparent 34%),
+    linear-gradient(180deg, rgba(247, 251, 255, 0.98), rgba(255, 255, 255, 0.98));
+}
+
+.pricing-checkout__payment--solo {
+  align-items: start;
+}
+
+.pricing-checkout__mini-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+}
+
+.pricing-checkout__mini-name {
+  color: #11294b;
+  font-size: 18px;
+  line-height: 1.15;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+}
+
+.pricing-checkout__mini-method {
+  min-height: 24px;
+  padding: 0 10px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(226, 238, 255, 0.96);
+  color: #184694;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+
+.pricing-checkout__guest {
+  display: grid;
+  gap: 12px;
+  padding: 16px 18px;
+  border-radius: 20px;
+  border: 1px dashed rgba(120, 143, 186, 0.26);
+  background: rgba(255, 255, 255, 0.88);
+}
+
+.pricing-checkout__guest-copy strong {
+  display: block;
+  color: #122d50;
+  font-size: 16px;
+}
+
+.pricing-checkout__guest-copy p {
+  margin: 8px 0 0;
+  color: #5f7392;
   font-size: 14px;
+  line-height: 1.8;
+}
+
+.pricing-checkout__pay-body {
+  display: grid;
+  gap: 6px;
+  justify-items: center;
+}
+
+.pricing-checkout__qr-wrap {
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+}
+
+.pricing-checkout__qr-frame {
+  display: grid;
+  place-items: center;
+  width: min(100%, 190px);
+  aspect-ratio: 1;
+  padding: 10px;
+  border-radius: 18px;
+  background: #ffffff;
+  border: 1px solid rgba(160, 181, 217, 0.18);
+  box-shadow: 0 18px 40px rgba(17, 50, 101, 0.1);
+}
+
+.pricing-checkout__qr-frame.is-loading {
+  animation: pricing-qr-pulse 1.8s ease-in-out infinite;
+}
+
+.pricing-checkout__qr-image {
+  width: min(100%, 144px);
+  height: min(100%, 144px);
+  object-fit: contain;
+  border-radius: 12px;
+  background: #ffffff;
+}
+
+.pricing-checkout__qr-placeholder {
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  color: #6c809f;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.pricing-checkout__qr-spinner {
+  width: 36px;
+  height: 36px;
+  border-radius: 999px;
+  border: 3px solid rgba(37, 99, 235, 0.14);
+  border-top-color: rgba(37, 99, 235, 0.88);
+  animation: pricing-spin 1s linear infinite;
+}
+
+.pricing-checkout__qr-caption {
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+  text-align: center;
+}
+
+.pricing-checkout__qr-method {
+  color: #5f7392;
+  font-size: 10px;
   font-weight: 700;
 }
 
-.buy-credits-steps__content span {
-  color: #6a7b90;
-  font-size: 13px;
-  line-height: 1.65;
+.pricing-checkout__qr-caption strong {
+  color: #102746;
+  font-size: 22px;
+  line-height: 1;
+  font-weight: 800;
 }
 
-.buy-credits-qrpanel__actions {
+.pricing-checkout__actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 12px;
+  gap: 6px;
+  justify-content: center;
 }
 
-@keyframes buy-credits-spin {
+@keyframes pricing-spin {
   to {
     transform: rotate(360deg);
   }
 }
 
-@keyframes buy-credits-pulse {
+@keyframes pricing-qr-pulse {
   0%,
   100% {
-    box-shadow:
-      0 18px 44px rgba(15, 43, 89, 0.1),
-      inset 0 1px 0 rgba(255, 255, 255, 0.8);
+    box-shadow: 0 18px 40px rgba(17, 50, 101, 0.1);
   }
 
   50% {
-    box-shadow:
-      0 22px 52px rgba(15, 43, 89, 0.14),
-      inset 0 1px 0 rgba(255, 255, 255, 0.9);
+    box-shadow: 0 24px 50px rgba(17, 50, 101, 0.14);
   }
 }
 
-@media (max-width: 960px) {
-  .buy-credits-paydesk {
-    grid-template-columns: 1fr;
-  }
-
-  .buy-credits-modal {
-    max-width: 760px;
+@media (max-width: 1080px) {
+  .pricing-stage__grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
-@media (max-width: 640px) {
-  .buy-credits-modal {
-    max-width: none;
-  }
+@media (max-width: 720px) {
+  .pricing-stage { gap: 14px; }
 
-  .buy-credits-summary,
-  .buy-credits-qrpanel {
-    padding: 18px;
-    border-radius: 24px;
-  }
-
-  .buy-credits-summary__title {
-    font-size: 22px;
-  }
-
-  .buy-credits-summary__amount strong {
-    font-size: 34px;
-  }
-
-  .buy-credits-summary__facts {
-    grid-template-columns: 1fr;
-  }
-
-  .buy-credits-qrpanel__top {
+  .pricing-stage__intro,
+  .pricing-checkout__mini-head {
     flex-direction: column;
+    align-items: flex-start;
   }
 
-  .buy-credits-qrpanel__title {
-    font-size: 23px;
+  .pricing-stage__top-tags,
+  .pricing-checkout__actions {
+    justify-content: flex-start;
   }
 
-  .buy-credits-qrpanel__frame {
+  .pricing-stage__top-tags,
+  .pricing-checkout__actions {
     width: 100%;
-    max-width: 276px;
-    border-radius: 28px;
+  }
+
+  .pricing-card,
+  .pricing-checkout__payment { padding: 16px 14px; border-radius: 22px; }
+
+  .pricing-card__name,
+  .pricing-checkout__payment-title { font-size: 22px; }
+
+  .pricing-card__price strong,
+  .pricing-checkout__qr-caption strong { font-size: 28px; }
+
+  .pricing-stage__grid {
+    grid-template-columns: 1fr;
+  }
+
+  .pricing-checkout__actions > * {
+    width: 100%;
   }
 }
 </style>

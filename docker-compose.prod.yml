@@ -3,10 +3,15 @@ services:
     image: mysql:8.0
     container_name: wuhongai-mysql
     restart: unless-stopped
+    env_file:
+      - ./.env.prod
     command: --default-authentication-plugin=mysql_native_password --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
-    environment:
-      MYSQL_ROOT_PASSWORD: ${MYSQL_PASSWORD}
-      MYSQL_DATABASE: ${MYSQL_DATABASE}
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p\"$${MYSQL_ROOT_PASSWORD}\" --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
     volumes:
       - mysql_data:/var/lib/mysql
 
@@ -15,6 +20,12 @@ services:
     container_name: wuhongai-redis
     restart: unless-stopped
     command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
     volumes:
       - redis_data:/data
 
@@ -26,10 +37,18 @@ services:
     restart: unless-stopped
     env_file:
       - ./.env.prod
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+    command: sh -c "python -m app.bootstrap && uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers ${WEB_CONCURRENCY:-4}"
     depends_on:
-      - mysql
-      - redis
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import sys, urllib.request; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3).getcode() == 200 else 1)"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
     volumes:
       - backend_uploads:/app/uploads
       - backend_output:/app/output
@@ -37,19 +56,82 @@ services:
     expose:
       - "8000"
 
-  worker:
+  worker-submission:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    container_name: wuhongai-worker
+    container_name: wuhongai-worker-submission
     restart: unless-stopped
     env_file:
       - ./.env.prod
-    command: celery -A app.worker_tasks.celery_app worker -l info
+    command: celery -A app.worker_tasks.celery_app worker -l info -Q submission -c ${CELERY_SUBMISSION_CONCURRENCY:-6} --max-tasks-per-child=200
     depends_on:
-      - backend
-      - mysql
-      - redis
+      backend:
+        condition: service_healthy
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import os, sys; from pathlib import Path; import redis; cmd = Path('/proc/1/cmdline').read_bytes().decode('utf-8', 'ignore'); ok = ('celery' in cmd) and redis.Redis.from_url(os.environ['CELERY_BROKER_URL']).ping(); sys.exit(0 if ok else 1)"]
+      interval: 20s
+      timeout: 8s
+      retries: 5
+      start_period: 20s
+    volumes:
+      - backend_uploads:/app/uploads
+      - backend_output:/app/output
+      - backend_algorithms:/app/algorithm_packages
+
+  worker-processing:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: wuhongai-worker-processing
+    restart: unless-stopped
+    env_file:
+      - ./.env.prod
+    command: celery -A app.worker_tasks.celery_app worker -l info -Q processing -c ${CELERY_PROCESSING_CONCURRENCY:-2} --max-tasks-per-child=20
+    depends_on:
+      backend:
+        condition: service_healthy
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import os, sys; from pathlib import Path; import redis; cmd = Path('/proc/1/cmdline').read_bytes().decode('utf-8', 'ignore'); ok = ('celery' in cmd) and redis.Redis.from_url(os.environ['CELERY_BROKER_URL']).ping(); sys.exit(0 if ok else 1)"]
+      interval: 20s
+      timeout: 8s
+      retries: 5
+      start_period: 20s
+    volumes:
+      - backend_uploads:/app/uploads
+      - backend_output:/app/output
+      - backend_algorithms:/app/algorithm_packages
+
+  worker-maintenance:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: wuhongai-worker-maintenance
+    restart: unless-stopped
+    env_file:
+      - ./.env.prod
+    command: celery -A app.worker_tasks.celery_app worker -l info -Q maintenance,default -c ${CELERY_MAINTENANCE_CONCURRENCY:-2} --max-tasks-per-child=500
+    depends_on:
+      backend:
+        condition: service_healthy
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import os, sys; from pathlib import Path; import redis; cmd = Path('/proc/1/cmdline').read_bytes().decode('utf-8', 'ignore'); ok = ('celery' in cmd) and redis.Redis.from_url(os.environ['CELERY_BROKER_URL']).ping(); sys.exit(0 if ok else 1)"]
+      interval: 20s
+      timeout: 8s
+      retries: 5
+      start_period: 20s
     volumes:
       - backend_uploads:/app/uploads
       - backend_output:/app/output
@@ -66,7 +148,14 @@ services:
     container_name: wuhongai-frontend
     restart: unless-stopped
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1/ || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
     expose:
       - "80"
     ports:
@@ -77,7 +166,14 @@ services:
     container_name: wuhongai-edge
     restart: unless-stopped
     depends_on:
-      - frontend
+      frontend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1/ || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
     ports:
       - "80:80"
       - "443:443"

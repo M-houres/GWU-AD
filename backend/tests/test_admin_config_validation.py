@@ -39,6 +39,7 @@ def test_save_llm_config_for_domestic_provider(
 
 def test_save_alipay_config_and_readiness_ready(
     client: TestClient,
+    db_session: Session,
     admin_override,
 ) -> None:
     resp = client.post(
@@ -56,7 +57,16 @@ def test_save_alipay_config_and_readiness_ready(
     assert resp.status_code == 200
     value = resp.json()["data"]["value"]
     assert value["provider"] == "alipay"
-    assert value["api_key"].startswith("-----BEGIN PRIVATE KEY-----")
+    assert value["api_key"] == "********"
+    assert value["app_private_key_pem"] == "********"
+
+    row = (
+        db_session.query(SystemConfig)
+        .filter(SystemConfig.category == "system", SystemConfig.config_key == "payment")
+        .first()
+    )
+    assert row is not None
+    assert row.config_value["api_key"].startswith("-----BEGIN PRIVATE KEY-----")
 
     readiness = _readiness_item(client, "payment")
     assert readiness["status"] == "ready"
@@ -191,6 +201,59 @@ def test_save_billing_with_packages_affects_public_package_list(
     assert items[0]["credits"] == 42000
 
 
+def test_payment_config_get_masks_secrets_and_mask_round_trip_preserves_values(
+    client: TestClient,
+    db_session: Session,
+    admin_override,
+) -> None:
+    original_api_v3_key = "12345678901234567890123456789012"
+    original_callback_secret = "callback_secret_001"
+    create_resp = client.post(
+        "/api/v1/admin/configs/payment",
+        json={
+            "provider": "wechatpay_v3",
+            "test_mode": False,
+            "app_id": "wx1234567890",
+            "merchant_id": "1900000109",
+            "merchant_serial_no": "SERIAL123456",
+            "merchant_private_key_pem": "-----BEGIN PRIVATE KEY-----\nabc\n-----END PRIVATE KEY-----",
+            "api_v3_key": original_api_v3_key,
+            "notify_url": "https://pay.example.com/callback/wechatpay",
+            "callback_secret": original_callback_secret,
+        },
+    )
+    assert create_resp.status_code == 200
+
+    read_resp = client.get("/api/v1/admin/configs/payment")
+    assert read_resp.status_code == 200
+    value = read_resp.json()["data"]["value"]
+    assert value["merchant_private_key_pem"] == "********"
+    assert value["api_v3_key"] == "********"
+    assert value["callback_secret"] == "********"
+
+    update_resp = client.post(
+        "/api/v1/admin/configs/payment",
+        json={
+            "notify_url": "https://pay.example.com/callback/wechatpay/v2",
+            "merchant_private_key_pem": "********",
+            "api_v3_key": "********",
+            "callback_secret": "********",
+        },
+    )
+    assert update_resp.status_code == 200
+
+    row = (
+        db_session.query(SystemConfig)
+        .filter(SystemConfig.category == "system", SystemConfig.config_key == "payment")
+        .first()
+    )
+    assert row is not None
+    assert row.config_value["merchant_private_key_pem"].startswith("-----BEGIN PRIVATE KEY-----")
+    assert row.config_value["api_v3_key"] == original_api_v3_key
+    assert row.config_value["callback_secret"] == original_callback_secret
+    assert row.config_value["notify_url"].endswith("/v2")
+
+
 def test_save_login_strategy_config_affects_auth_options(
     client: TestClient,
     admin_override,
@@ -308,10 +371,57 @@ def test_save_local_mock_llm_config_without_api_key(
     assert readiness["status"] == "ready"
 
 
-def test_save_notice_config_in_separate_category_affects_auth_announcement(
+
+
+def test_login_readiness_warns_when_miniapp_login_fields_are_incomplete(
     client: TestClient,
+    db_session: Session,
     admin_override,
 ) -> None:
+    db_session.add(
+        SystemConfig(
+            category="system",
+            config_key="login",
+            config_value={
+                "sms_provider": "disabled",
+                "debug_code_enabled": False,
+                "wechat_login_enabled": False,
+                "wechat_miniprogram_login_enabled": True,
+                "wechat_miniprogram_app_id": "wx-mini-only-id",
+                "wechat_miniprogram_app_secret": "",
+            },
+        )
+    )
+    db_session.commit()
+
+    readiness = _readiness_item(client, "login")
+    assert readiness["status"] == "error"
+    assert "登录配置不可用" in readiness["message"]
+
+
+
+def test_miniapp_readiness_errors_when_login_enabled_but_credentials_missing(
+    client: TestClient,
+    db_session: Session,
+    admin_override,
+) -> None:
+    db_session.add(
+        SystemConfig(
+            category="system",
+            config_key="miniapp",
+            config_value={
+                "enabled": True,
+                "wechat_miniprogram_login_enabled": True,
+                "wechat_miniprogram_app_id": "wx-mini-only-id",
+                "wechat_miniprogram_app_secret": "",
+            },
+        )
+    )
+    db_session.commit()
+
+    readiness = _readiness_item(client, "miniapp")
+    assert readiness["status"] == "error"
+    assert "AppID/AppSecret 未填写完整" in readiness["message"]
     resp = client.post(
         "/api/v1/admin/configs/notice",
         json={

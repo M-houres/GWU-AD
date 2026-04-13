@@ -17,6 +17,7 @@ from sqlalchemy.exc import OperationalError
 from app.api.router import api_router
 from app.config import get_settings
 from app.database import Base, engine
+from app.deps import redis_is_available
 from app.exceptions import BizError
 from app.logging_setup import setup_logging
 from app.models import AdminUser
@@ -26,13 +27,57 @@ from app.security import hash_password
 setup_logging()
 logger = logging.getLogger("app.main")
 settings = get_settings()
-@asynccontextmanager
-async def app_lifespan(_: FastAPI):
-    assert_production_secrets()
+
+
+def _cors_origins() -> list[str]:
+    origins = settings.cors_allow_origin_list
+    if settings.is_prod and (not origins or origins == ["*"]):
+        raise RuntimeError("生产环境必须显式配置 CORS_ALLOW_ORIGINS，不能使用通配符")
+    return ["*"] if not origins else origins
+
+
+def _is_weak_secret(value: str, defaults: set[str]) -> bool:
+    normalized = str(value or "").strip()
+    return (not normalized) or normalized in defaults
+
+
+def assert_production_secrets() -> None:
+    if not settings.is_prod:
+        return
+    weak_items = []
+    if _is_weak_secret(settings.jwt_secret, {"change_me_in_prod"}):
+        weak_items.append("JWT_SECRET")
+    if _is_weak_secret(settings.admin_init_password, {"admin123456"}):
+        weak_items.append("ADMIN_INIT_PASSWORD")
+    if settings.payment_test_mode:
+        weak_items.append("PAYMENT_TEST_MODE")
+    if _is_weak_secret(settings.payment_sign_secret, {"change_me_payment_sign_key"}):
+        weak_items.append("PAYMENT_SIGN_SECRET")
+    if settings.db_fallback_sqlite:
+        weak_items.append("DB_FALLBACK_SQLITE")
+    if settings.celery_local_fallback_enabled:
+        weak_items.append("CELERY_LOCAL_FALLBACK_ENABLED")
+    if settings.mysql_password.strip() == "root":
+        weak_items.append("MYSQL_PASSWORD")
+    if settings.cors_allow_origin_list == ["*"]:
+        weak_items.append("CORS_ALLOW_ORIGINS")
+    if weak_items:
+        joined = ", ".join(weak_items)
+        raise RuntimeError(f"生产环境存在危险默认配置: {joined}")
+
+
+def run_runtime_bootstrap_tasks() -> None:
     run_migrations()
     repair_missing_tables()
     normalize_runtime_configs()
     init_super_admin()
+
+
+@asynccontextmanager
+async def app_lifespan(_: FastAPI):
+    assert_production_secrets()
+    if not settings.is_prod:
+        run_runtime_bootstrap_tasks()
     logger.info("startup_completed", extra={"app_env": settings.app_env})
     yield
 
@@ -41,7 +86,7 @@ app = FastAPI(title=settings.app_name, lifespan=app_lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_cors_origins(),
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -95,7 +140,8 @@ async def access_log_middleware(request: Request, call_next):
         return response
     finally:
         elapsed_ms = int((time.perf_counter() - start) * 1000)
-        client_ip = request.client.host if request.client else ""
+        forwarded = request.headers.get("x-forwarded-for", "").split(",")[0].strip()
+        client_ip = forwarded or (request.client.host if request.client else "")
         logger.info(
             "http_request",
             extra={
@@ -169,19 +215,6 @@ def normalize_runtime_configs() -> None:
         )
 
 
-def assert_production_secrets() -> None:
-    if settings.app_env != "prod":
-        return
-    weak_items = []
-    if settings.jwt_secret == "change_me_in_prod":
-        weak_items.append("JWT_SECRET")
-    if settings.admin_init_password == "admin123456":
-        weak_items.append("ADMIN_INIT_PASSWORD")
-    if weak_items:
-        joined = ", ".join(weak_items)
-        raise RuntimeError(f"生产环境密钥未配置安全值: {joined}")
-
-
 def run_migrations() -> None:
     base_dir = Path(__file__).resolve().parent.parent
     alembic_ini = base_dir / "alembic.ini"
@@ -226,11 +259,36 @@ def repair_missing_tables() -> None:
     )
 
 
+def _db_is_available() -> bool:
+    try:
+        with engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+        return True
+    except Exception:
+        return False
 
-@app.get("/health")
-def health() -> dict:
+
+@app.get("/health/live")
+def health_live() -> dict:
     return ok(data={"status": "ok"}).model_dump()
 
 
-app.include_router(api_router, prefix="/api/v1")
+@app.get("/health")
+def health() -> JSONResponse:
+    db_ok = _db_is_available()
+    redis_ok = redis_is_available()
+    ready = db_ok and redis_ok
+    status_code = 200 if ready else 503
+    payload = ok(
+        data={
+            "status": "ok" if ready else "degraded",
+            "checks": {
+                "database": "ok" if db_ok else "error",
+                "redis": "ok" if redis_ok else "error",
+            },
+        }
+    ).model_dump()
+    return JSONResponse(status_code=status_code, content=payload)
 
+
+app.include_router(api_router, prefix="/api/v1")

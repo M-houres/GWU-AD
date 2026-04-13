@@ -1,3 +1,4 @@
+import logging
 from typing import Callable, Generator
 import time
 
@@ -13,6 +14,7 @@ from app.models import AdminUser, User
 from app.security import decode_token
 
 settings = get_settings()
+logger = logging.getLogger("app.deps")
 redis_client = redis.Redis(
     host=settings.redis_host,
     port=settings.redis_port,
@@ -111,7 +113,18 @@ def get_redis():
         redis_client.ping()
         return redis_client
     except redis.RedisError:
+        if settings.is_prod:
+            logger.error("redis_unavailable_in_production")
+            raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="redis unavailable")
         return memory_redis
+
+
+def redis_is_available() -> bool:
+    try:
+        redis_client.ping()
+        return True
+    except redis.RedisError:
+        return False
 
 
 def client_source_dep(request: Request) -> str:
@@ -137,6 +150,8 @@ def current_user(
     user = db.get(User, int(payload["sub"]))
     if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="user not found")
+    if getattr(user, "is_banned", False):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="user banned")
     return user
 
 

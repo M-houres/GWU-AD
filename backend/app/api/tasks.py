@@ -3,14 +3,14 @@ from datetime import datetime
 import logging
 import uuid
 
-from fastapi import APIRouter, Depends, File, Form, Query, UploadFile
+from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile
 from fastapi.responses import FileResponse
 from sqlalchemy import desc
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
 from app.constants import ALLOWED_EXTENSIONS, MAX_FILE_SIZE_MB, TASK_RATES
-from app.deps import client_source_dep, current_user, db_dep
+from app.deps import client_source_dep, current_user, db_dep, get_redis
 from app.exceptions import BizError
 from app.models import CreditType, SystemConfig, Task, TaskStatus, TaskType, User
 from app.pagination import paginate
@@ -49,13 +49,20 @@ def _parse_task_type(raw: str) -> TaskType:
 
 
 def _save_upload_to(path: Path, upload: UploadFile, max_bytes: int) -> None:
-    data = upload.file.read()
-    if not data:
-        raise BizError(code=4102, message="上传文件为空")
-    if len(data) > max_bytes:
-        raise BizError(code=4103, message=f"文件超过{MAX_FILE_SIZE_MB}MB限制")
+    total = 0
+    chunk_size = 1024 * 1024
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_bytes(data)
+    with path.open("wb") as f:
+        while True:
+            chunk = upload.file.read(chunk_size)
+            if not chunk:
+                break
+            total += len(chunk)
+            if total > max_bytes:
+                raise BizError(code=4103, message=f"文件超过{MAX_FILE_SIZE_MB}MB限制")
+            f.write(chunk)
+    if total <= 0:
+        raise BizError(code=4102, message="上传文件为空")
 
 
 def _build_storage_name(name: str, fallback_name: str) -> tuple[str, str]:
@@ -137,6 +144,56 @@ def _validate_report_content(task_type: TaskType, path: Path) -> None:
     raise BizError(code=4115, message="请上传全文AIGC检测报告", http_status=422)
 
 
+def _request_client_ip(request: Request) -> str:
+    forwarded = str(request.headers.get("x-forwarded-for") or "").split(",")[0].strip()
+    if forwarded:
+        return forwarded
+    return request.client.host if request.client else "unknown"
+
+
+def _check_submit_limits(redis_conn, *, user_id: int, client_ip: str) -> None:
+    if settings.app_env == "test":
+        return
+    checks = [
+        (f"task:submit:user:{user_id}:1m", settings.task_submit_user_1m_limit, "提交过于频繁，请稍后再试"),
+        (f"task:submit:ip:{client_ip}:1m", settings.task_submit_ip_1m_limit, "当前网络提交过于频繁，请稍后再试"),
+    ]
+    for key, limit, message in checks:
+        if limit <= 0:
+            continue
+        current = redis_conn.incr(key)
+        if current == 1:
+            redis_conn.expire(key, 60)
+        if current > limit:
+            raise BizError(code=4116, message=message, http_status=429)
+
+
+def _check_submit_backlog(redis_conn, *, user_id: int) -> None:
+    if settings.app_env == "test":
+        return
+    user_limit = max(int(settings.task_submit_user_inflight_limit or 0), 0)
+    if user_limit > 0:
+        inflight = int(
+            redis_conn.get(f"task:submit:inflight:user:{user_id}") or 0
+        )
+        if inflight >= user_limit:
+            raise BizError(code=4117, message="当前处理中任务较多，请稍后再提交", http_status=429)
+
+    backlog_limit = max(int(settings.task_submit_queue_backlog_limit or 0), 0)
+    if backlog_limit > 0:
+        backlog = int(redis_conn.get("task:submit:backlog") or 0)
+        if backlog >= backlog_limit:
+            raise BizError(code=4118, message="系统繁忙，请稍后再试", http_status=503)
+
+
+def _build_idempotency_key(request: Request, *, user_id: int, task_type: TaskType, platform: str, filename: str) -> str | None:
+    raw = str(request.headers.get("Idempotency-Key") or request.headers.get("X-Idempotency-Key") or "").strip()
+    if not raw:
+        return None
+    normalized = raw[:96]
+    return f"{user_id}:{task_type.value}:{platform}:{filename}:{normalized}"
+
+
 def _resolve_task_rate(db: Session, task_type: TaskType) -> int:
     row = (
         db.query(SystemConfig)
@@ -156,6 +213,59 @@ def _resolve_task_rate(db: Session, task_type: TaskType) -> int:
     return TASK_RATES[task_type]
 
 
+def _prepare_task_for_processing(db: Session, *, task: Task) -> dict:
+    if task.report_path:
+        _validate_report_content(task.task_type, Path(task.report_path))
+
+    text = extract_text_from_file(Path(task.source_path))
+    char_count = count_billable_chars(text)
+    if char_count <= 0:
+        raise BizError(code=4102, message="上传文件为空")
+
+    rate = _resolve_task_rate(db, task.task_type)
+    quota_before = (
+        get_aigc_daily_quota(db, user_id=task.user_id, submitted_delta=-1)
+        if task.task_type == TaskType.AIGC_DETECT
+        else None
+    )
+    free_applied = bool(quota_before and quota_before["free_remaining_today"] > 0)
+    cost = 0 if free_applied else rate * char_count
+
+    user = db.query(User).filter(User.id == task.user_id).with_for_update().first()
+    if user is None:
+        raise BizError(code=4001, message="用户不存在")
+
+    change_credits(
+        db,
+        user,
+        tx_type=CreditType.TASK_CONSUME,
+        delta=-cost,
+        reason="AIGC每日免费额度抵扣" if free_applied else f"{task.task_type.value}任务提交扣费",
+        related_id=f"task:{task.id}",
+        source=task.source,
+    )
+
+    result_json = dict(task.result_json or {})
+    billing = {
+        "rate_per_char": rate,
+        "free_applied": free_applied,
+        "quota_before": quota_before,
+    }
+    result_json["billing"] = billing
+    task.char_count = char_count
+    task.cost_credits = cost
+    task.result_json = result_json
+    task.status = TaskStatus.PENDING
+    task.updated_at = datetime.utcnow()
+    db.flush()
+
+    return {
+        "rate_per_char": rate,
+        "free_applied": free_applied,
+        "quota": quota_before,
+    }
+
+
 @router.get("/rates", response_model=APIResp)
 def task_rates(db: Session = Depends(db_dep)) -> APIResp:
     return ok(
@@ -170,6 +280,7 @@ def task_rates(db: Session = Depends(db_dep)) -> APIResp:
 
 @router.post("/submit", response_model=APIResp)
 def submit_task(
+    request: Request,
     task_type: str = Form(...),
     platform: str = Form("cnki"),
     paper_title: str = Form(""),
@@ -179,7 +290,12 @@ def submit_task(
     client_source: str = Depends(client_source_dep),
     user: User = Depends(current_user),
     db: Session = Depends(db_dep),
+    redis_conn=Depends(get_redis),
 ) -> APIResp:
+    client_ip = _request_client_ip(request)
+    _check_submit_limits(redis_conn, user_id=user.id, client_ip=client_ip)
+    _check_submit_backlog(redis_conn, user_id=user.id)
+
     t = _parse_task_type(task_type)
     normalized_platform = normalize_platform(platform)
     internal_processing_mode, strategy = resolve_task_processing_mode(db, task_type=t, platform=normalized_platform)
@@ -193,6 +309,39 @@ def submit_task(
     src_name, src_storage_name = _build_storage_name(paper.filename or f"source{ext}", f"source{ext}")
     src_path = upload_dir / src_storage_name
     report_file_path: Path | None = None
+    report_path: str | None = None
+    idempotency_key = _build_idempotency_key(
+        request,
+        user_id=user.id,
+        task_type=t,
+        platform=normalized_platform,
+        filename=src_name,
+    )
+
+    existing_task = None
+    if idempotency_key:
+        existing_task = (
+            db.query(Task)
+            .filter(Task.user_id == user.id, Task.idempotency_key == idempotency_key)
+            .order_by(desc(Task.id))
+            .first()
+        )
+        if existing_task is not None:
+            return ok(
+                data={
+                    "id": existing_task.id,
+                    "status": existing_task.status.value,
+                    "cost_credits": existing_task.cost_credits,
+                    "estimated_time": int(strategy.get("timeout_sec", 300)),
+                    "billing": {
+                        "rate_per_char": _resolve_task_rate(db, t),
+                        "free_applied": False,
+                        "quota": None,
+                    },
+                    "idempotent": True,
+                }
+            )
+
     try:
         _save_upload_to(src_path, paper, max_bytes)
 
@@ -200,7 +349,6 @@ def submit_task(
         if magic and magic != ext:
             raise BizError(code=4105, message="文件内容与扩展名不匹配")
 
-        report_path = None
         if report is not None and report.filename:
             rpt_ext = Path(report.filename).suffix.lower()
             if rpt_ext not in ALLOWED_EXTENSIONS:
@@ -209,19 +357,7 @@ def submit_task(
             _, report_storage_name = _build_storage_name(report.filename, f"report{rpt_ext or '.tmp'}")
             report_file_path = upload_dir / report_storage_name
             _save_upload_to(report_file_path, report, max_bytes)
-            _validate_report_content(t, report_file_path)
             report_path = str(report_file_path)
-
-        text = extract_text_from_file(src_path)
-        char_count = count_billable_chars(text)
-        rate = _resolve_task_rate(db, t)
-        quota_before = get_aigc_daily_quota(db, user_id=user.id) if t == TaskType.AIGC_DETECT else None
-        free_applied = bool(quota_before and quota_before["free_remaining_today"] > 0)
-        cost = 0 if free_applied else rate * char_count
-        if char_count <= 0:
-            raise BizError(code=4107, message="文档字符数为0，无法处理")
-        if user.credits < cost:
-            raise BizError(code=4006, message="积分不足，请先充值")
 
         submission_meta = {}
         normalized_title = _clean_form_text(paper_title, max_len=300)
@@ -241,21 +377,14 @@ def submit_task(
             source_filename=src_name,
             source_path=str(src_path),
             report_path=report_path,
-            char_count=char_count,
-            cost_credits=cost,
+            char_count=0,
+            cost_credits=0,
             result_json=submission_meta or None,
+            idempotency_key=idempotency_key,
         )
         db.add(task)
         db.flush()
-        change_credits(
-            db,
-            user,
-            tx_type=CreditType.TASK_CONSUME,
-            delta=-cost,
-            reason="AIGC每日免费额度抵扣" if free_applied else f"{t.value}任务提交扣费",
-            related_id=f"task:{task.id}",
-            source=client_source,
-        )
+        billing_payload = _prepare_task_for_processing(db, task=task)
         db.commit()
     except Exception:
         db.rollback()
@@ -269,29 +398,35 @@ def submit_task(
             "task_type": t.value,
             "strategy_mode": strategy.get("process_mode"),
             "engine_mode": internal_processing_mode,
-            "char_count": char_count,
-            "cost_credits": cost,
         },
     )
 
-    quota_after = None
-    if quota_before is not None:
-        quota_after = get_aigc_daily_quota(db, user_id=user.id)
+    dispatch_mode = "skipped"
+    if settings.app_env != "test":
+        from app.worker_tasks import dispatch_background_task, process_task_async
 
-    from app.worker_tasks import dispatch_background_task, process_task_async
-
-    dispatch_background_task(process_task_async, task.id)
+        try:
+            dispatch_mode = dispatch_background_task(process_task_async, task.id, queue="processing")
+        except Exception:
+            logger.exception(
+                "task_dispatch_failed_after_submit",
+                extra={
+                    "task_id": task.id,
+                    "user_id": user.id,
+                    "task_type": t.value,
+                    "platform": normalized_platform,
+                },
+            )
+            dispatch_mode = "failed"
     return ok(
         data={
             "id": task.id,
             "status": task.status.value,
-            "cost_credits": cost,
+            "cost_credits": task.cost_credits,
             "estimated_time": int(strategy.get("timeout_sec", 300)),
-            "billing": {
-                "rate_per_char": rate,
-                "free_applied": free_applied,
-                "quota": quota_after,
-            },
+            "billing": billing_payload,
+            "idempotent": False,
+            "dispatch_mode": dispatch_mode,
         }
     )
 

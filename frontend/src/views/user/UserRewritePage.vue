@@ -1,7 +1,7 @@
 <template>
   <UserShell
-    title="降AIGC"
-    subtitle="上传文档后提交任务，系统将按平台规则自动完成降AIGC处理并生成记录。"
+    title="降AIGC率"
+    subtitle="上传文档后提交任务，系统将按平台规则自动完成降AIGC率处理并生成记录。"
     :credits="userCredits"
     :hide-topbar="true"
     :hide-header-title="true"
@@ -12,21 +12,10 @@
       <p v-if="successText" class="aigc-alert aigc-alert--success">{{ successText }}</p>
 
       <section class="aigc-page-head">
-        <h2 class="aigc-page-head__title">上传降AIGC处理文档</h2>
+        <h2 class="aigc-page-head__title">上传降AIGC率处理文档</h2>
         <p class="aigc-page-head__quota">在尽量保留原文观点与表达逻辑的基础上，重点削弱AIGC痕迹并提升文本自然度。</p>
       </section>
       <div class="aigc-page-head__divider" aria-hidden="true"></div>
-      <section class="service-benefit-banner">
-        <div class="service-benefit-banner__badge">邀请有礼</div>
-        <div class="service-benefit-banner__body">
-          <h3>邀请好友使用可得奖励与返利</h3>
-          <p>好友注册、首充和持续使用后可累计邀请奖励，相关权益与流水可在推广福利页查看。</p>
-        </div>
-        <div class="service-benefit-banner__side">
-          <strong>推广福利</strong>
-          <button type="button" class="service-benefit-banner__action" @click="router.push('/app/referral')">查看权益</button>
-        </div>
-      </section>
 
       <div class="uploadLiterature_content">
         <div class="uploadLit_content panels-container">
@@ -128,7 +117,7 @@
 
                   <div class="submitBtnCon">
                     <button class="aigc-submit-action__button" type="button" :disabled="submitting" @click="submitTask">
-                      {{ submitting ? "提交中..." : "提交降AIGC" }}
+                      {{ submitting ? "提交中..." : "提交降AIGC率" }}
                     </button>
                   </div>
                 </div>
@@ -145,7 +134,7 @@
               </section>
 
               <section class="aigc-side__brand">
-                <h3>降AIGC服务</h3>
+                <h3>降AIGC率服务</h3>
               </section>
 
               <section class="aigc-feature-list features-list">
@@ -161,6 +150,8 @@
           </div>
         </div>
       </div>
+
+      <WorkbenchTaskFeed task-type="rewrite" />
     </section>
 
     <BuyCreditsPanel v-if="showBuy" @paid="afterPaid" />
@@ -173,6 +164,7 @@ import { useRoute, useRouter } from "vue-router"
 
 import BuyCreditsPanel from "../../components/BuyCreditsPanel.vue"
 import UserShell from "../../components/UserShell.vue"
+import WorkbenchTaskFeed from "../../components/WorkbenchTaskFeed.vue"
 import { useUserProfile } from "../../composables/useUserProfile"
 import { userHttp } from "../../lib/http"
 import {
@@ -180,6 +172,7 @@ import {
   isTaskSubmitTimeoutError,
   recoverSubmittedTask,
 } from "../../lib/taskSubmitRecovery"
+import { derivePaperTitleFromFilename, shouldAutoFillPaperTitle } from "../../lib/paperTitle"
 import { TASK_PLATFORM_OPTIONS } from "../../lib/taskPlatform"
 import { ensureUserLogin } from "../../lib/requireLogin"
 import { getUserToken } from "../../lib/session"
@@ -233,6 +226,7 @@ const fieldErrors = reactive({
 
 const dragMain = ref(false)
 const paperFile = ref(null)
+const autoFilledTitle = ref("")
 const submitting = ref(false)
 const errorText = ref("")
 const successText = ref("")
@@ -284,6 +278,12 @@ function setMainFile(file) {
     return
   }
   paperFile.value = file
+  const detectedTitle = derivePaperTitleFromFilename(file.name)
+  if (detectedTitle && shouldAutoFillPaperTitle(form.title, autoFilledTitle.value)) {
+    form.title = detectedTitle
+    autoFilledTitle.value = detectedTitle
+    fieldErrors.title = ""
+  }
 }
 
 function validateForm() {

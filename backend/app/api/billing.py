@@ -1,5 +1,6 @@
 ﻿import base64
 from datetime import datetime, timezone
+from decimal import Decimal
 from io import BytesIO
 import logging
 
@@ -12,6 +13,7 @@ from app.config import get_settings
 from app.constants import DEFAULT_BILLING_PACKAGES, PACKAGE_CONFIG
 from app.deps import current_user, db_dep
 from app.exceptions import BizError
+from app.money import cny_to_api, to_cny_decimal
 from app.models import CreditTransaction, CreditType, Order, SystemConfig, User
 from app.responses import ok
 from app.schemas import APIResp, CreateOrderReq, MockPayReq, PayCallbackReq
@@ -26,6 +28,7 @@ from app.services.payment_service import (
     query_remote_order_status,
     verify_payload_signature,
 )
+from app.services.promo_center_service import grant_first_order_promo_benefit
 from app.utils import make_order_no
 from app.utils_qrcode import build_qrcode_data_url
 
@@ -134,14 +137,14 @@ def _settle_package_order(
     package_name: str,
     order_no: str,
     provider: str,
-    amount_cny: float | None = None,
+    amount_cny: Decimal | float | str | None = None,
     source: str | None = None,
 ) -> tuple[Order, bool]:
     pkg = _find_package(db, package_name)
     if pkg is None:
         raise BizError(code=4201, message="套餐不存在")
-    expected_amount = round(float(pkg["price"]), 2)
-    paid_amount = expected_amount if amount_cny is None else round(float(amount_cny), 2)
+    expected_amount = to_cny_decimal(pkg["price"])
+    paid_amount = expected_amount if amount_cny is None else to_cny_decimal(amount_cny)
     if paid_amount != expected_amount:
         raise BizError(code=4207, message="鏀粯閲戦涓庡椁愪环鏍间笉鍖归厤")
 
@@ -293,20 +296,18 @@ def _default_mock_pay_url(order_no: str, request: Request | None = None) -> str:
     return f"{_frontend_base_url(request)}/app/buy?order_no={order_no}&provider=mock"
 
 
-def _trigger_referral_reward(order: Order, *, idempotent: bool) -> None:
+def _trigger_referral_reward(db: Session, order: Order, *, idempotent: bool) -> None:
     if idempotent:
         return
-    from app.worker_tasks import dispatch_background_task, grant_order_referral_rewards_async
-
-    dispatch_background_task(grant_order_referral_rewards_async, order.id)
+    grant_first_order_promo_benefit(db, order=order)
 
 
-def _assert_paid_amount_matches(order: Order, amount_cny: float | None) -> None:
+def _assert_paid_amount_matches(order: Order, amount_cny: Decimal | float | str | None) -> None:
     if amount_cny is None:
         return
-    actual = round(float(amount_cny), 2)
-    expected = round(float(order.amount_cny), 2)
-    if abs(actual - expected) > 0.01:
+    actual = to_cny_decimal(amount_cny)
+    expected = to_cny_decimal(order.amount_cny)
+    if actual != expected:
         raise BizError(code=4207, message="鏀粯閲戦涓庤鍗曢噾棰濅笉鍖归厤")
 
 
@@ -315,7 +316,7 @@ def _settle_existing_order(
     *,
     order_no: str,
     provider: str,
-    amount_cny: float | None = None,
+    amount_cny: Decimal | float | str | None = None,
 ) -> tuple[Order, bool]:
     order = db.query(Order).filter(Order.order_no == order_no).with_for_update().first()
     if order is None:
@@ -356,6 +357,8 @@ def packages(
             message = "小程序支付通道未就绪"
     else:
         message = "当前为联调支付模式" if payment_test_mode else "当前为正式支付模式"
+        if not supported_providers:
+            message = "支付通道未就绪"
     return ok(
         data={
             "items": items,
@@ -392,15 +395,15 @@ def create_order(
     if provider not in SUPPORTED_PROVIDERS:
         raise BizError(code=4211, message="支付方式不支持")
     if provider not in enabled:
-        if scene == MINIPROGRAM_SCENE and provider == "wechat" and "mock" in enabled and settings.app_env != "prod":
+        if scene == MINIPROGRAM_SCENE and provider == "wechat" and "mock" in enabled and (not settings.is_prod):
             provider = "mock"
             payment_test_mode = True
         elif scene == MINIPROGRAM_SCENE and provider == "wechat":
             raise BizError(code=4214, message="小程序微信支付未就绪，请检查微信支付配置")
         else:
             raise BizError(code=4211, message="支付方式不支持")
-    if provider == "mock" and (not payment_test_mode) and settings.app_env == "prod":
-        raise BizError(code=4213, message="当前环境未开启测试支付")
+    if provider == "mock" and settings.is_prod:
+        raise BizError(code=4213, message="生产环境不允许使用测试支付")
 
     if scene == MINIPROGRAM_SCENE and provider == "wechat" and not str(user.wechat_openid_mp or "").strip():
         raise BizError(code=4216, message="小程序支付缺少openid，请重新登录")
@@ -410,7 +413,7 @@ def create_order(
     order = Order(
         order_no=order_no,
         user_id=user.id,
-        amount_cny=float(pkg["price"]),
+        amount_cny=to_cny_decimal(pkg["price"]),
         credits=int(pkg["credits"]),
         source=client_source,
         status="created",
@@ -437,7 +440,7 @@ def create_order(
             if scene != MINIPROGRAM_SCENE and not pay_url:
                 raise BizError(code=4214, message="支付通道未返回支付链接")
         except BizError as exc:
-            if settings.app_env == "prod":
+            if settings.is_prod:
                 raise
             if exc.code not in {4211, 4214}:
                 raise
@@ -469,7 +472,7 @@ def create_order(
             "user_id": user.id,
             "provider": provider,
             "scene": scene,
-            "amount_cny": order.amount_cny,
+            "amount_cny": cny_to_api(order.amount_cny),
         },
     )
     return ok(
@@ -480,7 +483,7 @@ def create_order(
             "scene": scene,
             "provider_requested": requested_provider,
             "provider_fallback": provider != requested_provider,
-            "amount_cny": order.amount_cny,
+            "amount_cny": cny_to_api(order.amount_cny),
             "credits": order.credits,
             "expire_seconds": ORDER_PAY_TIMEOUT_SECONDS,
             "qrcode_data_url": _build_qrcode_data(pay_url) if pay_url else "",
@@ -520,11 +523,11 @@ def order_status(order_no: str, user: User = Depends(current_user), db: Session 
                         provider=order.provider,
                         amount_cny=remote.get("amount_cny"),
                     )
+                    _trigger_referral_reward(db, settled_order, idempotent=idempotent)
                     db.commit()
                 except Exception:
                     db.rollback()
                     raise
-                _trigger_referral_reward(settled_order, idempotent=idempotent)
                 return ok(
                     data={
                         "order_no": settled_order.order_no,
@@ -575,6 +578,9 @@ def order_pay(order_no: str, user: User = Depends(current_user), db: Session = D
         db.commit()
         raise BizError(code=4212, message="订单已超时，请重新下单")
 
+    if normalize_payment_provider(order.provider) == "mock" and settings.is_prod:
+        raise BizError(code=4213, message="生产环境不允许使用测试支付")
+
     if normalize_payment_provider(order.provider) != "mock" and not payment_test_mode:
         remote = query_remote_order_status(db, order=order)
         if str(remote.get("status", "")).lower() != "paid":
@@ -586,11 +592,11 @@ def order_pay(order_no: str, user: User = Depends(current_user), db: Session = D
                 provider=order.provider,
                 amount_cny=remote.get("amount_cny"),
             )
+            _trigger_referral_reward(db, settled_order, idempotent=idempotent)
             db.commit()
         except Exception:
             db.rollback()
             raise
-        _trigger_referral_reward(settled_order, idempotent=idempotent)
         return ok(
             data={
                 "order_no": settled_order.order_no,
@@ -602,12 +608,11 @@ def order_pay(order_no: str, user: User = Depends(current_user), db: Session = D
 
     try:
         settled_order, idempotent = _pay_pending_order(db, order)
+        _trigger_referral_reward(db, settled_order, idempotent=idempotent)
         db.commit()
     except Exception:
         db.rollback()
         raise
-
-    _trigger_referral_reward(settled_order, idempotent=idempotent)
     logger.info(
         "billing_order_paid",
         extra={
@@ -628,6 +633,8 @@ def mock_pay(
     db: Session = Depends(db_dep),
 ) -> APIResp:
     payment_cfg = load_payment_config(db)
+    if settings.is_prod:
+        raise BizError(code=4213, message="生产环境不允许使用测试支付")
     if not bool(payment_cfg.get("test_mode", settings.payment_test_mode)):
         raise BizError(code=4213, message="当前环境未开启测试支付")
     order_no = make_order_no()
@@ -640,12 +647,11 @@ def mock_pay(
             provider="mock",
             source=get_client_source(request),
         )
+        _trigger_referral_reward(db, order, idempotent=idempotent)
         db.commit()
     except Exception:
         db.rollback()
         raise
-
-    _trigger_referral_reward(order, idempotent=idempotent)
     logger.info(
         "billing_mock_pay_paid",
         extra={"order_no": order_no, "user_id": user.id, "idempotent": idempotent},
@@ -679,12 +685,11 @@ def pay_callback(req: PayCallbackReq, request: Request, db: Session = Depends(db
             amount_cny=req.amount_cny,
             source=get_client_source(request, default=SYSTEM_CLIENT_SOURCE),
         )
+        _trigger_referral_reward(db, order, idempotent=idempotent)
         db.commit()
     except Exception:
         db.rollback()
         raise
-
-    _trigger_referral_reward(order, idempotent=idempotent)
     logger.info(
         "billing_callback_paid",
         extra={
@@ -718,11 +723,11 @@ async def wechatpay_notify(request: Request, db: Session = Depends(db_dep)) -> J
                     provider="wechat",
                     amount_cny=result.get("amount_cny"),
                 )
+                _trigger_referral_reward(db, order, idempotent=idempotent)
                 db.commit()
             except Exception:
                 db.rollback()
                 raise
-            _trigger_referral_reward(order, idempotent=idempotent)
         elif result["status"] == "closed":
             order = db.query(Order).filter(Order.order_no == result["order_no"]).with_for_update().first()
             if order and order.status == "created":
@@ -750,11 +755,11 @@ async def alipay_notify(request: Request, db: Session = Depends(db_dep)) -> Plai
                     provider="alipay",
                     amount_cny=result.get("amount_cny"),
                 )
+                _trigger_referral_reward(db, order, idempotent=idempotent)
                 db.commit()
             except Exception:
                 db.rollback()
                 raise
-            _trigger_referral_reward(order, idempotent=idempotent)
         elif result["status"] == "closed":
             order = db.query(Order).filter(Order.order_no == result["order_no"]).with_for_update().first()
             if order and order.status == "created":

@@ -202,3 +202,33 @@ def test_admins_manage_cannot_assign_permissions_outside_self_scope(client: Test
         assert resp.json()["code"] == 4315
     finally:
         app.dependency_overrides.pop(current_admin, None)
+
+
+def test_admin_login_is_rate_limited_after_repeated_failures(client: TestClient, db_session) -> None:
+    db_session.add(
+        AdminUser(
+            username="ops_login_limit",
+            password_hash=hash_password("Passw0rd!123"),
+            role="operator",
+            is_active=True,
+            permissions_json=["dashboard:view"],
+        )
+    )
+    db_session.commit()
+
+    for _ in range(10):
+        resp = client.post(
+            "/api/v1/admin/auth/login",
+            json={"username": "ops_login_limit", "password": "wrong-password"},
+            headers={"x-forwarded-for": "10.10.20.20"},
+        )
+        assert resp.status_code == 400
+        assert resp.json()["code"] == 4301
+
+    locked = client.post(
+        "/api/v1/admin/auth/login",
+        json={"username": "ops_login_limit", "password": "wrong-password"},
+        headers={"x-forwarded-for": "10.10.20.20"},
+    )
+    assert locked.status_code == 429
+    assert locked.json()["code"] == 4318

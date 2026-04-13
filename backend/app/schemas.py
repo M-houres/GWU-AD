@@ -1,4 +1,5 @@
 from datetime import datetime
+from decimal import Decimal
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -77,7 +78,7 @@ class PayCallbackReq(BaseModel):
     order_no: str = Field(min_length=8, max_length=64)
     user_id: int = Field(ge=1)
     package_name: str
-    amount_cny: float = Field(gt=0)
+    amount_cny: Decimal = Field(gt=0)
     paid_at: int = Field(ge=1)
     status: str = Field(default="paid")
     provider: str = Field(default="wechat")
@@ -94,11 +95,3 @@ class AlgoPackageActivateReq(BaseModel):
 class AlgoPackageUploadReq(BaseModel):
     platform: str = Field(min_length=2, max_length=32)
     function_type: str = Field(min_length=2, max_length=32)
-
-
-class ReferralConfigReq(BaseModel):
-    register_inviter_credits: int = Field(ge=0, le=100000)
-    register_invitee_bonus: int = Field(ge=0, le=100000)
-    first_pay_ratio: float = Field(ge=0.0, le=1.0)
-    recurring_ratio: float = Field(ge=0.0, le=1.0)
-    ip_limit_24h: int = Field(ge=1, le=100)

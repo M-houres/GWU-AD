@@ -1,6 +1,7 @@
 import json
 import math
 import re
+import statistics
 from dataclasses import dataclass
 from datetime import datetime
 from difflib import SequenceMatcher
@@ -303,6 +304,8 @@ class ProcessingEngine:
         value = str(raw or "").strip().lower()
         if not value:
             return ""
+        if any(token in value for token in ("clean", "no_ai", "safe", "normal", "none")):
+            return "clean"
         if "high" in value or "高" in value:
             return "high"
         if "medium" in value or "mid" in value or "中" in value:
@@ -904,6 +907,7 @@ class ProcessingEngine:
                 "offset": 0.0,
                 "high": 0.67,
                 "medium": 0.42,
+                "clean": 0.18,
                 "coverage_weight": 0.06,
                 "section_weight": 0.08,
                 "streak_weight": 0.03,
@@ -930,6 +934,7 @@ class ProcessingEngine:
                 "offset": -0.02,
                 "high": 0.64,
                 "medium": 0.40,
+                "clean": 0.18,
                 "coverage_weight": 0.08,
                 "section_weight": 0.08,
                 "streak_weight": 0.03,
@@ -956,6 +961,7 @@ class ProcessingEngine:
                 "offset": 0.03,
                 "high": 0.60,
                 "medium": 0.38,
+                "clean": 0.16,
                 "coverage_weight": 0.05,
                 "section_weight": 0.04,
                 "streak_weight": 0.05,
@@ -1271,11 +1277,14 @@ class ProcessingEngine:
                     if paragraph_ratio > 0:
                         score_ratio = round(self._clamp_score(score_ratio * 0.72 + paragraph_ratio * 0.28), 4)
                     label = self._score_to_detect_label(score_ratio, profile)
-                    weighted_scores.append(score_ratio)
-                    display_band = self._fragment_display_band(score_ratio, profile)
-                    if display_band:
-                        display_count_map[display_band] += 1
-                        display_char_map[display_band] += char_count
+                    if label == "clean":
+                        label = "no_ai"
+                    else:
+                        weighted_scores.append(score_ratio)
+                        display_band = self._fragment_display_band(score_ratio, profile)
+                        if display_band:
+                            display_count_map[display_band] += 1
+                            display_char_map[display_band] += char_count
                 count_map[label] += 1
                 char_map[label] += char_count
 
@@ -1547,6 +1556,8 @@ class ProcessingEngine:
             profile,
             paragraph_details,
             document_outline=document_outline,
+            algo_doc_label=self._extract_algo_label(algo_result),
+            algo_doc_score=self._extract_algo_score(algo_result) or 0.0,
         )
         document_metrics = self._build_document_metrics(
             text=text,
@@ -1701,10 +1712,113 @@ class ProcessingEngine:
     def _split_detect_sentences(self, text: str) -> list[str]:
         return [seg.strip() for seg in re.split(r"[。！？!?；;\n]+", str(text or "")) if seg.strip()]
 
+    def _normalize_detect_text_line(self, text: str) -> str:
+        return re.sub(r"\s+", " ", str(text or "")).strip()
+
+    def _looks_like_wrapped_detect_block(self, lines: list[str]) -> bool:
+        compact_lengths = [len(re.sub(r"\s+", "", line)) for line in lines if str(line or "").strip()]
+        if len(compact_lengths) < 4:
+            return False
+        median_len = float(statistics.median(compact_lengths))
+        short_ratio = sum(1 for item in compact_lengths if item <= 46) / max(len(compact_lengths), 1)
+        long_ratio = sum(1 for item in compact_lengths if item >= 95) / max(len(compact_lengths), 1)
+        if len(compact_lengths) >= 80 and median_len <= 32 and short_ratio >= 0.5:
+            return True
+        return median_len <= 46 and short_ratio >= 0.55 and long_ratio <= 0.45
+
+    def _looks_like_detect_paragraph_start(self, text: str) -> bool:
+        compact = re.sub(r"\s+", "", str(text or ""))
+        if not compact:
+            return False
+        starters = (
+            "首先",
+            "其次",
+            "再次",
+            "最后",
+            "此外",
+            "另外",
+            "与此同时",
+            "综上",
+            "总之",
+            "由此可见",
+            "由此可知",
+            "一方面",
+            "另一方面",
+            "针对上述",
+            "基于上述",
+        )
+        if compact.startswith(starters):
+            return True
+        return bool(re.match(r"^(注|说明|备注|来源)[:：]", compact))
+
+    def _join_detect_wrapped_lines(self, left: str, right: str) -> str:
+        left_text = self._normalize_detect_text_line(left)
+        right_text = self._normalize_detect_text_line(right)
+        if not left_text:
+            return right_text
+        if not right_text:
+            return left_text
+        if re.search(r"[\u4e00-\u9fff（([“‘]$", left_text) or re.match(r"^[\u4e00-\u9fff，。；：！？、）】》」]", right_text):
+            return f"{left_text}{right_text}"
+        return f"{left_text} {right_text}".strip()
+
+    def _should_break_wrapped_detect_paragraph(self, buffer_text: str, next_line: str) -> bool:
+        current = self._normalize_detect_text_line(next_line)
+        if not current:
+            return False
+        current_level, _current_heading = self._detect_outline_heading(current)
+        if current_level is not None:
+            return True
+
+        buffer_compact = re.sub(r"\s+", "", str(buffer_text or ""))
+        if not buffer_compact:
+            return False
+        buffer_level, _buffer_heading = self._detect_outline_heading(buffer_compact)
+        if buffer_level is not None and len(buffer_compact) <= 40:
+            return True
+
+        previous_complete = bool(re.search(r"[。！？!?；;：:]$", self._normalize_detect_text_line(buffer_text)))
+        if not previous_complete:
+            return False
+
+        if len(buffer_compact) >= 170:
+            return True
+        if len(buffer_compact) >= 110 and len(re.sub(r"\s+", "", current)) >= 18:
+            return True
+        if len(buffer_compact) >= 85 and self._looks_like_detect_paragraph_start(current):
+            return True
+        return False
+
     def _split_detect_paragraphs(self, text: str) -> list[str]:
-        paragraphs = [part.strip() for part in str(text or "").splitlines() if part.strip()]
-        if not paragraphs and str(text or "").strip():
-            paragraphs = [str(text).strip()]
+        content = str(text or "").replace("\r\n", "\n").replace("\r", "\n")
+        if not content.strip():
+            return []
+
+        paragraphs: list[str] = []
+        blocks = re.split(r"\n\s*\n+", content)
+        for block in blocks:
+            lines = [self._normalize_detect_text_line(part) for part in block.splitlines() if part.strip()]
+            if not lines:
+                continue
+            if not self._looks_like_wrapped_detect_block(lines):
+                paragraphs.extend(line for line in lines if line)
+                continue
+
+            buffer = ""
+            for line in lines:
+                if not buffer:
+                    buffer = line
+                    continue
+                if self._should_break_wrapped_detect_paragraph(buffer, line):
+                    paragraphs.append(buffer.strip())
+                    buffer = line
+                    continue
+                buffer = self._join_detect_wrapped_lines(buffer, line)
+            if buffer:
+                paragraphs.append(buffer.strip())
+
+        if not paragraphs and content.strip():
+            paragraphs = [self._normalize_detect_text_line(content)]
         return paragraphs
 
     def _build_detect_llm_excerpt(self, text: str, platform: str) -> str:
@@ -1973,6 +2087,49 @@ class ProcessingEngine:
         density = hit_count / max(len(content) / 150.0, 1.0)
         return round(min(0.16, density * 0.08), 4)
 
+    def _human_case_relief_signal(self, text: str) -> float:
+        content = str(text or "")
+        patterns = [
+            r"“[^”]{2,20}”",
+            r"——",
+            r"幼儿|孩子|家长|教师|老师|顾客|员工|门店|会员|妈妈|爸爸|爷爷|奶奶",
+            r"本园|我园|本校|本班|班级|课堂|晨圈|园所",
+            r"案例|项目|活动|分享|记录|观察|反馈|实践",
+        ]
+        hit_count = 0
+        for pattern in patterns:
+            hit_count += len(re.findall(pattern, content, flags=re.IGNORECASE))
+        density = hit_count / max(len(content) / 110.0, 1.0)
+        return round(min(0.24, density * 0.09), 4)
+
+    def _cnki_practice_chain_signal(self, text: str) -> float:
+        content = str(text or "")
+        patterns = [
+            r"课程融合|晨圈分享|家长参与|成效与反思",
+            r"绘本阅读|手工绘画|演唱活动|家人小调查|家长体验课|家长助教活动|家长感悟接龙",
+            r"角色互换|双向流动|情感共鸣|进入社区|主动参与|表达更主动|参与质量",
+            r"制作贺卡|爱心甜汤|调查活动|分享环节|晨圈时间|节日活动",
+        ]
+        hit_count = 0
+        for pattern in patterns:
+            hit_count += len(re.findall(pattern, content, flags=re.IGNORECASE))
+        density = hit_count / max(len(content) / 120.0, 1.0)
+        return round(min(0.24, density * 0.11), 4)
+
+    def _cnki_summary_wrapup_relief(self, text: str) -> float:
+        content = str(text or "")
+        patterns = [
+            r"最核心的教育逻辑|最本质的教育逻辑",
+            r"可迁移性体现在两个层面|具有极强的可迁移性",
+            r"形成系列化的家园共育体系",
+            r"推广价值|生命底色|不长在课堂里",
+        ]
+        hit_count = 0
+        for pattern in patterns:
+            hit_count += len(re.findall(pattern, content, flags=re.IGNORECASE))
+        density = hit_count / max(len(content) / 110.0, 1.0)
+        return round(min(0.20, density * 0.12), 4)
+
     def _artifact_signal(self, text: str) -> tuple[float, list[str]]:
         content = str(text or "")
         markers = [
@@ -2026,6 +2183,7 @@ class ProcessingEngine:
         evidence_pct = float(breakdown.get("evidence_relief") or 0.0) * 100.0
         colloquial_pct = float(breakdown.get("colloquial_relief") or 0.0) * 100.0
         specificity_pct = float(breakdown.get("specificity_relief") or 0.0) * 100.0
+        human_case_pct = float(breakdown.get("human_case_relief") or 0.0) * 100.0
         algo_pct = float(breakdown.get("algo_package_score") or 0.0) * 100.0
         weighted_fragment_pct = float(fragment_distribution.get("weighted_score_pct") or 0.0)
         high_middle_text_pct = float(fragment_distribution.get("high_and_middle_suspected_text_ratio") or 0.0)
@@ -2047,6 +2205,7 @@ class ProcessingEngine:
                 - evidence_pct * 0.60
                 - colloquial_pct * 0.40
                 - specificity_pct * 0.45
+                - human_case_pct * 0.55
                 - long_doc_relief * 0.30
                 - 0.60
             )
@@ -2177,8 +2336,20 @@ class ProcessingEngine:
         evidence_relief = self._evidence_relief_signal_v2(clean)
         colloquial_relief = self._colloquial_relief_signal(clean)
         specificity_relief = self._specificity_relief_signal_v2(clean)
+        human_case_relief = self._human_case_relief_signal(clean)
         artifact_signal, artifact_hits = self._artifact_signal(clean)
         english_abstract_signal = self._english_abstract_signal(clean)
+        practice_chain_signal = 0.0
+        summary_wrapup_relief = 0.0
+        effective_human_case_relief = human_case_relief
+        if (platform or "").strip().lower() == "cnki":
+            practice_chain_signal = self._cnki_practice_chain_signal(clean)
+            summary_wrapup_relief = self._cnki_summary_wrapup_relief(clean)
+            if practice_chain_signal >= 0.08 and summary_wrapup_relief < 0.10:
+                effective_human_case_relief = round(
+                    max(0.0, human_case_relief * (1.0 - min(0.58, practice_chain_signal * 2.2))),
+                    4,
+                )
 
         weighted = (
             float(base_score) * profile["baseline_weight"]
@@ -2189,10 +2360,13 @@ class ProcessingEngine:
             + opening_signal * profile["opening_weight"]
             + artifact_signal * profile.get("artifact_weight", 0.0)
             + english_abstract_signal * profile.get("english_abstract_weight", 0.0)
+            + practice_chain_signal * 0.16
             - citation_relief
             - evidence_relief
             - colloquial_relief * profile.get("colloquial_relief_weight", 0.0)
             - specificity_relief * profile.get("specificity_relief_weight", 0.0)
+            - effective_human_case_relief
+            - summary_wrapup_relief * 0.24
             + profile["offset"]
         )
         score = round(self._clamp_score(weighted), 4)
@@ -2207,9 +2381,13 @@ class ProcessingEngine:
             "evidence_relief": round(evidence_relief, 4),
             "colloquial_relief": round(colloquial_relief, 4),
             "specificity_relief": round(specificity_relief, 4),
+            "human_case_relief": round(effective_human_case_relief, 4),
+            "human_case_relief_raw": round(human_case_relief, 4),
             "artifact_signal": round(artifact_signal, 4),
             "artifact_hits": artifact_hits,
             "english_abstract_signal": round(english_abstract_signal, 4),
+            "practice_chain_signal": round(practice_chain_signal, 4),
+            "summary_wrapup_relief": round(summary_wrapup_relief, 4),
             "template_hits": template_hits,
             "weights": {
                 "baseline": profile["baseline_weight"],
@@ -2222,6 +2400,7 @@ class ProcessingEngine:
                 "english_abstract": profile.get("english_abstract_weight", 0.0),
                 "colloquial_relief": profile.get("colloquial_relief_weight", 0.0),
                 "specificity_relief": profile.get("specificity_relief_weight", 0.0),
+                "human_case_relief": 1.0,
                 "offset": profile["offset"],
             },
             "thresholds": {"high": profile["high"], "medium": profile["medium"]},
@@ -2233,7 +2412,19 @@ class ProcessingEngine:
             return "high"
         if score >= float(profile.get("medium", 0.35)):
             return "medium"
-        return "low"
+        if score >= float(profile.get("clean", 0.18)):
+            return "low"
+        return "clean"
+
+    def _prefer_higher_risk_detect_label(self, primary: str, secondary: str) -> str:
+        rank = {"clean": 0, "low": 1, "medium": 2, "high": 3}
+        left = self._normalize_detect_label(primary)
+        right = self._normalize_detect_label(secondary)
+        if not left:
+            return right
+        if not right:
+            return left
+        return left if rank.get(left, -1) >= rank.get(right, -1) else right
 
     def _extract_algo_paragraphs(self, algo_result) -> list[dict]:
         candidates: list = []
@@ -2370,7 +2561,37 @@ class ProcessingEngine:
                 continue
             base_score = self._heuristic_ai_score(sentence)
             score, _profile, breakdown = self._simulate_platform_detect_score(platform, sentence, base_score)
-            if score < float(profile.get("medium", 0.35)) and len(breakdown.get("template_hits") or []) < 2:
+            strong_signal_count = sum(
+                1
+                for passed in (
+                    float(breakdown.get("template_signal") or 0.0) >= 0.22,
+                    float(breakdown.get("repeat_signal") or 0.0) >= 0.32,
+                    float(breakdown.get("context_signal") or 0.0) >= 0.58,
+                    float(breakdown.get("opening_signal") or 0.0) >= 0.44,
+                    float(breakdown.get("artifact_signal") or 0.0) >= 0.08,
+                    float(breakdown.get("english_abstract_signal") or 0.0) >= 0.08,
+                )
+                if passed
+            )
+            relief_signal = max(
+                float(breakdown.get("citation_relief") or 0.0),
+                float(breakdown.get("evidence_relief") or 0.0),
+            )
+            practice_chain_signal = float(breakdown.get("practice_chain_signal") or 0.0)
+            summary_wrapup_relief = float(breakdown.get("summary_wrapup_relief") or 0.0)
+            cnki_practice_allow = (
+                platform == "cnki"
+                and practice_chain_signal >= 0.10
+                and summary_wrapup_relief < 0.10
+                and score >= float(profile.get("clean", 0.18)) + 0.04
+            )
+            if not cnki_practice_allow and score < float(profile.get("medium", 0.35)) + 0.08 and strong_signal_count < 2:
+                continue
+            if relief_signal >= 0.08 and score < float(profile.get("high", 0.65)):
+                continue
+            if platform == "cnki" and summary_wrapup_relief >= 0.10 and score < float(profile.get("high", 0.65)):
+                continue
+            if len(sentence) < 16 and score < float(profile.get("high", 0.65)):
                 continue
             reasons: list[str] = []
             if float(breakdown.get("template_signal") or 0.0) >= 0.22:
@@ -2393,7 +2614,7 @@ class ProcessingEngine:
                 }
             )
         segments.sort(key=lambda item: item["score"], reverse=True)
-        return segments[:3]
+        return segments[:2]
 
     def _paragraph_reason_tags_v2(self, breakdown: dict) -> list[str]:
         tags: list[str] = []
@@ -2417,6 +2638,12 @@ class ProcessingEngine:
         paragraphs = self._split_detect_paragraphs(text)
 
         algo_map = {item["index"]: item for item in self._extract_algo_paragraphs(algo_result)}
+        algo_doc_label = self._extract_algo_label(algo_result)
+        algo_doc_score = self._extract_algo_score(algo_result) or 0.0
+        heading_map = {
+            index: (self._detect_outline_heading(paragraph)[1] or "")
+            for index, paragraph in enumerate(paragraphs, start=1)
+        }
         rows: list[dict] = []
         for index, paragraph in enumerate(paragraphs, start=1):
             base_score = self._heuristic_ai_score(paragraph)
@@ -2431,9 +2658,36 @@ class ProcessingEngine:
             local_segments = self._local_suspicious_segments_v2(paragraph, platform, profile)
             merged_segments = self._merge_suspicious_segments(local_segments, (algo_row or {}).get("segments") or [])
             if merged_segments:
-                score_ratio = round(self._clamp_score(score_ratio + min(0.06, len(merged_segments) * 0.012)), 4)
+                score_ratio = round(self._clamp_score(score_ratio + min(0.04, len(merged_segments) * 0.01)), 4)
 
-            label = (algo_row or {}).get("label") or self._score_to_detect_label(score_ratio, profile)
+            score_label = self._score_to_detect_label(score_ratio, profile)
+            if (
+                platform == "cnki"
+                and score_label == "clean"
+                and score_ratio >= 0.15
+                and self._detect_outline_heading(paragraph)[0] is None
+            ):
+                score_label = "low"
+            label = self._prefer_higher_risk_detect_label(
+                self._normalize_detect_label((algo_row or {}).get("label")),
+                score_label,
+            )
+            segment_rows = []
+            for segment in merged_segments:
+                segment_label = "low"
+                if (
+                    platform == "cnki"
+                    and algo_doc_label in ("low", "medium", "high")
+                    and algo_doc_score >= 0.16
+                    and score_ratio >= 0.25
+                ):
+                    segment_label = "high"
+                segment_rows.append(
+                    {
+                        **segment,
+                        "label": segment_label,
+                    }
+                )
             rows.append(
                 {
                     "index": index,
@@ -2443,10 +2697,38 @@ class ProcessingEngine:
                     "char_count": count_billable_chars(paragraph),
                     "sentence_count": len(self._split_detect_sentences(paragraph)),
                     "excerpt": self._clip_text(paragraph, 110),
-                    "reason_tags": self._paragraph_reason_tags_v2(breakdown),
-                    "suspicious_segments": merged_segments,
+                    "reason_tags": [] if label == "clean" else self._paragraph_reason_tags_v2(breakdown),
+                    "suspicious_segments": [] if label == "clean" else segment_rows,
                 }
             )
+
+        if platform == "cnki" and len(rows) <= 60:
+            excluded_heading_pattern = r"摘要|关键词|结论|结语|参考文献|附录|特色|推广|价值"
+            for position, row in enumerate(rows):
+                if row["label"] != "clean":
+                    continue
+                heading_text = re.sub(r"\s+", "", heading_map.get(row["index"], ""))
+                if not heading_text or re.search(excluded_heading_pattern, heading_text):
+                    continue
+                following = rows[position + 1 : position + 3]
+                if len(following) < 2:
+                    continue
+                avg_follow_score = sum(float(item["score"]) for item in following) / len(following)
+                following_risky = sum(1 for item in following if item["label"] != "clean")
+                if following_risky >= 1 and avg_follow_score >= 18.0:
+                    row["label"] = "low"
+                    row["suspicious_segments"] = [
+                        {
+                            "text": self._clip_text(heading_text, 76),
+                            "score": round(avg_follow_score, 2),
+                            "reason": "风险区标题延续",
+                            "label": (
+                                "high"
+                                if algo_doc_label in ("low", "medium", "high") and algo_doc_score >= 0.16
+                                else "low"
+                            ),
+                        }
+                    ]
         return rows
 
     def _detect_outline_heading(self, text: str) -> tuple[int | None, str]:
@@ -2480,10 +2762,18 @@ class ProcessingEngine:
 
     def _is_no_ai_fragment(self, text: str) -> bool:
         clean = " ".join(str(text or "").split())
+        compact = re.sub(r"\s+", "", clean)
         if not clean:
             return True
         heading_level, _heading = self._detect_outline_heading(clean)
         if heading_level is not None:
+            return True
+        if re.search(
+            r"分类号|密级|学号|独创性说明|知识产权声明|学位论文作者签名|指导教师签名|保密论文待解密后适用本声明|论文题目[:：]|学科名称[:：]",
+            compact,
+        ):
+            return True
+        if re.search(r"本人郑重声明|本人完全了解学校有关保护知识产权的规定", compact):
             return True
         if self._citation_relief_signal(clean) >= 0.08 and len(clean) <= 90:
             return True
@@ -2575,6 +2865,22 @@ class ProcessingEngine:
             )
         return results
 
+    def _cnki_short_doc_focus_indexes(self, paragraphs: list[str]) -> set[int]:
+        focus_indexes: set[int] = set()
+        if len(paragraphs) > 60:
+            return focus_indexes
+        for index, paragraph in enumerate(paragraphs, start=1):
+            _level, heading = self._detect_outline_heading(paragraph)
+            compact = re.sub(r"\s+", "", heading or "")
+            if not compact or not re.search(r"课程融合|家长参与|成效与反思", compact):
+                continue
+            focus_indexes.add(index)
+            for offset in (1, 2):
+                target = index + offset
+                if target <= len(paragraphs):
+                    focus_indexes.add(target)
+        return focus_indexes
+
     def _build_fragment_distribution(
         self,
         text: str,
@@ -2582,11 +2888,18 @@ class ProcessingEngine:
         profile: dict,
         paragraph_details: list[dict],
         document_outline: list[dict] | None = None,
+        *,
+        algo_doc_label: str = "",
+        algo_doc_score: float = 0.0,
     ) -> dict:
         paragraphs = self._split_detect_paragraphs(text)
         paragraph_score_map = {
             int(item.get("index") or 0): round(float(item.get("score") or 0.0) / 100.0, 4) for item in paragraph_details
         }
+        paragraph_label_map = {int(item.get("index") or 0): str(item.get("label") or "") for item in paragraph_details}
+        cnki_focus_indexes = (
+            self._cnki_short_doc_focus_indexes(paragraphs) if (platform or "").strip().lower() == "cnki" else set()
+        )
 
         count_map = {"high": 0, "medium": 0, "low": 0, "no_ai": 0}
         char_map = {"high": 0, "medium": 0, "low": 0, "no_ai": 0}
@@ -2604,7 +2917,12 @@ class ProcessingEngine:
                 if char_count <= 0:
                     continue
 
-                if self._is_no_ai_fragment(compact):
+                focus_heading = (
+                    platform == "cnki"
+                    and paragraph_index in cnki_focus_indexes
+                    and self._detect_outline_heading(compact)[0] is not None
+                )
+                if self._is_no_ai_fragment(compact) and not focus_heading:
                     label = "no_ai"
                     score_ratio = 0.0
                 else:
@@ -2613,11 +2931,36 @@ class ProcessingEngine:
                     if paragraph_ratio > 0:
                         score_ratio = round(self._clamp_score(score_ratio * 0.72 + paragraph_ratio * 0.28), 4)
                     label = self._score_to_detect_label(score_ratio, profile)
-                    weighted_scores.append(score_ratio)
-                    display_band = self._fragment_display_band(score_ratio, profile)
-                    if display_band:
-                        display_count_map[display_band] += 1
-                        display_char_map[display_band] += char_count
+                    if platform == "cnki" and paragraph_index in cnki_focus_indexes:
+                        paragraph_label = paragraph_label_map.get(paragraph_index, "")
+                        if algo_doc_label in ("low", "medium", "high") and algo_doc_score >= 0.16:
+                            if paragraph_label != "clean" and paragraph_ratio >= 0.30:
+                                label = "high"
+                            elif paragraph_label != "clean" and paragraph_ratio >= 0.22 and label == "low":
+                                label = "medium"
+                        elif algo_doc_label == "clean" and algo_doc_score <= 0.12:
+                            if label == "medium" and paragraph_ratio < 0.40:
+                                label = "low"
+                            elif label == "low" and paragraph_ratio < 0.34:
+                                label = "no_ai"
+                    elif platform == "cnki" and cnki_focus_indexes and paragraph_index != 1:
+                        wrapup_relief = float(_breakdown.get("summary_wrapup_relief") or 0.0)
+                        if wrapup_relief >= 0.10:
+                            label = "no_ai"
+                        elif algo_doc_label in ("low", "medium", "high") and algo_doc_score >= 0.16:
+                            if label in ("low", "medium") and paragraph_ratio < 0.30:
+                                label = "no_ai"
+                        elif algo_doc_label == "clean" and algo_doc_score <= 0.12:
+                            if label != "high" and paragraph_ratio < 0.36:
+                                label = "no_ai"
+                    if label == "clean":
+                        label = "no_ai"
+                    else:
+                        weighted_scores.append(score_ratio)
+                        display_band = self._fragment_display_band(score_ratio, profile)
+                        if display_band:
+                            display_count_map[display_band] += 1
+                            display_char_map[display_band] += char_count
 
                 count_map[label] += 1
                 char_map[label] += char_count
@@ -2910,24 +3253,29 @@ class ProcessingEngine:
                 "high_count": 0,
                 "medium_count": 0,
                 "low_count": 0,
+                "clean_count": 0,
                 "high_ratio": 0.0,
                 "medium_ratio": 0.0,
                 "low_ratio": 0.0,
+                "clean_ratio": 0.0,
                 "avg_score": 0.0,
                 "max_score": 0.0,
             }
         high_count = sum(1 for item in paragraph_details if item.get("label") == "high")
         medium_count = sum(1 for item in paragraph_details if item.get("label") == "medium")
-        low_count = total - high_count - medium_count
+        low_count = sum(1 for item in paragraph_details if item.get("label") == "low")
+        clean_count = sum(1 for item in paragraph_details if item.get("label") == "clean")
         scores = [float(item.get("score") or 0.0) for item in paragraph_details]
         return {
             "paragraph_count": total,
             "high_count": high_count,
             "medium_count": medium_count,
             "low_count": low_count,
+            "clean_count": clean_count,
             "high_ratio": round(high_count / total * 100, 2),
             "medium_ratio": round(medium_count / total * 100, 2),
             "low_ratio": round(low_count / total * 100, 2),
+            "clean_ratio": round(clean_count / total * 100, 2),
             "avg_score": round(sum(scores) / total, 2),
             "max_score": round(max(scores), 2),
         }
@@ -3082,6 +3430,8 @@ class ProcessingEngine:
             profile,
             paragraph_details,
             document_outline=document_outline,
+            algo_doc_label=self._extract_algo_label(algo_result),
+            algo_doc_score=self._extract_algo_score(algo_result) or 0.0,
         )
         document_metrics = self._build_document_metrics(
             text=text,
@@ -3136,6 +3486,7 @@ class ProcessingEngine:
         )
         algo_label = ""
         llm_label = ""
+        package_score = None
 
         if isinstance(algo_result, dict):
             package_score = self._extract_algo_score(algo_result)
@@ -3147,6 +3498,8 @@ class ProcessingEngine:
                 breakdown["algo_package_blended"] = False
 
             algo_label = self._extract_algo_label(algo_result)
+            if algo_label:
+                breakdown["algo_package_label"] = algo_label
         else:
             breakdown["algo_package_blended"] = False
 
@@ -3177,6 +3530,12 @@ class ProcessingEngine:
             document_metrics=document_metrics,
             source_stats=source_stats,
         )
+        if platform == "cnki" and package_score is not None:
+            if algo_label == "clean" and package_score <= 0.12:
+                score = min(score, round(self._clamp_score(package_score * 0.82), 4))
+            elif algo_label == "low" and package_score >= 0.16 and raw_score >= 0.22:
+                package_floor = self._clamp_score(min(0.26, raw_score, package_score * 1.24))
+                score = max(score, round(package_floor, 4))
         score_pct = round(score * 100, 2)
 
         if algo_label:

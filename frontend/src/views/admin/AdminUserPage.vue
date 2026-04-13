@@ -7,7 +7,7 @@
       </div>
 
       <div class="scholar-panel__body">
-        <div class="scholar-inline-actions">
+        <div class="scholar-inline-actions gw-admin-toolbar">
           <input v-model.trim="keyword" class="scholar-input" style="max-width: 320px" placeholder="按手机号搜索" />
           <div class="scholar-inline-actions gw-admin-status-filters">
             <button
@@ -57,7 +57,7 @@
           </div>
         </div>
 
-        <div class="overflow-x-auto" style="margin-top: 18px">
+        <div class="overflow-x-auto gw-admin-user-table-shell" style="margin-top: 18px">
           <table class="scholar-table">
             <thead>
               <tr>
@@ -105,6 +105,36 @@
               </tr>
             </tbody>
           </table>
+        </div>
+
+        <div class="gw-admin-user-mobile-list">
+          <article v-for="row in displayRows" :key="`mobile-user-${row.id}`" class="gw-admin-user-card">
+            <div class="gw-admin-user-card__head">
+              <div>
+                <div class="gw-admin-user-card__eyebrow">用户 #{{ row.id }}</div>
+                <strong class="gw-admin-user-card__title">{{ row.nickname || "未设置昵称" }}</strong>
+                <div class="gw-admin-user-card__sub">{{ row.phone }}</div>
+              </div>
+              <span class="scholar-badge" :class="row.is_banned ? 'scholar-badge--danger' : 'scholar-badge--success'">
+                {{ row.is_banned ? "已封禁" : "正常" }}
+              </span>
+            </div>
+
+            <div class="gw-admin-user-card__grid">
+              <div><span>积分</span><strong>{{ row.credits }}</strong></div>
+              <div><span>来源</span><strong>{{ mapSource(row.source) }}</strong></div>
+              <div><span>创建时间</span><strong>{{ formatTime(row.created_at) }}</strong></div>
+            </div>
+
+            <div class="gw-admin-user-card__actions">
+              <button class="gw-admin-btn" type="button" @click="goDetail(row)">查看详情</button>
+              <button v-if="canManageUsers" class="gw-admin-btn" type="button" @click="toggleBan(row)">
+                {{ row.is_banned ? "解封" : "封禁" }}
+              </button>
+              <button v-if="canManageUsers" class="gw-admin-btn" type="button" @click="openAdjust(row)">调整积分</button>
+            </div>
+          </article>
+          <div v-if="displayRows.length === 0" class="scholar-empty">暂无用户数据</div>
         </div>
       </div>
     </section>
@@ -234,6 +264,10 @@ function mapSource(value) {
 </script>
 
 <style scoped>
+.gw-admin-toolbar {
+  align-items: stretch;
+}
+
 .gw-admin-status-filters {
   gap: 8px;
 }
@@ -275,5 +309,110 @@ function mapSource(value) {
 .gw-admin-btn:disabled {
   opacity: 0.45;
   cursor: not-allowed;
+}
+
+.gw-admin-user-mobile-list {
+  display: none;
+  margin-top: 18px;
+}
+
+.gw-admin-user-card {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+  border: 1px solid rgba(17, 17, 17, 0.08);
+  border-radius: 18px;
+  background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+}
+
+.gw-admin-user-card + .gw-admin-user-card {
+  margin-top: 12px;
+}
+
+.gw-admin-user-card__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.gw-admin-user-card__eyebrow {
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #5f6d79;
+}
+
+.gw-admin-user-card__title {
+  display: block;
+  margin-top: 6px;
+  font-size: 16px;
+  line-height: 1.5;
+  color: #111111;
+}
+
+.gw-admin-user-card__sub {
+  margin-top: 4px;
+  font-size: 13px;
+  color: #556470;
+}
+
+.gw-admin-user-card__grid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.gw-admin-user-card__grid div {
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  border: 1px solid rgba(17, 17, 17, 0.06);
+  background: #ffffff;
+}
+
+.gw-admin-user-card__grid span {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #5f6d79;
+}
+
+.gw-admin-user-card__grid strong {
+  font-size: 13px;
+  line-height: 1.6;
+  color: #17222b;
+  word-break: break-word;
+}
+
+.gw-admin-user-card__actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+@media (max-width: 768px) {
+  .gw-admin-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .gw-admin-toolbar > * {
+    width: 100%;
+    max-width: none !important;
+  }
+
+  .gw-admin-user-table-shell {
+    display: none;
+  }
+
+  .gw-admin-user-mobile-list {
+    display: block;
+  }
+
+  .gw-admin-user-card__grid {
+    grid-template-columns: 1fr;
+  }
 }
 </style>

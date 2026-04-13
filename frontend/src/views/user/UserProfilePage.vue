@@ -27,12 +27,11 @@
       </section>
 
       <section v-if="activeTab === 'overview'" class="profile-stack">
-        <section class="profile-top-grid">
+        <section class="profile-top-grid profile-top-grid--single">
           <article class="scholar-panel">
             <div class="scholar-panel__body">
               <div class="profile-head">
                 <div>
-                  <div class="scholar-kicker">Account Center</div>
                   <h3 class="scholar-subtitle">{{ displayName }}</h3>
                   <p class="scholar-lead">账户资料、任务活跃度和最近记录都在这里统一查看。</p>
                 </div>
@@ -51,117 +50,6 @@
               </div>
             </div>
           </article>
-
-          <article class="scholar-panel">
-            <div class="scholar-panel__body">
-              <label class="scholar-field">
-                <span class="scholar-field__label">昵称设置</span>
-                <div class="profile-editor">
-                  <input v-model.trim="nickname" class="scholar-input" maxlength="64" placeholder="请输入展示昵称，可留空" />
-                  <button class="scholar-button" type="button" :disabled="savingNickname" @click="saveNickname">
-                    {{ savingNickname ? "保存中..." : "保存昵称" }}
-                  </button>
-                </div>
-              </label>
-              <p class="profile-tip">昵称会展示在个人资料和部分任务结果页，用于区分不同账号。</p>
-              <p v-if="nicknameFeedback.text" class="profile-feedback" :class="`is-${nicknameFeedback.type}`">{{ nicknameFeedback.text }}</p>
-            </div>
-          </article>
-        </section>
-
-        <section class="profile-two-col">
-          <article class="scholar-panel">
-            <div class="scholar-panel__header">
-              <div>
-                <div class="scholar-kicker">Profile Info</div>
-                <h3 class="scholar-subtitle">账户资料</h3>
-              </div>
-            </div>
-            <div class="scholar-panel__body">
-              <div class="profile-card-grid">
-                <article v-for="card in accountCards" :key="card.label" class="profile-card">
-                  <div class="profile-card__label">{{ card.label }}</div>
-                  <div class="profile-card__value">{{ card.value }}</div>
-                  <div class="profile-card__hint">{{ card.hint }}</div>
-                </article>
-              </div>
-            </div>
-          </article>
-
-          <article class="scholar-panel">
-            <div class="scholar-panel__header">
-              <div>
-                <div class="scholar-kicker">Task Breakdown</div>
-                <h3 class="scholar-subtitle">任务分布</h3>
-              </div>
-            </div>
-            <div class="scholar-panel__body">
-              <div class="profile-card-grid">
-                <article v-for="card in breakdownCards" :key="card.label" class="profile-card">
-                  <div class="profile-card__label">{{ card.label }}</div>
-                  <div class="profile-card__value">{{ card.value }}</div>
-                  <div class="profile-card__hint">{{ card.hint }}</div>
-                </article>
-              </div>
-            </div>
-          </article>
-        </section>
-
-        <section class="profile-two-col">
-          <article class="scholar-panel">
-            <div class="scholar-panel__header">
-              <div>
-                <div class="scholar-kicker">Recent Tasks</div>
-                <h3 class="scholar-subtitle">最近任务</h3>
-              </div>
-              <div class="scholar-inline-actions">
-                <button class="scholar-button scholar-button--secondary" type="button" @click="loadSummary">刷新</button>
-                <button class="scholar-button" type="button" @click="switchTab('history')">查看全部</button>
-              </div>
-            </div>
-            <div class="scholar-panel__body">
-              <div v-if="recentTasks.length" class="profile-list">
-                <article v-for="item in recentTasks" :key="item.id" class="profile-list__item">
-                  <div class="profile-list__main">
-                    <button class="profile-link" type="button" @click="openResult(item)">{{ taskLabel(item) }}</button>
-                    <div class="profile-list__meta">{{ mapTaskType(item.task_type) }} · {{ mapPlatform(item.platform, item.task_type) }} · {{ formatTime(item.created_at) }}</div>
-                  </div>
-                  <div class="profile-list__side">
-                    <span class="scholar-badge" :class="statusClass(item.status)">{{ mapStatus(item.status) }}</span>
-                    <button class="scholar-button scholar-button--secondary" type="button" :disabled="item.status !== 'completed'" @click="download(item.id)">下载</button>
-                  </div>
-                </article>
-              </div>
-              <div v-else class="scholar-empty">暂无任务记录</div>
-            </div>
-          </article>
-
-          <article class="scholar-panel">
-            <div class="scholar-panel__header">
-              <div>
-                <div class="scholar-kicker">Recent Credits</div>
-                <h3 class="scholar-subtitle">最近流水</h3>
-              </div>
-              <div class="scholar-inline-actions">
-                <button class="scholar-button scholar-button--secondary" type="button" @click="loadSummary">刷新</button>
-                <button class="scholar-button" type="button" @click="switchTab('credits')">查看全部</button>
-              </div>
-            </div>
-            <div class="scholar-panel__body">
-              <div v-if="recentTransactions.length" class="profile-list">
-                <article v-for="row in recentTransactions" :key="row.id" class="profile-list__item">
-                  <div class="profile-list__main">
-                    <div class="profile-link profile-link--static">{{ mapCreditType(row.tx_type) }}</div>
-                    <div class="profile-list__meta">{{ row.reason || "系统记录" }} · {{ formatTime(row.created_at) }}</div>
-                  </div>
-                  <strong class="profile-delta" :class="{ 'is-plus': row.delta >= 0, 'is-minus': row.delta < 0 }">
-                    {{ row.delta >= 0 ? `+${row.delta}` : row.delta }} 积分
-                  </strong>
-                </article>
-              </div>
-              <div v-else class="scholar-empty">暂无流水</div>
-            </div>
-          </article>
         </section>
       </section>
 
@@ -169,7 +57,6 @@
         <div class="scholar-panel__header">
           <div class="flex flex-wrap items-start justify-between gap-3">
             <div>
-              <div class="scholar-kicker">Task History</div>
               <h3 class="scholar-subtitle">任务记录</h3>
               <p class="scholar-lead">这里会连续拉取你的历史任务，刷新和重新登录后不会只剩一页数据。</p>
             </div>
@@ -190,7 +77,7 @@
             </button>
             <span class="scholar-pill">共 {{ filteredTasks.length }} 条</span>
           </div>
-          <div class="overflow-x-auto">
+          <div class="overflow-x-auto profile-table-shell">
             <table class="scholar-table">
               <thead>
                 <tr><th>任务 ID</th><th>标题</th><th>类型</th><th>平台</th><th>状态</th><th>字符数</th><th>积分</th><th>时间</th><th>操作</th></tr>
@@ -216,6 +103,29 @@
               </tbody>
             </table>
           </div>
+          <div class="profile-mobile-list">
+            <article v-for="item in pagedTasks" :key="`mobile-task-${item.id}`" class="profile-mobile-card">
+              <div class="profile-mobile-card__head">
+                <div>
+                  <div class="profile-mobile-card__eyebrow">任务 #{{ item.id }}</div>
+                  <strong class="profile-mobile-card__title">{{ taskLabel(item) }}</strong>
+                </div>
+                <span class="scholar-badge" :class="statusClass(item.status)">{{ mapStatus(item.status) }}</span>
+              </div>
+              <div class="profile-mobile-grid">
+                <div><span>类型</span><strong>{{ mapTaskType(item.task_type) }}</strong></div>
+                <div><span>平台</span><strong>{{ mapPlatform(item.platform, item.task_type) }}</strong></div>
+                <div><span>字符数</span><strong>{{ item.char_count || 0 }}</strong></div>
+                <div><span>积分</span><strong>{{ item.cost_credits || 0 }} 积分</strong></div>
+                <div><span>时间</span><strong>{{ formatTime(item.created_at) }}</strong></div>
+              </div>
+              <div class="profile-mobile-actions">
+                <button class="scholar-button scholar-button--secondary" type="button" @click="openResult(item)">查看</button>
+                <button class="scholar-button" type="button" :disabled="item.status !== 'completed'" @click="download(item.id)">下载</button>
+              </div>
+            </article>
+            <div v-if="pagedTasks.length === 0" class="scholar-empty">暂无任务记录</div>
+          </div>
           <div v-if="historyTotalPages > 1" class="profile-pagination">
             <button class="scholar-button scholar-button--secondary" type="button" :disabled="historyPage <= 1" @click="historyPage -= 1">上一页</button>
             <span class="scholar-pill">第 {{ historyPage }} / {{ historyTotalPages }} 页</span>
@@ -228,7 +138,6 @@
         <div class="scholar-panel__header">
           <div class="flex flex-wrap items-start justify-between gap-3">
             <div>
-              <div class="scholar-kicker">Credit Transactions</div>
               <h3 class="scholar-subtitle">积分流水</h3>
               <p class="scholar-lead">全部流水按时间连续展示，初始积分、消费、退款和充值都能在这里看到。</p>
             </div>
@@ -241,7 +150,7 @@
             <span class="scholar-pill">累计入账 {{ creditOverview.income_total }} 积分</span>
             <span class="scholar-pill">累计支出 {{ creditOverview.outcome_total }} 积分</span>
           </div>
-          <div class="overflow-x-auto">
+          <div class="overflow-x-auto profile-table-shell">
             <table class="scholar-table">
               <thead>
                 <tr><th>时间</th><th>类型</th><th>变化</th><th>前余额</th><th>后余额</th><th>备注</th></tr>
@@ -259,6 +168,24 @@
               </tbody>
             </table>
           </div>
+          <div class="profile-mobile-list">
+            <article v-for="row in pagedTransactions" :key="`mobile-tx-${row.id}`" class="profile-mobile-card">
+              <div class="profile-mobile-card__head">
+                <div>
+                  <div class="profile-mobile-card__eyebrow">流水 #{{ row.id }}</div>
+                  <strong class="profile-mobile-card__title">{{ mapCreditType(row.tx_type) }}</strong>
+                </div>
+                <strong :class="['profile-mobile-delta', row.delta >= 0 ? 'is-plus' : 'is-minus']">{{ row.delta >= 0 ? `+${row.delta}` : row.delta }} 积分</strong>
+              </div>
+              <div class="profile-mobile-grid">
+                <div><span>前余额</span><strong>{{ row.balance_before }} 积分</strong></div>
+                <div><span>后余额</span><strong>{{ row.balance_after }} 积分</strong></div>
+                <div><span>时间</span><strong>{{ formatTime(row.created_at) }}</strong></div>
+                <div><span>备注</span><strong>{{ row.reason || "-" }}</strong></div>
+              </div>
+            </article>
+            <div v-if="pagedTransactions.length === 0" class="scholar-empty">暂无流水</div>
+          </div>
           <div v-if="creditsTotalPages > 1" class="profile-pagination">
             <button class="scholar-button scholar-button--secondary" type="button" :disabled="creditsPage <= 1" @click="creditsPage -= 1">上一页</button>
             <span class="scholar-pill">第 {{ creditsPage }} / {{ creditsTotalPages }} 页</span>
@@ -272,7 +199,6 @@
           <div class="scholar-panel__header">
             <div class="flex flex-wrap items-start justify-between gap-3">
               <div>
-                <div class="scholar-kicker">Task Result</div>
                 <h3 class="scholar-subtitle">{{ mapTaskType(selectedTask.task_type) }}结果摘要</h3>
                 <p class="scholar-lead">{{ resultSummary(selectedTask) }}</p>
               </div>
@@ -288,7 +214,6 @@
             </div>
             <section v-if="resultReviewPoints(selectedTask).length" class="scholar-panel scholar-panel--soft" style="margin-top: 18px">
               <div class="scholar-panel__body">
-                <div class="scholar-kicker">Review Suggestions</div>
                 <h4 class="scholar-subtitle">复核建议</h4>
                 <div class="scholar-list" style="margin-top: 16px">
                   <div v-for="point in resultReviewPoints(selectedTask)" :key="point" class="scholar-list-item">{{ point }}</div>
@@ -297,7 +222,6 @@
             </section>
             <section v-if="resultOutputPreview(selectedTask)" class="scholar-panel scholar-panel--soft" style="margin-top: 18px">
               <div class="scholar-panel__body">
-                <div class="scholar-kicker">Output Preview</div>
                 <h4 class="scholar-subtitle">结果预览</h4>
                 <div class="scholar-note" style="margin-top: 16px; white-space: pre-wrap">{{ resultOutputPreview(selectedTask) }}</div>
               </div>
@@ -339,7 +263,7 @@ const historyTypeFilters = [
   { key: "all", label: "全部任务" },
   { key: "aigc_detect", label: "AIGC 检测" },
   { key: "dedup", label: "降重复率" },
-  { key: "rewrite", label: "降AIGC" },
+  { key: "rewrite", label: "降AIGC率" },
 ]
 
 const activeTab = ref("overview")
@@ -392,7 +316,7 @@ const accountCards = computed(() => [
 const breakdownCards = computed(() => [
   { label: "AIGC 检测", value: summaryState.value.task_counts?.by_type?.aigc_detect || 0, hint: "功能累计任务数" },
   { label: "降重复率", value: summaryState.value.task_counts?.by_type?.dedup || 0, hint: "功能累计任务数" },
-  { label: "降AIGC", value: summaryState.value.task_counts?.by_type?.rewrite || 0, hint: "功能累计任务数" },
+  { label: "降AIGC率", value: summaryState.value.task_counts?.by_type?.rewrite || 0, hint: "功能累计任务数" },
   { label: "处理中", value: summaryState.value.task_counts?.by_status?.running || 0, hint: "当前还在执行中的任务" },
   { label: "已完成", value: summaryState.value.task_counts?.by_status?.completed || 0, hint: "已产出结果的任务" },
   { label: "失败", value: summaryState.value.task_counts?.by_status?.failed || 0, hint: "需要重新提交或人工排查" },
@@ -481,11 +405,11 @@ function taskLabel(item) {
 }
 
 function mapCreditType(type) {
-  return { init: "初始积分", task_consume: "任务消费", task_refund: "任务退款", package_pay: "积分充值", referral_invite: "邀请奖励", referral_bonus: "被邀请福利", referral_first_pay: "首充返佣", referral_recurring: "持续返利", admin_adjust: "系统调整" }[type] || type
+  return { init: "初始积分", task_consume: "任务消费", task_refund: "任务退款", package_pay: "积分充值", referral_invite: "邀请奖励", referral_bonus: "被邀请福利", referral_first_pay: "首充返佣", referral_recurring: "持续返利", share_reward: "分享奖励", admin_adjust: "系统调整" }[type] || type
 }
 
 function mapTaskType(type) {
-  return { aigc_detect: "AIGC 检测", dedup: "降重复率", rewrite: "降AIGC" }[type] || type
+  return { aigc_detect: "AIGC 检测", dedup: "降重复率", rewrite: "降AIGC率" }[type] || type
 }
 
 function mapStatus(status) {
@@ -540,6 +464,7 @@ function goLogin() {
 <style scoped>
 .profile-stack,.profile-top-grid,.profile-two-col{display:grid;gap:18px}
 .profile-top-grid{grid-template-columns:minmax(0,1.3fr) minmax(320px,.7fr)}
+.profile-top-grid--single{grid-template-columns:minmax(0,1fr)}
 .profile-two-col{grid-template-columns:repeat(2,minmax(0,1fr))}
 .profile-head{display:flex;justify-content:space-between;gap:16px}
 .profile-head__chips{display:flex;flex-wrap:wrap;gap:10px;align-items:flex-start}
@@ -565,6 +490,20 @@ function goLogin() {
 .profile-delta.is-plus{color:#106c4f}
 .profile-delta.is-minus{color:#b24439}
 .profile-pagination{margin-top:18px;display:flex;justify-content:center;align-items:center;gap:12px}
+.profile-mobile-list{display:none}
+.profile-mobile-card{display:grid;gap:14px;padding:16px;border:1px solid rgba(17,17,17,.08);border-radius:18px;background:linear-gradient(180deg,#fff 0%,#f7f8fa 100%)}
+.profile-mobile-card + .profile-mobile-card{margin-top:12px}
+.profile-mobile-card__head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
+.profile-mobile-card__eyebrow{font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:#6b7782}
+.profile-mobile-card__title{display:block;margin-top:6px;font-size:16px;line-height:1.5;color:#111}
+.profile-mobile-grid{display:grid;gap:10px;grid-template-columns:repeat(2,minmax(0,1fr))}
+.profile-mobile-grid div{display:grid;gap:4px;padding:10px 12px;border-radius:14px;background:#fff;border:1px solid rgba(17,17,17,.06)}
+.profile-mobile-grid span{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#6b7782}
+.profile-mobile-grid strong{font-size:13px;line-height:1.6;color:#111;word-break:break-word}
+.profile-mobile-actions{display:flex;gap:10px;flex-wrap:wrap}
+.profile-mobile-delta{font-size:15px;line-height:1.4}
+.profile-mobile-delta.is-plus{color:#106c4f}
+.profile-mobile-delta.is-minus{color:#b24439}
 @media (max-width:1100px){.profile-top-grid,.profile-two-col{grid-template-columns:1fr}}
-@media (max-width:720px){.profile-head,.profile-editor,.profile-list__item,.profile-list__side,.profile-pagination{flex-direction:column;align-items:stretch}.profile-metric-grid,.profile-card-grid{grid-template-columns:1fr}}
+@media (max-width:720px){.profile-head,.profile-editor,.profile-list__item,.profile-list__side,.profile-pagination{flex-direction:column;align-items:stretch}.profile-metric-grid,.profile-card-grid,.profile-mobile-grid{grid-template-columns:1fr}.profile-table-shell{display:none}.profile-mobile-list{display:block}}
 </style>

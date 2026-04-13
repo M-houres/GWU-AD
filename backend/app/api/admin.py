@@ -6,7 +6,7 @@ import secrets
 from pathlib import Path
 from urllib.parse import urlparse
 
-from fastapi import APIRouter, Depends, File, Form, Query, UploadFile
+from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile
 from fastapi.responses import FileResponse, Response
 from sqlalchemy import desc, func
 from sqlalchemy.orm import Session
@@ -16,6 +16,7 @@ from app.constants import DEFAULT_BILLING_PACKAGES
 from app.deps import (
     admin_has_permission,
     db_dep,
+    get_redis,
     normalize_admin_permissions,
     require_admin_permission,
 )
@@ -27,9 +28,10 @@ from app.models import (
     CreditTransaction,
     LLMErrorLog,
     Order,
-    ReferralRelation,
-    ReferralReward,
-    RegistrationRiskLog,
+    PromoBenefitRecord,
+    PromoClassroom,
+    PromoShareSubmission,
+    PromoShareSubmissionStatus,
     SwitchLog,
     SystemConfig,
     SystemSwitch,
@@ -45,7 +47,6 @@ from app.schemas import (
     AdminLoginReq,
     AlgoPackageActivateReq,
     AlgoPackageUploadReq,
-    ReferralConfigReq,
 )
 from app.security import create_token, hash_password, verify_password
 from app.services.algo_package_service import (
@@ -63,7 +64,14 @@ from app.services.builtin_algo_packages import (
 )
 from app.services.credit_service import change_credits
 from app.services.llm_service import LLM_PROVIDER_PRESETS, SUPPORTED_LLM_PROVIDERS, normalize_llm_provider
+from app.money import cny_to_api, cny_sum
 from app.services.payment_service import DEFAULT_PAYMENT_CONFIG, normalize_payment_provider
+from app.services.promo_center_service import (
+    SHARE_PLATFORM_PRESETS,
+    build_admin_promo_overview,
+    mark_share_reward_paid,
+    review_share_submission,
+)
 from app.services.process_strategy_service import (
     get_process_strategy,
     list_process_strategies,
@@ -72,7 +80,6 @@ from app.services.process_strategy_service import (
     normalize_task_type,
     update_process_strategy,
 )
-from app.services.referral_service import get_referral_rules, update_referral_rules
 from app.services.user_navigation_service import default_user_navigation_config, normalize_user_navigation_config
 
 router = APIRouter()
@@ -84,7 +91,7 @@ SOURCE_BUCKETS = ("web", "miniapp", "other")
 _SOURCE_WEB_ALIASES = {"web", "h5", "site"}
 _SOURCE_MINIAPP_ALIASES = {"miniapp", "miniprogram", "mini_program", "wxapp", "wechat_miniprogram", "wechat_mini_program"}
 
-CONFIG_CATEGORIES = {"llm", "payment", "billing", "login", "notice", "miniapp", "referral", "user_navigation"}
+CONFIG_CATEGORIES = {"llm", "payment", "billing", "login", "notice", "miniapp", "user_navigation"}
 CONFIG_LABELS = {
     "llm": "大模型配置",
     "payment": "支付配置",
@@ -92,7 +99,6 @@ CONFIG_LABELS = {
     "login": "登录配置",
     "notice": "公告配置",
     "miniapp": "小程序配置",
-    "referral": "推广规则",
     "user_navigation": "前台导航",
 }
 CONFIG_FIELD_LABELS = {
@@ -192,13 +198,6 @@ CONFIG_FIELD_LABELS = {
         "wechat_miniprogram_payment_enabled": "小程序支付开关",
         "payment_notify_url": "支付回调地址",
     },
-    "referral": {
-        "register_inviter_credits": "邀请人注册奖励",
-        "register_invitee_bonus": "被邀请人注册福利",
-        "first_pay_ratio": "首单返佣比例",
-        "recurring_ratio": "复购返佣比例",
-        "ip_limit_24h": "同IP注册上限",
-    },
     "user_navigation": {
         "items": "前台导航编排",
     },
@@ -284,13 +283,6 @@ CONFIG_DEFAULTS = {
         "wechat_miniprogram_app_secret": "",
         "wechat_miniprogram_payment_enabled": False,
         "payment_notify_url": "",
-    },
-    "referral": {
-        "register_inviter_credits": 500,
-        "register_invitee_bonus": 500,
-        "first_pay_ratio": 0.1,
-        "recurring_ratio": 0.05,
-        "ip_limit_24h": 3,
     },
     "user_navigation": default_user_navigation_config(),
 }
@@ -405,6 +397,15 @@ ADMIN_PERMISSION_TEMPLATES = [
     },
 ]
 ADMIN_USERNAME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_.-]{2,31}$")
+MASKED_SECRET_VALUE = "********"
+MASKED_SECRET_UPDATED_VALUE = "********(updated)"
+ADMIN_LOGIN_WINDOW_SECONDS = 10 * 60
+SENSITIVE_CONFIG_FIELDS = {
+    "llm": {"api_key"},
+    "payment": {"merchant_private_key_pem", "api_v3_key", "app_private_key_pem", "api_key", "callback_secret"},
+    "login": {"sms_api_key", "sms_access_key_secret", "wechat_app_secret", "wechat_miniprogram_app_secret"},
+    "miniapp": {"app_secret", "wechat_miniprogram_app_secret"},
+}
 
 
 def _effective_admin_permissions(admin: AdminUser) -> list[str]:
@@ -534,6 +535,106 @@ def _as_text(value, *, default: str = "", max_len: int = 256) -> str:
     if value is None:
         return default
     return str(value).strip()[:max_len]
+
+
+def _is_sensitive_config_field(category: str, field: str) -> bool:
+    return field in SENSITIVE_CONFIG_FIELDS.get(category, set())
+
+
+def _is_masked_secret_placeholder(value) -> bool:
+    return str(value or "").strip() in {MASKED_SECRET_VALUE, MASKED_SECRET_UPDATED_VALUE}
+
+
+def _mask_secret_value(value) -> str:
+    return MASKED_SECRET_VALUE if str(value or "").strip() else ""
+
+
+def _redact_config_view(category: str, value: dict | None) -> dict:
+    payload = deepcopy(value) if isinstance(value, dict) else {}
+    for field in SENSITIVE_CONFIG_FIELDS.get(category, set()):
+        if field in payload:
+            payload[field] = _mask_secret_value(payload.get(field))
+    return payload
+
+
+def _merge_masked_config_payload(category: str, payload: dict, current_value: dict) -> dict:
+    merged = dict(payload)
+    for field in SENSITIVE_CONFIG_FIELDS.get(category, set()):
+        if field not in merged:
+            continue
+        if _is_masked_secret_placeholder(merged.get(field)):
+            merged[field] = current_value.get(field, "")
+    if category == "payment":
+        raw_api_key = merged.get("api_key")
+        raw_private_key = merged.get("app_private_key_pem")
+        if "api_key" in merged and raw_api_key == "":
+            merged["app_private_key_pem"] = ""
+        if "app_private_key_pem" in merged and raw_private_key == "":
+            merged["api_key"] = ""
+    return merged
+
+
+def _redact_config_audit_pair(category: str, before: dict | None, after: dict | None) -> tuple[dict | None, dict | None]:
+    before_payload = deepcopy(before) if isinstance(before, dict) else None
+    after_payload = deepcopy(after) if isinstance(after, dict) else None
+
+    for field in SENSITIVE_CONFIG_FIELDS.get(category, set()):
+        before_raw = str((before or {}).get(field, "")).strip() if isinstance(before, dict) else ""
+        after_raw = str((after or {}).get(field, "")).strip() if isinstance(after, dict) else ""
+        before_marker = _mask_secret_value(before_raw)
+        after_marker = _mask_secret_value(after_raw)
+        if before_raw and after_raw and before_raw != after_raw:
+            after_marker = MASKED_SECRET_UPDATED_VALUE
+        if before_payload is not None and field in before_payload:
+            before_payload[field] = before_marker
+        if after_payload is not None and field in after_payload:
+            after_payload[field] = after_marker
+    return before_payload, after_payload
+
+
+def _request_client_ip(request: Request) -> str:
+    forwarded = request.headers.get("x-forwarded-for", "").split(",")[0].strip()
+    if forwarded:
+        return forwarded[:64]
+    if request.client is None:
+        return ""
+    return (request.client.host or "")[:64]
+
+
+def _admin_login_attempt_key(kind: str, value: str) -> str:
+    return f"admin:auth:{kind}:{value}"
+
+
+def _enforce_admin_login_rate_limit(redis_client, *, ip: str, username: str) -> None:
+    if ip and settings.admin_login_ip_10m_limit > 0:
+        ip_key = _admin_login_attempt_key("ip", ip)
+        ip_count = redis_client.incr(ip_key)
+        if ip_count == 1:
+            redis_client.expire(ip_key, ADMIN_LOGIN_WINDOW_SECONDS)
+        if ip_count > settings.admin_login_ip_10m_limit:
+            raise BizError(code=4317, message="管理员登录请求过于频繁，请稍后重试", http_status=429)
+
+    username_limit = int(settings.admin_login_user_10m_limit or 0)
+    if username_limit <= 0:
+        return
+    username_key = _admin_login_attempt_key("user_fail", username.lower())
+    if redis_client.ttl(username_key) > 0:
+        fail_count = int(redis_client.get(username_key) or 0)
+        if fail_count >= username_limit:
+            raise BizError(code=4318, message="管理员账号已临时锁定，请稍后重试", http_status=429)
+
+
+def _record_admin_login_failure(redis_client, *, username: str) -> None:
+    if int(settings.admin_login_user_10m_limit or 0) <= 0:
+        return
+    username_key = _admin_login_attempt_key("user_fail", username.lower())
+    fail_count = redis_client.incr(username_key)
+    if fail_count == 1:
+        redis_client.expire(username_key, ADMIN_LOGIN_WINDOW_SECONDS)
+
+
+def _clear_admin_login_failures(redis_client, *, username: str) -> None:
+    redis_client.delete(_admin_login_attempt_key("user_fail", username.lower()))
 
 
 def _is_http_url(value: str) -> bool:
@@ -884,32 +985,6 @@ def _normalize_category_payload(category: str, payload: dict) -> dict:
         base["packages"] = _normalize_billing_packages(raw.get("packages", base.get("packages", [])))
         return base
 
-    if category == "referral":
-        base["register_inviter_credits"] = _as_int(
-            raw.get("register_inviter_credits", base["register_inviter_credits"]),
-            default=500,
-            min_value=0,
-            max_value=1_000_000,
-            field="register_inviter_credits",
-        )
-        base["register_invitee_bonus"] = _as_int(
-            raw.get("register_invitee_bonus", base["register_invitee_bonus"]),
-            default=500,
-            min_value=0,
-            max_value=1_000_000,
-            field="register_invitee_bonus",
-        )
-        base["first_pay_ratio"] = round(
-            _as_float(raw.get("first_pay_ratio", base["first_pay_ratio"]), default=0.1, min_value=0, max_value=1, field="first_pay_ratio"),
-            4,
-        )
-        base["recurring_ratio"] = round(
-            _as_float(raw.get("recurring_ratio", base["recurring_ratio"]), default=0.05, min_value=0, max_value=1, field="recurring_ratio"),
-            4,
-        )
-        base["ip_limit_24h"] = _as_int(raw.get("ip_limit_24h", base["ip_limit_24h"]), default=3, min_value=1, max_value=10_000, field="ip_limit_24h")
-        return base
-
     if category == "user_navigation":
         return normalize_user_navigation_config(raw)
 
@@ -1166,11 +1241,6 @@ def _category_readiness(category: str, value: dict) -> dict:
         else:
             message = f"计费与套餐已就绪（启用 {enabled_count} 个套餐）"
         return {"category": category, "status": "ready" if ok else "error", "message": message}
-    if category == "referral":
-        ratio_ok = 0 <= float(value.get("first_pay_ratio", 0)) <= 1 and 0 <= float(value.get("recurring_ratio", 0)) <= 1
-        ip_ok = int(value.get("ip_limit_24h", 0)) >= 1
-        ok = ratio_ok and ip_ok
-        return {"category": category, "status": "ready" if ok else "error", "message": "推广规则已就绪" if ok else "推广规则范围异常"}
     if category == "user_navigation":
         navigation = normalize_user_navigation_config(value)
         items = navigation.get("items", [])
@@ -1292,6 +1362,7 @@ def _category_readiness(category: str, value: dict) -> dict:
                 warnings.append("微信回调地址需为公网 HTTPS")
 
         miniapp_enabled = bool(value.get("wechat_miniprogram_login_enabled"))
+        miniapp_ok = False
         if miniapp_enabled:
             miniapp_ok = bool(value.get("wechat_miniprogram_app_id") or value.get("wechat_app_id")) and bool(
                 value.get("wechat_miniprogram_app_secret") or value.get("wechat_app_secret")
@@ -1299,7 +1370,7 @@ def _category_readiness(category: str, value: dict) -> dict:
             if not miniapp_ok:
                 warnings.append("小程序登录字段不完整")
 
-        any_login_path = debug_runtime_enabled or sms_ok or wechat_ok or miniapp_enabled
+        any_login_path = debug_runtime_enabled or sms_ok or wechat_ok or miniapp_ok
         if not any_login_path:
             return {"category": category, "status": "error", "message": "登录配置不可用：请至少启用一种登录路径"}
         if warnings:
@@ -1308,9 +1379,7 @@ def _category_readiness(category: str, value: dict) -> dict:
     return {"category": category, "status": "warning", "message": "未知分类"}
 
 
-def _get_category_config(db: Session, category: str) -> dict:
-    if category == "referral":
-        return get_referral_rules(db)
+def _get_category_config(db: Session, category: str, *, redact: bool = False) -> dict:
     source = _read_system_config_raw(db, category)
     if category == "user_navigation":
         return normalize_user_navigation_config(source)
@@ -1406,6 +1475,8 @@ def _get_category_config(db: Session, category: str) -> dict:
             max_value=10_000,
             field="login_ip_10m_limit",
         )
+    if redact:
+        return _redact_config_view(category, merged)
     return merged
 
 
@@ -1436,22 +1507,6 @@ def _config_change_summary(category: str, changed_fields: list[str]) -> str:
 
 
 def _save_category_config(db: Session, category: str, value: dict, admin: AdminUser) -> dict:
-    if category == "referral":
-        before = get_referral_rules(db)
-        after = update_referral_rules(db, value, admin.id)
-        db.add(
-            AdminAuditLog(
-                admin_id=admin.id,
-                action="config_update",
-                target_type="referral",
-                target_id="rules",
-                before_json=before,
-                after_json=after,
-            )
-        )
-        db.flush()
-        return after
-
     row = (
         db.query(SystemConfig)
         .filter(SystemConfig.category == "system", SystemConfig.config_key == category)
@@ -1491,14 +1546,15 @@ def _save_category_config(db: Session, category: str, value: dict, admin: AdminU
         row.config_value = value
         row.updated_by = admin.id
 
+    audit_before, audit_after = _redact_config_audit_pair(category, before, value)
     db.add(
         AdminAuditLog(
             admin_id=admin.id,
             action="config_update",
             target_type=category,
             target_id=category,
-            before_json=before,
-            after_json=value,
+            before_json=audit_before,
+            after_json=audit_after,
         )
     )
 
@@ -1545,12 +1601,25 @@ def _task_type_label(task_type: str) -> str:
 
 
 @router.post("/auth/login", response_model=APIResp)
-def admin_login(req: AdminLoginReq, db: Session = Depends(db_dep)) -> APIResp:
-    admin = db.query(AdminUser).filter(AdminUser.username == req.username).first()
+def admin_login(
+    req: AdminLoginReq,
+    request: Request,
+    db: Session = Depends(db_dep),
+    redis_client=Depends(get_redis),
+) -> APIResp:
+    username = str(req.username or "").strip()
+    _enforce_admin_login_rate_limit(
+        redis_client,
+        ip=_request_client_ip(request),
+        username=username,
+    )
+    admin = db.query(AdminUser).filter(AdminUser.username == username).first()
     if admin is None or not verify_password(req.password, admin.password_hash):
+        _record_admin_login_failure(redis_client, username=username)
         raise BizError(code=4301, message="管理员账号或密码错误")
     if not bool(getattr(admin, "is_active", True)):
         raise BizError(code=4309, message="管理员账号已停用，请联系超级管理员")
+    _clear_admin_login_failures(redis_client, username=username)
     admin.last_login = datetime.utcnow()
     db.commit()
     token = create_token(subject=str(admin.id), scope="admin")
@@ -1782,7 +1851,7 @@ def dashboard(_: AdminUser = Depends(require_admin_permission("dashboard:view"))
     total_users = db.query(User).count()
     total_tasks = db.query(Task).count()
     total_orders = db.query(Order).filter(Order.status == "paid").count()
-    total_revenue = db.query(func.coalesce(func.sum(Order.amount_cny), 0.0)).filter(Order.status == "paid").scalar() or 0
+    total_revenue = db.query(func.coalesce(func.sum(Order.amount_cny), 0)).filter(Order.status == "paid").scalar() or 0
     users_by_source = db.query(User.source, func.count(User.id)).group_by(User.source).all()
     tasks_by_source = db.query(Task.source, func.count(Task.id)).group_by(Task.source).all()
     paid_orders_by_source = (
@@ -1792,7 +1861,7 @@ def dashboard(_: AdminUser = Depends(require_admin_permission("dashboard:view"))
         .all()
     )
     paid_revenue_by_source = (
-        db.query(Order.source, func.coalesce(func.sum(Order.amount_cny), 0.0))
+        db.query(Order.source, func.coalesce(func.sum(Order.amount_cny), 0))
         .filter(Order.status == "paid")
         .group_by(Order.source)
         .all()
@@ -1806,13 +1875,13 @@ def dashboard(_: AdminUser = Depends(require_admin_permission("dashboard:view"))
         .all()
     )
     revenue_rows = (
-        db.query(func.date(Order.created_at).label("d"), func.coalesce(func.sum(Order.amount_cny), 0.0))
+        db.query(func.date(Order.created_at).label("d"), func.coalesce(func.sum(Order.amount_cny), 0))
         .filter(Order.status == "paid", Order.created_at >= start_date)
         .group_by(func.date(Order.created_at))
         .all()
     )
     task_map = {str(d): int(v) for d, v in task_rows}
-    revenue_map = {str(d): float(v) for d, v in revenue_rows}
+    revenue_map = {str(d): cny_to_api(v) for d, v in revenue_rows}
     trend = []
     for i in range(30):
         d = start_date + timedelta(days=i)
@@ -1845,7 +1914,7 @@ def dashboard(_: AdminUser = Depends(require_admin_permission("dashboard:view"))
                 "total_users": total_users,
                 "total_tasks": total_tasks,
                 "total_orders": total_orders,
-                "total_revenue": round(float(total_revenue), 2),
+                "total_revenue": cny_to_api(total_revenue),
             },
             "trend_30d": trend,
             "task_type_dist": type_dist,
@@ -2041,6 +2110,7 @@ def adjust_user_credits(
         raise BizError(code=4040, message="用户不存在", http_status=404)
     if req.delta == 0:
         raise BizError(code=4302, message="调整值不能为0")
+    before_credits = int(user.credits)
     change_credits(
         db,
         user,
@@ -2049,6 +2119,16 @@ def adjust_user_credits(
         reason=f"管理员[{admin.username}]调整积分:{req.reason}",
         related_id=f"admin_adjust:{admin.id}:{datetime.utcnow().timestamp()}",
         source="admin",
+    )
+    db.add(
+        AdminAuditLog(
+            admin_id=admin.id,
+            action="user_credit_adjust",
+            target_type="user",
+            target_id=str(user.id),
+            before_json={"credits": before_credits, "delta": req.delta},
+            after_json={"credits": int(user.credits), "delta": req.delta, "reason": req.reason},
+        )
     )
     db.commit()
     return ok(data={"user_id": user.id, "credits": user.credits})
@@ -2105,7 +2185,7 @@ def user_detail(
         .all()
     )
     orders = db.query(Order).filter(Order.user_id == user.id, Order.status == "paid").all()
-    total_paid_cny = round(sum(float(o.amount_cny) for o in orders), 2)
+    total_paid_cny = cny_to_api(cny_sum(o.amount_cny for o in orders))
     total_paid_credits = int(sum(int(o.credits) for o in orders))
     total_task_cost = int(
         db.query(func.coalesce(func.sum(Task.cost_credits), 0))
@@ -2318,7 +2398,7 @@ def admin_orders(
     if provider:
         base_query = base_query.filter(Order.provider == provider.strip().lower())
     source_count_rows = base_query.with_entities(Order.source, func.count(Order.id)).group_by(Order.source).all()
-    source_revenue_rows = base_query.with_entities(Order.source, func.coalesce(func.sum(Order.amount_cny), 0.0)).group_by(Order.source).all()
+    source_revenue_rows = base_query.with_entities(Order.source, func.coalesce(func.sum(Order.amount_cny), 0)).group_by(Order.source).all()
     total = base_query.count()
     rows = (
         base_query.order_by(desc(Order.created_at))
@@ -2330,7 +2410,7 @@ def admin_orders(
         {
             "order_no": o.order_no,
             "user_id": o.user_id,
-            "amount_cny": o.amount_cny,
+            "amount_cny": cny_to_api(o.amount_cny),
             "credits": o.credits,
             "status": o.status,
             "source": _normalize_source_bucket(o.source),
@@ -2363,7 +2443,7 @@ def order_detail(order_no: str, _: AdminUser = Depends(require_admin_permission(
             "order_no": row.order_no,
             "user_id": row.user_id,
             "user_phone": user.phone if user else "",
-            "amount_cny": row.amount_cny,
+            "amount_cny": cny_to_api(row.amount_cny),
             "credits": row.credits,
             "status": row.status,
             "provider": row.provider,
@@ -2417,26 +2497,7 @@ def refund_order(
 
 @router.get("/referrals/stats", response_model=APIResp)
 def referral_stats(_: AdminUser = Depends(require_admin_permission("referrals:view")), db: Session = Depends(db_dep)) -> APIResp:
-    total_relations = db.query(ReferralRelation).count()
-    total_reward = db.query(func.coalesce(func.sum(ReferralReward.credits), 0)).scalar() or 0
-    today_start = datetime.combine(date.today(), datetime.min.time())
-    today_relations = db.query(ReferralRelation).filter(ReferralRelation.created_at >= today_start).count()
-    top_rows = (
-        db.query(ReferralRelation.inviter_id, func.count(ReferralRelation.id).label("cnt"))
-        .group_by(ReferralRelation.inviter_id)
-        .order_by(desc("cnt"))
-        .limit(10)
-        .all()
-    )
-    top10 = [{"inviter_id": uid, "invite_count": int(cnt)} for uid, cnt in top_rows]
-    return ok(
-        data={
-            "total_relations": total_relations,
-            "total_reward_credits": int(total_reward),
-            "today_new_relations": today_relations,
-            "top10": top10,
-        }
-    )
+    return ok(data=build_admin_promo_overview(db))
 
 
 @router.get("/referrals/rewards", response_model=APIResp)
@@ -2446,27 +2507,35 @@ def referral_rewards(
     _: AdminUser = Depends(require_admin_permission("referrals:view")),
     db: Session = Depends(db_dep),
 ) -> APIResp:
-    base_query = db.query(ReferralReward)
+    base_query = db.query(PromoShareSubmission)
     total = base_query.count()
     rows = (
-        base_query.order_by(desc(ReferralReward.created_at))
+        base_query.order_by(desc(PromoShareSubmission.created_at))
         .offset((page - 1) * page_size)
         .limit(page_size)
         .all()
     )
     items = [
         {
-            "id": r.id,
-            "inviter_id": r.inviter_id,
-            "invitee_id": r.invitee_id,
-            "reward_type": r.reward_type.value,
-            "credits": r.credits,
-            "status": r.status,
-            "retry_count": r.retry_count,
-            "ref_order_id": r.ref_order_id,
-            "created_at": r.created_at,
+            "id": row.id,
+            "user_id": row.user_id,
+            "platform": row.platform,
+            "platform_label": SHARE_PLATFORM_PRESETS.get(row.platform, {}).get("label", row.platform),
+            "tier_key": row.tier_key,
+            "share_link": row.share_link,
+            "payout_account": row.payout_account,
+            "payout_name": row.payout_name,
+            "note": row.note,
+            "status": row.status.value,
+            "reward_credits": row.reward_credits,
+            "reward_amount_cny": float(row.reward_amount_cny or 0),
+            "coupon_name": row.coupon_name,
+            "coupon_count": row.coupon_count,
+            "review_note": row.review_note,
+            "created_at": row.created_at,
+            "reviewed_at": row.reviewed_at,
         }
-        for r in rows
+        for row in rows
     ]
     return ok(data={"items": items, "pagination": paginate(total, page, page_size)})
 
@@ -2478,21 +2547,24 @@ def suspicious_accounts(
     _: AdminUser = Depends(require_admin_permission("referrals:view")),
     db: Session = Depends(db_dep),
 ) -> APIResp:
-    base_query = db.query(RegistrationRiskLog)
-    total = base_query.count()
     rows = (
-        base_query.order_by(desc(RegistrationRiskLog.created_at))
+        db.query(PromoClassroom)
+        .filter(PromoClassroom.status == "active")
+        .order_by(desc(PromoClassroom.activity_score), desc(PromoClassroom.member_count))
         .offset((page - 1) * page_size)
         .limit(page_size)
         .all()
     )
+    total = db.query(func.count(PromoClassroom.id)).filter(PromoClassroom.status == "active").scalar() or 0
     items = [
         {
             "id": row.id,
-            "phone": row.phone,
-            "ip": row.ip,
-            "user_agent": row.user_agent,
-            "reason": row.reason,
+            "owner_user_id": row.owner_user_id,
+            "name": row.name,
+            "invite_code": row.invite_code,
+            "level": row.level,
+            "member_count": row.member_count,
+            "activity_score": row.activity_score,
             "created_at": row.created_at,
         }
         for row in rows
@@ -2502,18 +2574,16 @@ def suspicious_accounts(
 
 @router.post("/referrals/config", response_model=APIResp)
 def update_referral_config(
-    req: ReferralConfigReq,
+    payload: dict,
     admin: AdminUser = Depends(require_admin_permission("referrals:manage")),
     db: Session = Depends(db_dep),
 ) -> APIResp:
-    data = update_referral_rules(db, req.model_dump(), admin.id)
-    db.commit()
-    return ok(data=data)
+    raise BizError(code=4419, message="分享红包活动当前采用固定规则，暂不支持后台改动奖励配置")
 
 
 @router.get("/referrals/config", response_model=APIResp)
 def get_referral_config(_: AdminUser = Depends(require_admin_permission("referrals:manage")), db: Session = Depends(db_dep)) -> APIResp:
-    return ok(data=get_referral_rules(db))
+    return ok(data={"mode": "promo_center", "reward_policy": "现金红包人工审核"})
 
 
 @router.get("/configs/audit-logs", response_model=APIResp)
@@ -2562,7 +2632,7 @@ def get_config_readiness(
     db: Session = Depends(db_dep),
 ) -> APIResp:
     items = []
-    for c in ("llm", "payment", "billing", "login", "notice", "miniapp", "referral", "user_navigation"):
+    for c in ("llm", "payment", "billing", "login", "notice", "miniapp", "user_navigation"):
         value = _get_category_config(db, c)
         items.append(_category_readiness(c, value))
     return ok(data={"items": items})
@@ -2575,7 +2645,7 @@ def get_config(
     db: Session = Depends(db_dep),
 ) -> APIResp:
     c = _assert_category(category)
-    return ok(data={"category": c, "value": _get_category_config(db, c)})
+    return ok(data={"category": c, "value": _get_category_config(db, c, redact=True)})
 
 
 @router.post("/configs/{category}", response_model=APIResp)
@@ -2590,15 +2660,15 @@ def update_config(
         raise BizError(code=4341, message="配置内容必须为 JSON 对象")
     effective_payload = payload
     if c in CONFIG_DEFAULTS:
-        current_value = _get_category_config(db, c)
+        current_value = _get_category_config(db, c, redact=False)
         if isinstance(current_value, dict):
             effective_payload = dict(current_value)
-            effective_payload.update(payload)
+            effective_payload.update(_merge_masked_config_payload(c, payload, current_value))
     normalized = _normalize_category_payload(c, effective_payload)
     try:
         value = _save_category_config(db, c, normalized, admin)
         db.commit()
-        return ok(data={"category": c, "value": value})
+        return ok(data={"category": c, "value": _redact_config_view(c, value)})
     except Exception:
         db.rollback()
         raise
@@ -2610,13 +2680,151 @@ def retry_referral_reward(
     _: AdminUser = Depends(require_admin_permission("referrals:manage")),
     db: Session = Depends(db_dep),
 ) -> APIResp:
-    row = db.get(ReferralReward, reward_id)
-    if row is None:
-        raise BizError(code=4043, message="奖励记录不存在", http_status=404)
-    from app.worker_tasks import dispatch_background_task, retry_referral_reward_async
+    raise BizError(code=4419, message="当前活动中心红包发放为人工处理，不支持自动重试")
 
-    dispatch_background_task(retry_referral_reward_async, reward_id)
-    return ok(data={"reward_id": reward_id, "status": "queued"})
+
+@router.get("/referrals/share-tasks", response_model=APIResp)
+def referral_share_tasks(
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
+    status: str | None = Query(default=None),
+    platform: str | None = Query(default=None),
+    q_phone: str | None = Query(default=None),
+    _: AdminUser = Depends(require_admin_permission("referrals:view")),
+    db: Session = Depends(db_dep),
+) -> APIResp:
+    base_query = db.query(PromoShareSubmission)
+    if status:
+        try:
+            normalized_status = PromoShareSubmissionStatus(str(status).strip().lower())
+            base_query = base_query.filter(PromoShareSubmission.status == normalized_status)
+        except Exception:
+            raise BizError(code=4348, message="share submission status 不支持")
+    if platform:
+        base_query = base_query.filter(PromoShareSubmission.platform == str(platform).strip().lower())
+    total = base_query.count()
+    rows = (
+        base_query.order_by(desc(PromoShareSubmission.created_at))
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+        .all()
+    )
+    user_ids = {row.user_id for row in rows}
+    benefit_map = {}
+    if user_ids:
+        benefit_rows = (
+            db.query(PromoBenefitRecord)
+            .filter(PromoBenefitRecord.scene == "share_center", PromoBenefitRecord.user_id.in_(user_ids))
+            .all()
+        )
+        benefit_map = {(row.user_id, row.benefit_code): row for row in benefit_rows}
+    items = [
+        {
+            "id": row.id,
+            "user_id": row.user_id,
+            "platform": row.platform,
+            "platform_label": SHARE_PLATFORM_PRESETS.get(row.platform, {}).get("label", row.platform),
+            "label": SHARE_PLATFORM_PRESETS.get(row.platform, {}).get("label", row.platform),
+            "tier_key": row.tier_key,
+            "share_link": row.share_link,
+            "payout_account": row.payout_account,
+            "payout_name": row.payout_name,
+            "status": row.status.value,
+            "payout_status": (
+                benefit_map[(row.user_id, f"{row.platform}:{row.tier_key}")].payout_status
+                if (row.user_id, f"{row.platform}:{row.tier_key}") in benefit_map
+                else "none"
+            ),
+            "reward_credits": row.reward_credits,
+            "reward_amount_cny": float(row.reward_amount_cny or 0),
+            "coupon_name": row.coupon_name,
+            "coupon_count": row.coupon_count,
+            "review_note": row.review_note,
+            "created_at": row.created_at,
+            "reviewed_at": row.reviewed_at,
+            "paid_at": (
+                benefit_map[(row.user_id, f"{row.platform}:{row.tier_key}")].paid_at
+                if (row.user_id, f"{row.platform}:{row.tier_key}") in benefit_map
+                else None
+            ),
+        }
+        for row in rows
+    ]
+    return ok(data={"items": items, "pagination": paginate(total, page, page_size)})
+
+
+@router.get("/referrals/share-tasks/{submission_id}/screenshot")
+def download_referral_share_task_screenshot(
+    submission_id: int,
+    _: AdminUser = Depends(require_admin_permission("referrals:view")),
+    db: Session = Depends(db_dep),
+) -> FileResponse:
+    raise BizError(code=4419, message="新版分享任务改为链接审核，暂不下载截图")
+
+
+@router.post("/referrals/share-tasks/{submission_id}/review", response_model=APIResp)
+def review_referral_share_task(
+    submission_id: int,
+    payload: dict,
+    admin: AdminUser = Depends(require_admin_permission("referrals:manage")),
+    db: Session = Depends(db_dep),
+) -> APIResp:
+    row = db.query(PromoShareSubmission).filter(PromoShareSubmission.id == submission_id).with_for_update().first()
+    if row is None:
+        raise BizError(code=4046, message="分享任务不存在", http_status=404)
+    target_status = str(payload.get("status", "")).strip().lower()
+    review_note = str(payload.get("review_note", "")).strip()[:255]
+    if target_status not in {PromoShareSubmissionStatus.APPROVED.value, PromoShareSubmissionStatus.REJECTED.value}:
+        raise BizError(code=4349, message="审核状态仅支持 approved / rejected")
+    updated, idempotent = review_share_submission(
+        db,
+        submission=row,
+        admin_id=admin.id,
+        approved=target_status == PromoShareSubmissionStatus.APPROVED.value,
+        review_note=review_note,
+    )
+    db.commit()
+    return ok(
+        data={
+            "id": updated.id,
+            "status": updated.status.value,
+            "review_note": updated.review_note or "",
+            "idempotent": idempotent,
+        }
+    )
+
+
+@router.post("/referrals/share-tasks/{submission_id}/payout", response_model=APIResp)
+def payout_referral_share_task(
+    submission_id: int,
+    payload: dict,
+    admin: AdminUser = Depends(require_admin_permission("referrals:manage")),
+    db: Session = Depends(db_dep),
+) -> APIResp:
+    row = db.query(PromoShareSubmission).filter(PromoShareSubmission.id == submission_id).with_for_update().first()
+    if row is None:
+        raise BizError(code=4047, message="分享任务不存在", http_status=404)
+    payout_note = str(payload.get("payout_note", "")).strip()[:255]
+    try:
+        benefit, idempotent = mark_share_reward_paid(
+            db,
+            submission=row,
+            admin_id=admin.id,
+            payout_note=payout_note,
+        )
+    except ValueError as exc:
+        if str(exc) == "share_submission_not_approved":
+            raise BizError(code=4350, message="仅审核通过的分享任务才能标记打款", http_status=422)
+        raise BizError(code=4351, message="未找到待发放红包记录", http_status=404)
+    db.commit()
+    return ok(
+        data={
+            "submission_id": row.id,
+            "payout_status": benefit.payout_status,
+            "paid_at": benefit.paid_at,
+            "idempotent": idempotent,
+        }
+    )
 
 
 @router.get("/strategies", response_model=APIResp)
