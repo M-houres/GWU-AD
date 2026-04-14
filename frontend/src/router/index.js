@@ -28,6 +28,8 @@ const UserDedupPage = () => import('../views/user/UserDedupPage.vue')
 const UserDedupRecordsPage = () => import('../views/user/UserDedupRecordsPage.vue')
 const UserReviewPage = () => import('../views/user/UserReviewPage.vue')
 const UserDefensePage = () => import('../views/user/UserDefensePage.vue')
+const TermsPage = () => import('../views/user/TermsPage.vue')
+const PrivacyPage = () => import('../views/user/PrivacyPage.vue')
 
 const adminEntryRoutes = [
   { path: '/admin/dashboard', permission: 'dashboard:view' },
@@ -58,6 +60,8 @@ const router = createRouter({
     { path: '/home', redirect: '/login' },
     { path: '/login', component: LoginPage },
     { path: '/register', component: RegisterPage },
+    { path: '/terms', component: TermsPage, meta: { title: '服务协议' } },
+    { path: '/privacy', component: PrivacyPage, meta: { title: '隐私政策' } },
     { path: '/detect', redirect: '/app/detect' },
     { path: '/dedup', redirect: '/app/dedup' },
     { path: '/rewrite', redirect: '/app/rewrite' },

@@ -1,0 +1,8 @@
+<view class="legal-page">
+  <view class="legal-card">
+    <view class="legal-title">服务协议</view>
+    <view class="legal-text">本服务面向学术文档处理场景，用户应保证上传内容拥有合法使用权，不得上传违法、侵权或涉密内容。</view>
+    <view class="legal-text">平台提供检测、降重、降AIGC率等工具服务，结果仅供用户内部研判与人工复核，不构成官方结论或法律意见。</view>
+    <view class="legal-text">用户完成支付后获得相应积分或权益，平台按实际订单记录发放；存在异常、欺诈或滥用行为时，平台有权暂停服务并追回权益。</view>
+  </view>
+</view>

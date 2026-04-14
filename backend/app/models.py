@@ -17,11 +17,31 @@ from sqlalchemy import (
     UniqueConstraint,
     func,
 )
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, mapped_column, relationship, validates
+from sqlalchemy.types import TypeDecorator
 
 from app.database import Base
+from app.security import decrypt_at_rest, encrypt_at_rest
 
 ID_PK_TYPE = BigInteger().with_variant(Integer, "sqlite")
+
+
+class EncryptedString(TypeDecorator):
+    impl = String
+    cache_ok = True
+
+    def process_bind_param(self, value, dialect):
+        if value is None:
+            return None
+        raw = str(value).strip()
+        if not raw:
+            return ""
+        return raw if raw.startswith("enc:") else encrypt_at_rest(raw)
+
+    def process_result_value(self, value, dialect):
+        if value is None:
+            return None
+        return decrypt_at_rest(value)
 
 
 class TaskType(str, Enum):
@@ -87,7 +107,8 @@ class User(Base):
     __tablename__ = "users"
 
     id: Mapped[int] = mapped_column(ID_PK_TYPE, primary_key=True, autoincrement=True)
-    phone: Mapped[str] = mapped_column(String(20), unique=True, index=True)
+    phone: Mapped[str] = mapped_column(EncryptedString(128), unique=True, index=True)
+    phone_last4: Mapped[str] = mapped_column(String(4), default="", index=True)
     nickname: Mapped[str] = mapped_column(String(64), default="")
     openid: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
     wechat_unionid: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
@@ -100,6 +121,12 @@ class User(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
 
     tasks: Mapped[list["Task"]] = relationship(back_populates="user")
+
+    @validates("phone")
+    def _normalize_phone_fields(self, _key, value: str) -> str:
+        raw = str(value or "").strip()
+        self.phone_last4 = raw[-4:] if len(raw) >= 4 else raw
+        return raw
 
 
 class UserInviteCode(Base):
@@ -292,7 +319,7 @@ class RegistrationRiskLog(Base):
     __tablename__ = "registration_risk_logs"
 
     id: Mapped[int] = mapped_column(ID_PK_TYPE, primary_key=True, autoincrement=True)
-    phone: Mapped[str] = mapped_column(String(20), index=True)
+    phone: Mapped[str] = mapped_column(EncryptedString(128), index=True)
     ip: Mapped[str] = mapped_column(String(64), index=True)
     user_agent: Mapped[str] = mapped_column(String(300), default="")
     reason: Mapped[str] = mapped_column(String(120))

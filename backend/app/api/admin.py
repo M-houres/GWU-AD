@@ -770,6 +770,18 @@ def _apply_source_filter(query, source_column, source_filter: str):
     return query.filter(~source_expr.in_(known))
 
 
+def _apply_phone_filter(query, query_text: str | None):
+    raw = str(query_text or "").strip()
+    digits = "".join(ch for ch in raw if ch.isdigit())
+    if not digits:
+        return query
+    if len(digits) == 11:
+        return query.filter(User.phone == digits)
+    if len(digits) >= 4:
+        return query.filter(User.phone_last4 == digits[-4:])
+    return query
+
+
 def _build_source_stats(rows, *, as_float: bool = False) -> dict:
     stats: dict[str, int | float] = {bucket: 0.0 if as_float else 0 for bucket in SOURCE_BUCKETS}
     stats["total"] = 0.0 if as_float else 0
@@ -2189,7 +2201,7 @@ def admin_users(
 ) -> APIResp:
     base_query = db.query(User)
     if q:
-        base_query = base_query.filter(User.phone.like(f"%{q}%"))
+        base_query = _apply_phone_filter(base_query, q)
     source_filter = _normalize_source_filter(source)
     base_query = _apply_source_filter(base_query, User.source, source_filter)
     source_rows = base_query.with_entities(User.source, func.count(User.id)).group_by(User.source).all()
@@ -2384,7 +2396,7 @@ def admin_tasks(
     base_query = db.query(Task).join(User, User.id == Task.user_id)
     source_filter = _normalize_source_filter(source)
     if q_phone:
-        base_query = base_query.filter(User.phone.like(f"%{q_phone}%"))
+        base_query = _apply_phone_filter(base_query, q_phone)
     if source_filter:
         base_query = _apply_source_filter(base_query, Task.source, source_filter)
     if task_type:
@@ -2512,7 +2524,7 @@ def admin_orders(
     base_query = db.query(Order).join(User, User.id == Order.user_id)
     source_filter = _normalize_source_filter(source)
     if q_phone:
-        base_query = base_query.filter(User.phone.like(f"%{q_phone}%"))
+        base_query = _apply_phone_filter(base_query, q_phone)
     if source_filter:
         base_query = _apply_source_filter(base_query, Order.source, source_filter)
     if order_no:

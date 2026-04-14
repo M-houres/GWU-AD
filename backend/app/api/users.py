@@ -28,6 +28,13 @@ router = APIRouter()
 settings = get_settings()
 
 
+def _mask_phone(phone: str) -> str:
+    raw = str(phone or "").strip()
+    if len(raw) == 11:
+        return f"{raw[:3]}****{raw[-4:]}"
+    return raw
+
+
 def _frontend_base_url(request: Request) -> str:
     forwarded_proto = request.headers.get("x-forwarded-proto", "").split(",")[0].strip()
     forwarded_host = request.headers.get("x-forwarded-host", "").split(",")[0].strip()
@@ -59,7 +66,7 @@ def me(user: User = Depends(current_user)) -> APIResp:
     return ok(
         data={
             "id": user.id,
-            "phone": user.phone,
+            "phone": _mask_phone(user.phone),
             "nickname": user.nickname,
             "credits": user.credits,
             "source": user.source,
@@ -80,7 +87,7 @@ def update_me(
     return ok(
         data={
             "id": user.id,
-            "phone": user.phone,
+            "phone": _mask_phone(user.phone),
             "nickname": user.nickname,
             "credits": user.credits,
             "source": user.source,

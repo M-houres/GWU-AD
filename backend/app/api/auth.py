@@ -185,9 +185,11 @@ def _enforce_ip_limit(
 
 
 def _user_payload(user: User) -> dict:
+    phone = str(user.phone or "").strip()
+    masked_phone = f"{phone[:3]}****{phone[-4:]}" if len(phone) == 11 else phone
     return {
         "id": user.id,
-        "phone": user.phone,
+        "phone": masked_phone,
         "nickname": user.nickname,
         "credits": user.credits,
         "source": user.source,

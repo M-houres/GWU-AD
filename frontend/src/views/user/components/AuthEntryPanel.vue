@@ -39,7 +39,12 @@
 
           <label class="gw-auth-card__policy">
             <input v-model="agreedPolicy" type="checkbox" />
-            <span>我已阅读并同意服务协议与隐私条款</span>
+            <span>
+              我已阅读并同意
+              <RouterLink to="/terms" target="_blank">《服务协议》</RouterLink>
+              与
+              <RouterLink to="/privacy" target="_blank">《隐私政策》</RouterLink>
+            </span>
           </label>
 
           <button class="gw-auth-card__submit" :disabled="loading">

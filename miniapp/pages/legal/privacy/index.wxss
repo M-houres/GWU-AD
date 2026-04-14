@@ -1,0 +1,4 @@
+.legal-page{min-height:100vh;background:#f6f1ef;padding:32rpx}
+.legal-card{background:#fff;border-radius:24rpx;padding:32rpx;display:flex;flex-direction:column;gap:24rpx}
+.legal-title{font-size:36rpx;font-weight:700;color:#111}
+.legal-text{font-size:28rpx;line-height:1.8;color:#333}

@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     auth_cookie_samesite: str = "lax"
     user_refresh_cookie_name: str = "gw_user_refresh"
     admin_refresh_cookie_name: str = "gw_admin_refresh"
+    data_encryption_key: str = ""
 
     mysql_host: str = "127.0.0.1"
     mysql_port: int = 3306

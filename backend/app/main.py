@@ -20,7 +20,7 @@ from app.database import Base, engine
 from app.deps import redis_is_available
 from app.exceptions import BizError
 from app.logging_setup import setup_logging
-from app.models import AdminUser, Task, TaskStatus
+from app.models import AdminUser, RegistrationRiskLog, Task, TaskStatus, User
 from app.responses import fail, ok
 from app.security import hash_password
 
@@ -88,6 +88,7 @@ def run_runtime_bootstrap_tasks() -> None:
     run_migrations()
     repair_missing_tables()
     normalize_runtime_configs()
+    normalize_user_phone_storage()
     cleanup_expired_task_artifacts()
     init_super_admin()
 
@@ -276,6 +277,35 @@ def repair_missing_tables() -> None:
         "schema_repair_created_missing_tables",
         extra={"tables": missing_tables},
     )
+
+
+def normalize_user_phone_storage() -> None:
+    from sqlalchemy.orm import Session
+
+    with Session(engine) as db:
+        users = db.query(User).all()
+        changed = 0
+        for user in users:
+            plain_phone = str(user.phone or "").strip()
+            if plain_phone:
+                expected_last4 = plain_phone[-4:] if len(plain_phone) >= 4 else plain_phone
+                if getattr(user, "phone_last4", "") != expected_last4:
+                    user.phone_last4 = expected_last4
+                    changed += 1
+                raw_stored = user.__dict__.get("phone")
+                if isinstance(raw_stored, str) and not raw_stored.startswith("enc:"):
+                    user.phone = plain_phone
+                    changed += 1
+        risk_logs = db.query(RegistrationRiskLog).all()
+        for row in risk_logs:
+            plain_phone = str(row.phone or "").strip()
+            raw_stored = row.__dict__.get("phone")
+            if plain_phone and isinstance(raw_stored, str) and not raw_stored.startswith("enc:"):
+                row.phone = plain_phone
+                changed += 1
+        if changed:
+            db.commit()
+            logger.warning("runtime_phone_storage_normalized", extra={"rows_changed": changed})
 
 
 def cleanup_expired_task_artifacts() -> None:

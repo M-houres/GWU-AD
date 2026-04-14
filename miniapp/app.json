@@ -3,7 +3,9 @@
     "pages/home/index",
     "pages/records/index",
     "pages/profile/index",
-    "pages/login/index"
+    "pages/login/index",
+    "pages/legal/terms/index",
+    "pages/legal/privacy/index"
   ],
   "window": {
     "navigationBarTextStyle": "black",
