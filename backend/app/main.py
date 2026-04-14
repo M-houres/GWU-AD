@@ -1,5 +1,5 @@
 ﻿from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import datetime, timedelta
 import logging
 from pathlib import Path
 import time
@@ -20,7 +20,7 @@ from app.database import Base, engine
 from app.deps import redis_is_available
 from app.exceptions import BizError
 from app.logging_setup import setup_logging
-from app.models import AdminUser
+from app.models import AdminUser, Task, TaskStatus
 from app.responses import fail, ok
 from app.security import hash_password
 
@@ -88,6 +88,7 @@ def run_runtime_bootstrap_tasks() -> None:
     run_migrations()
     repair_missing_tables()
     normalize_runtime_configs()
+    cleanup_expired_task_artifacts()
     init_super_admin()
 
 
@@ -275,6 +276,55 @@ def repair_missing_tables() -> None:
         "schema_repair_created_missing_tables",
         extra={"tables": missing_tables},
     )
+
+
+def cleanup_expired_task_artifacts() -> None:
+    from sqlalchemy.orm import Session
+
+    retention_days = max(int(settings.task_artifact_retention_days or 0), 0)
+    if retention_days <= 0:
+        return
+    deadline = datetime.utcnow() - timedelta(days=retention_days)
+
+    def _safe_delete(raw_path: str | None) -> bool:
+        if not raw_path:
+            return False
+        try:
+            path = Path(raw_path).resolve()
+            allowed_roots = [settings.upload_dir.resolve(), settings.output_dir.resolve()]
+            if not any(path == root or root in path.parents for root in allowed_roots):
+                return False
+            if path.exists():
+                path.unlink(missing_ok=True)
+                return True
+        except Exception:
+            logger.warning("expired_task_artifact_delete_failed", exc_info=True, extra={"path": raw_path})
+        return False
+
+    with Session(engine) as db:
+        rows = (
+            db.query(Task)
+            .filter(
+                Task.created_at <= deadline,
+                Task.status.in_([TaskStatus.COMPLETED, TaskStatus.FAILED]),
+            )
+            .all()
+        )
+        if not rows:
+            return
+        deleted = 0
+        for row in rows:
+            deleted += int(_safe_delete(row.source_path))
+            deleted += int(_safe_delete(row.report_path))
+            deleted += int(_safe_delete(row.output_path))
+            row.source_path = ""
+            row.report_path = None
+            row.output_path = None
+        db.commit()
+        logger.warning(
+            "expired_task_artifacts_cleaned",
+            extra={"tasks": len(rows), "files_deleted": deleted, "retention_days": retention_days},
+        )
 
 
 def _db_is_available() -> bool:

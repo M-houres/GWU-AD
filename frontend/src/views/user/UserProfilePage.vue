@@ -194,6 +194,18 @@
         </div>
       </section>
 
+      <section class="scholar-panel scholar-panel--soft">
+        <div class="scholar-panel__header">
+          <div>
+            <h3 class="scholar-subtitle">账号管理</h3>
+            <p class="scholar-lead">注销后将清空当前账号的任务文件与登录身份，无法恢复。</p>
+          </div>
+        </div>
+        <div class="scholar-panel__body">
+          <button class="scholar-button scholar-button--secondary" type="button" @click="deleteAccount">注销账号</button>
+        </div>
+      </section>
+
       <div v-if="selectedTask" class="scholar-modal" @click.self="closeResult">
         <div class="scholar-modal__dialog">
           <div class="scholar-panel__header">
@@ -415,6 +427,14 @@ function taskLabel(item) {
 
 function mapCreditType(type) {
   return { init: "初始积分", task_consume: "任务消费", task_refund: "任务退款", package_pay: "积分充值", referral_invite: "邀请奖励", referral_bonus: "被邀请福利", referral_first_pay: "首充返佣", referral_recurring: "持续返利", share_reward: "分享奖励", admin_adjust: "系统调整" }[type] || type
+}
+
+async function deleteAccount() {
+  if (!ensureUserLogin(router, { fullPath: "/app/profile" }, "/app/profile")) return
+  const confirmed = window.confirm("确认注销账号？注销后当前账号的任务文件与登录身份将被清除，无法恢复。")
+  if (!confirmed) return
+  await userHttp.delete("/users/me")
+  router.push("/login")
 }
 
 function mapTaskType(type) {

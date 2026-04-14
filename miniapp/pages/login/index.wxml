@@ -47,6 +47,11 @@
       <view class="login-helper">邀请码会在首次注册时自动记录邀请来源。</view>
     </view>
 
+    <label class="login-policy">
+      <checkbox checked="{{ agreedPolicy }}" bindtap="onTogglePolicy" />
+      <text>我已阅读并同意服务协议与隐私条款</text>
+    </label>
+
     <view class="login-action-stack">
       <button
         class="login-primary-btn"

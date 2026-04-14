@@ -86,6 +86,7 @@ class Settings(BaseSettings):
     local_submission_worker_concurrency: int = 4
     local_processing_worker_concurrency: int = 4
     local_maintenance_worker_concurrency: int = 2
+    task_artifact_retention_days: int = 30
 
     @field_validator("app_env", mode="before")
     @classmethod

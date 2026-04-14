@@ -60,6 +60,7 @@ Page({
   data: {
     loading: false,
     referrerCode: "",
+    agreedPolicy: false,
     loginTitle: "继续进入你的任务空间",
     loginDesc: "首次登录会自动创建账户，并绑定当前微信小程序身份。",
     phoneQuickLoginReady: false,
@@ -92,6 +93,10 @@ Page({
     setReferrerCode(referrerCode)
   },
 
+  onTogglePolicy() {
+    this.setData({ agreedPolicy: !this.data.agreedPolicy })
+  },
+
   async loadAuthOptions() {
     const canUsePhoneNumber =
       typeof wx.canIUse === "function" ? wx.canIUse("button.open-type.getPhoneNumber") : true
@@ -109,6 +114,14 @@ Page({
 
   async onTapWeChatLogin() {
     if (this.data.loading) return
+    if (!this.data.agreedPolicy) {
+      wx.showModal({
+        title: "请先同意协议",
+        content: "继续登录前，请先勾选服务协议与隐私条款。",
+        showCancel: false,
+      })
+      return
+    }
     this.setData({ loading: true })
     try {
       await loginWithMiniProgram({ referrerCode: this.data.referrerCode })
@@ -128,6 +141,14 @@ Page({
 
   async onTapPhoneQuickLogin(e) {
     if (this.data.loading) return
+    if (!this.data.agreedPolicy) {
+      wx.showModal({
+        title: "请先同意协议",
+        content: "继续登录前，请先勾选服务协议与隐私条款。",
+        showCancel: false,
+      })
+      return
+    }
 
     const phoneCode = String((e && e.detail && e.detail.code) || "").trim()
     if (!phoneCode) {

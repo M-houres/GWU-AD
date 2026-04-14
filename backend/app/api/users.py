@@ -1,10 +1,12 @@
 from datetime import datetime, timedelta
+from pathlib import Path
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, Query, Request, Response
 from sqlalchemy import desc, func
 from sqlalchemy.orm import Session
 
-from app.deps import current_user, db_dep
+from app.config import get_settings
+from app.deps import current_user, db_dep, get_redis
 from app.exceptions import BizError
 from app.models import CreditTransaction, Notification, Task, TaskStatus, TaskType, User
 from app.pagination import paginate
@@ -20,8 +22,10 @@ from app.services.promo_center_service import (
 )
 from app.services.process_strategy_service import sanitize_user_result_json
 from app.services.referral_module import raise_referral_module_disabled
+from app.security import auth_session_key
 
 router = APIRouter()
+settings = get_settings()
 
 
 def _frontend_base_url(request: Request) -> str:
@@ -31,6 +35,23 @@ def _frontend_base_url(request: Request) -> str:
         scheme = forwarded_proto or request.url.scheme or "https"
         return f"{scheme}://{forwarded_host}".rstrip("/")
     return str(request.base_url).rstrip("/")
+
+
+def _safe_remove_user_artifact(raw_path: str | None) -> None:
+    if not raw_path:
+        return
+    try:
+        path = Path(raw_path).resolve()
+        allowed_roots = [settings.upload_dir.resolve(), settings.output_dir.resolve()]
+        if not any(path == root or root in path.parents for root in allowed_roots):
+            return
+        path.unlink(missing_ok=True)
+    except Exception:
+        return
+
+
+def _build_deleted_phone(user_id: int) -> str:
+    return f"del{int(user_id):09d}"
 
 
 @router.get("/me", response_model=APIResp)
@@ -66,6 +87,43 @@ def update_me(
             "created_at": user.created_at,
         }
     )
+
+
+@router.delete("/me", response_model=APIResp)
+def delete_me(
+    response: Response,
+    user: User = Depends(current_user),
+    db: Session = Depends(db_dep),
+    redis_client=Depends(get_redis),
+) -> APIResp:
+    locked_user = db.query(User).filter(User.id == user.id).with_for_update().first()
+    if locked_user is None:
+        raise BizError(code=4040, message="用户不存在", http_status=404)
+
+    tasks = db.query(Task).filter(Task.user_id == locked_user.id).all()
+    for task in tasks:
+        _safe_remove_user_artifact(task.source_path)
+        _safe_remove_user_artifact(task.report_path)
+        _safe_remove_user_artifact(task.output_path)
+        db.delete(task)
+
+    notifications = db.query(Notification).filter(Notification.user_id == locked_user.id).all()
+    for row in notifications:
+        db.delete(row)
+
+    locked_user.phone = _build_deleted_phone(locked_user.id)
+    locked_user.nickname = "已注销用户"
+    locked_user.openid = None
+    locked_user.wechat_unionid = None
+    locked_user.wechat_openid_web = None
+    locked_user.wechat_openid_mp = None
+    locked_user.is_banned = True
+    db.commit()
+
+    redis_client.delete(auth_session_key("user", str(locked_user.id)))
+    response.delete_cookie("gw_user_access", path="/")
+    response.delete_cookie(settings.user_refresh_cookie_name, path="/api/v1/auth")
+    return ok(data={"deleted": True})
 
 
 @router.get("/me/summary", response_model=APIResp)

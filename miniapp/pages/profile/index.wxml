@@ -188,6 +188,7 @@
       <view class="profile-actions">
         <button class="profile-action-btn profile-action-btn--light" hover-class="is-press-btn" bindtap="onReload">刷新资料</button>
         <button class="profile-action-btn profile-action-btn--primary" hover-class="is-press-btn" bindtap="onLogout">退出登录</button>
+        <button class="profile-action-btn profile-action-btn--light" hover-class="is-press-btn" bindtap="onDeleteAccount">注销账号</button>
       </view>
     </view>
   </view>

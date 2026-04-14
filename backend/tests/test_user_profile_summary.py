@@ -1,7 +1,9 @@
 from io import BytesIO
+from pathlib import Path
 
 from app.deps import current_user
 from app.main import app
+from app.config import get_settings
 from app.models import CreditType, Task, TaskStatus, TaskType, User
 from app.services.algo_package_service import install_algorithm_package
 from app.services.credit_service import change_credits
@@ -159,5 +161,57 @@ def test_update_me_allows_clearing_nickname(client, db_session) -> None:
         db_session.refresh(user)
         assert user.nickname == ""
         assert resp.json()["data"]["nickname"] == ""
+    finally:
+        app.dependency_overrides.pop(current_user, None)
+
+
+def test_delete_me_anonymizes_user_and_removes_task_files(client, db_session) -> None:
+    settings = get_settings()
+    user = User(phone="13800006664", nickname="delete-me", credits=100)
+    db_session.add(user)
+    db_session.flush()
+
+    upload_dir = settings.upload_dir / str(user.id)
+    output_dir = settings.output_dir / str(user.id)
+    upload_dir.mkdir(parents=True, exist_ok=True)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    source_path = upload_dir / "profile_source.txt"
+    report_path = upload_dir / "profile_report.txt"
+    output_path = output_dir / "profile_output.txt"
+    source_path.write_text("source", encoding="utf-8")
+    report_path.write_text("report", encoding="utf-8")
+    output_path.write_text("output", encoding="utf-8")
+
+    db_session.add(
+        Task(
+            user_id=user.id,
+            task_type=TaskType.DEDUP,
+            platform="cnki",
+            status=TaskStatus.FAILED,
+            source_filename="profile_source.txt",
+            source_path=str(source_path),
+            report_path=str(report_path),
+            output_path=str(output_path),
+            char_count=10,
+            cost_credits=10,
+            result_json={"paper_title": "删除账号测试"},
+        )
+    )
+    db_session.commit()
+    db_session.refresh(user)
+
+    app.dependency_overrides[current_user] = lambda: user
+    try:
+        resp = client.delete("/api/v1/users/me")
+        assert resp.status_code == 200
+        db_session.refresh(user)
+        assert user.nickname == "已注销用户"
+        assert user.is_banned is True
+        assert user.phone.startswith("del")
+        assert db_session.query(Task).filter(Task.user_id == user.id).count() == 0
+        assert not source_path.exists()
+        assert not report_path.exists()
+        assert not output_path.exists()
     finally:
         app.dependency_overrides.pop(current_user, None)

@@ -439,4 +439,22 @@ Page({
     this.syncGuestProfile()
     wx.switchTab({ url: "/pages/home/index" })
   },
+
+  onDeleteAccount() {
+    wx.showModal({
+      title: "注销账号",
+      content: "注销后将清空当前账号的任务文件与登录身份，无法恢复。是否继续？",
+      success: async (res) => {
+        if (!res.confirm) return
+        try {
+          await request({ url: "/users/me", method: "DELETE" })
+          logout()
+          this.syncGuestProfile()
+          wx.switchTab({ url: "/pages/home/index" })
+        } catch (error) {
+          wx.showToast({ title: toFriendlyError(error, "注销失败"), icon: "none" })
+        }
+      },
+    })
+  },
 })
