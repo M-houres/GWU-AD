@@ -33,7 +33,25 @@ def _cors_origins() -> list[str]:
     origins = settings.cors_allow_origin_list
     if settings.is_prod and (not origins or origins == ["*"]):
         raise RuntimeError("生产环境必须显式配置 CORS_ALLOW_ORIGINS，不能使用通配符")
-    return ["*"] if not origins else origins
+    if origins == ["*"]:
+        if settings.is_prod:
+            raise RuntimeError("生产环境必须显式配置 CORS_ALLOW_ORIGINS，不能使用通配符")
+        origins = []
+    if origins:
+        return origins
+    defaults = {
+        "http://127.0.0.1:5173",
+        "http://localhost:5173",
+        "http://127.0.0.1:4173",
+        "http://localhost:4173",
+        "http://127.0.0.1:8080",
+        "http://localhost:8080",
+    }
+    if settings.frontend_base_url:
+        parsed = settings.frontend_base_url.split("/api/", 1)[0].rstrip("/")
+        if parsed:
+            defaults.add(parsed)
+    return sorted(defaults)
 
 
 def _is_weak_secret(value: str, defaults: set[str]) -> bool:
@@ -87,7 +105,7 @@ app = FastAPI(title=settings.app_name, lifespan=app_lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_cors_origins(),
-    allow_credentials=False,
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )

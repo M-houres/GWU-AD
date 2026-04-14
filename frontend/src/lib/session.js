@@ -1,5 +1,5 @@
-const USER_TOKEN_KEY = "wuhong_user_token"
-const ADMIN_TOKEN_KEY = "wuhong_admin_token"
+const USER_TOKEN_KEY = "wuhong_user_access_marker"
+const ADMIN_TOKEN_KEY = "wuhong_admin_access_marker"
 const USER_INFO_KEY = "wuhong_user_info"
 const ADMIN_INFO_KEY = "wuhong_admin_info"
 const USER_NAVIGATION_KEY = "wuhong_user_navigation"
@@ -13,7 +13,7 @@ export function setUserToken(token) {
     localStorage.removeItem(USER_TOKEN_KEY)
     return
   }
-  localStorage.setItem(USER_TOKEN_KEY, token)
+  localStorage.setItem(USER_TOKEN_KEY, "1")
 }
 
 export function clearUserSession() {
@@ -31,7 +31,7 @@ export function setAdminToken(token) {
     localStorage.removeItem(ADMIN_TOKEN_KEY)
     return
   }
-  localStorage.setItem(ADMIN_TOKEN_KEY, token)
+  localStorage.setItem(ADMIN_TOKEN_KEY, "1")
 }
 
 export function clearAdminSession() {

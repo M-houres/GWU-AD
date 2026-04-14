@@ -252,7 +252,10 @@ async function loadSystemStatus() {
   }
 }
 
-function logout() {
+async function logout() {
+  try {
+    await adminHttp.post("/admin/auth/logout")
+  } catch {}
   clearAdminSession()
   router.push("/admin/login")
 }

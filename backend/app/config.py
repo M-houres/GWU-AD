@@ -15,7 +15,12 @@ class Settings(BaseSettings):
     cors_allow_origins: str = "*"
 
     jwt_secret: str = "change_me_in_prod"
-    jwt_expire_minutes: int = 60 * 24 * 7
+    jwt_expire_minutes: int = 120
+    refresh_token_expire_days: int = 30
+    auth_cookie_secure: bool = True
+    auth_cookie_samesite: str = "lax"
+    user_refresh_cookie_name: str = "gw_user_refresh"
+    admin_refresh_cookie_name: str = "gw_admin_refresh"
 
     mysql_host: str = "127.0.0.1"
     mysql_port: int = 3306
@@ -46,6 +51,7 @@ class Settings(BaseSettings):
 
     admin_init_username: str = "admin"
     admin_init_password: str = "admin123456"
+    admin_login_ip_allowlist: str = ""
     payment_sign_secret: str = "change_me_payment_sign_key"
     payment_callback_ttl_seconds: int = 900
     payment_test_mode: bool = True
@@ -109,6 +115,17 @@ class Settings(BaseSettings):
         if raw == "*":
             return ["*"]
         return [item.strip() for item in raw.split(",") if item.strip()]
+
+    @property
+    def auth_cookie_secure_enabled(self) -> bool:
+        return bool(self.is_prod and self.auth_cookie_secure)
+
+    @property
+    def admin_login_ip_allowlist_set(self) -> set[str]:
+        raw = str(self.admin_login_ip_allowlist or "").strip()
+        if not raw:
+            return set()
+        return {item.strip() for item in raw.split(",") if item.strip()}
 
     @property
     def mysql_dsn(self) -> str:

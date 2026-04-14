@@ -1,7 +1,8 @@
 const env = require("../config/env")
-const { getToken, clearToken, clearUser } = require("./storage")
+const { clearRefreshToken, getRefreshToken, getToken, setRefreshToken, setToken, clearToken, clearUser, setUser } = require("./storage")
 const { openLogin, getCurrentRoute } = require("./authFlow")
 const { getBizMessage } = require("./status")
+let refreshPromise = null
 
 function buildHeaders(extra = {}) {
   const token = getToken()
@@ -16,6 +17,7 @@ function buildHeaders(extra = {}) {
 
 function handleUnauthorized() {
   clearToken()
+  clearRefreshToken()
   clearUser()
   const currentRoute = getCurrentRoute()
   if (currentRoute !== "pages/login/index") {
@@ -30,6 +32,51 @@ function handleUnauthorized() {
       sourceRoute: currentRoute,
     })
   }
+}
+
+function rawRequest(options) {
+  return new Promise((resolve, reject) => {
+    wx.request({
+      ...options,
+      success: resolve,
+      fail: reject,
+    })
+  })
+}
+
+async function refreshMiniSession() {
+  const refreshToken = getRefreshToken()
+  if (!refreshToken) return false
+  if (!refreshPromise) {
+    refreshPromise = rawRequest({
+      url: `${env.apiBaseUrl}/auth/refresh`,
+      method: "POST",
+      timeout: 20000,
+      header: {
+        "content-type": "application/json",
+        "X-Client-Source": "miniprogram",
+      },
+      data: {
+        refresh_token: refreshToken,
+      },
+    })
+      .then((res) => {
+        const { body } = parseResponseBody(res.data)
+        if (res.statusCode < 200 || res.statusCode >= 300 || !body || Number(body.code) !== 0) {
+          throw new Error(getBizMessage(body, "登录已过期"))
+        }
+        const data = body.data || {}
+        if (data.token) setToken(data.token)
+        if (data.refresh_token) setRefreshToken(data.refresh_token)
+        if (data.user) setUser(data.user)
+        return true
+      })
+      .catch(() => false)
+      .finally(() => {
+        refreshPromise = null
+      })
+  }
+  return refreshPromise
 }
 
 function createError(message, extra = {}) {
@@ -76,7 +123,7 @@ function getNetworkError(err, upload = false) {
 }
 
 function request(options) {
-  const { url, method = "GET", data = {}, header = {}, silent = false, timeout = 20000 } = options
+  const { url, method = "GET", data = {}, header = {}, silent = false, timeout = 20000, _retried = false } = options
   return new Promise((resolve, reject) => {
     wx.request({
       url: `${env.apiBaseUrl}${url}`,
@@ -88,13 +135,28 @@ function request(options) {
         const { body, rawText } = parseResponseBody(res.data)
 
         if (res.statusCode === 401) {
-          handleUnauthorized()
-          reject(
-            createError(getBizMessage(body, "登录状态已失效"), {
-              statusCode: res.statusCode,
-              body,
-            })
-          )
+          ;(async () => {
+            if (!_retried) {
+              const refreshed = await refreshMiniSession()
+              if (refreshed) {
+                try {
+                  const retried = await request({ ...options, silent: true, _retried: true })
+                  resolve(retried)
+                  return
+                } catch (retryError) {
+                  reject(retryError)
+                  return
+                }
+              }
+            }
+            handleUnauthorized()
+            reject(
+              createError(getBizMessage(body, "登录状态已失效"), {
+                statusCode: res.statusCode,
+                body,
+              })
+            )
+          })()
           return
         }
 
@@ -145,6 +207,7 @@ function uploadFile(options) {
     header = {},
     silent = false,
     timeout = 120000,
+    _retried = false,
   } = options
 
   return new Promise((resolve, reject) => {
@@ -159,8 +222,23 @@ function uploadFile(options) {
         const { body, rawText } = parseResponseBody(res.data)
 
         if (res.statusCode === 401) {
-          handleUnauthorized()
-          reject(createError("登录状态已失效", { statusCode: res.statusCode, body }))
+          ;(async () => {
+            if (!_retried) {
+              const refreshed = await refreshMiniSession()
+              if (refreshed) {
+                try {
+                  const retried = await uploadFile({ ...options, silent: true, _retried: true })
+                  resolve(retried)
+                  return
+                } catch (retryError) {
+                  reject(retryError)
+                  return
+                }
+              }
+            }
+            handleUnauthorized()
+            reject(createError("登录状态已失效", { statusCode: res.statusCode, body }))
+          })()
           return
         }
 

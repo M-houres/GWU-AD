@@ -1,6 +1,6 @@
 const env = require("../config/env")
 const { request } = require("./request")
-const { setToken, setUser, getToken, clearToken, clearUser } = require("./storage")
+const { setRefreshToken, setToken, setUser, getToken, clearRefreshToken, clearToken, clearUser } = require("./storage")
 
 function shouldUseMockMiniLogin() {
   return env.currentEnv === "develop"
@@ -19,6 +19,7 @@ function loginWithMiniProgram({ referrerCode = "", deviceFingerprint = "" } = {}
         },
       })
       if (data && data.token) setToken(data.token)
+      if (data && data.refresh_token) setRefreshToken(data.refresh_token)
       if (data && data.user) setUser(data.user)
       resolve(data)
     }
@@ -64,6 +65,7 @@ function loginWithMiniProgramPhone({ phoneCode = "", referrerCode = "", deviceFi
         },
       })
       if (data && data.token) setToken(data.token)
+      if (data && data.refresh_token) setRefreshToken(data.refresh_token)
       if (data && data.user) setUser(data.user)
       resolve(data)
     }
@@ -90,7 +92,9 @@ function ensureLogin() {
 }
 
 function logout() {
+  request({ url: "/auth/logout", method: "POST", silent: true }).catch(() => null)
   clearToken()
+  clearRefreshToken()
   clearUser()
 }
 

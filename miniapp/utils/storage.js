@@ -1,19 +1,50 @@
 const TOKEN_KEY = "gw_user_token"
+const REFRESH_TOKEN_KEY = "gw_user_refresh_token"
 const USER_KEY = "gw_user_profile"
 const AUTH_PENDING_KEY = "gw_auth_pending"
 const HOME_DRAFT_KEY = "gw_home_draft"
 const REFERRER_CODE_KEY = "gw_referrer_code"
 
 function setToken(token) {
-  wx.setStorageSync(TOKEN_KEY, token || "")
+  if (!token) {
+    wx.removeStorageSync(TOKEN_KEY)
+    return
+  }
+  wx.setStorageSync(TOKEN_KEY, {
+    value: token,
+    expiresAt: Date.now() + 2 * 60 * 60 * 1000,
+  })
 }
 
 function getToken() {
-  return wx.getStorageSync(TOKEN_KEY) || ""
+  const raw = wx.getStorageSync(TOKEN_KEY)
+  if (!raw || typeof raw !== "object") return ""
+  if (!raw.value || !raw.expiresAt) return ""
+  if (Date.now() >= Number(raw.expiresAt)) {
+    wx.removeStorageSync(TOKEN_KEY)
+    return ""
+  }
+  return raw.value
 }
 
 function clearToken() {
   wx.removeStorageSync(TOKEN_KEY)
+}
+
+function setRefreshToken(token) {
+  if (!token) {
+    wx.removeStorageSync(REFRESH_TOKEN_KEY)
+    return
+  }
+  wx.setStorageSync(REFRESH_TOKEN_KEY, token)
+}
+
+function getRefreshToken() {
+  return wx.getStorageSync(REFRESH_TOKEN_KEY) || ""
+}
+
+function clearRefreshToken() {
+  wx.removeStorageSync(REFRESH_TOKEN_KEY)
 }
 
 function setUser(user) {
@@ -81,6 +112,9 @@ module.exports = {
   setToken,
   getToken,
   clearToken,
+  setRefreshToken,
+  getRefreshToken,
+  clearRefreshToken,
   setUser,
   getUser,
   clearUser,

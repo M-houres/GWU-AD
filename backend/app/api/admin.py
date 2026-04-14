@@ -6,8 +6,8 @@ import secrets
 from pathlib import Path
 from urllib.parse import urlparse
 
-from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile
-from fastapi.responses import FileResponse, Response
+from fastapi import APIRouter, Body, Cookie, Depends, File, Form, Query, Request, Response, UploadFile
+from fastapi.responses import FileResponse
 from sqlalchemy import desc, func
 from sqlalchemy.orm import Session
 
@@ -15,6 +15,7 @@ from app.config import get_settings
 from app.constants import DEFAULT_BILLING_PACKAGES
 from app.deps import (
     admin_has_permission,
+    current_admin,
     db_dep,
     get_redis,
     normalize_admin_permissions,
@@ -48,7 +49,16 @@ from app.schemas import (
     AlgoPackageActivateReq,
     AlgoPackageUploadReq,
 )
-from app.security import create_token, hash_password, verify_password
+from app.security import (
+    REFRESH_TOKEN_TYPE,
+    auth_session_key,
+    create_access_token,
+    create_refresh_token,
+    decode_token,
+    hash_password,
+    new_session_version,
+    verify_password,
+)
 from app.services.algo_package_service import (
     activate_algorithm_package,
     deactivate_algorithm_package,
@@ -87,6 +97,7 @@ settings = get_settings()
 
 DEFAULT_NOTICE_TITLE = "系统公告"
 DEFAULT_NOTICE_TEXT = "平台系统持续优化中，任务提交后请在个人中心查看处理进度。"
+ADMIN_ACCESS_COOKIE_NAME = "gw_admin_access"
 SOURCE_BUCKETS = ("web", "miniapp", "other")
 _SOURCE_WEB_ALIASES = {"web", "h5", "site"}
 _SOURCE_MINIAPP_ALIASES = {"miniapp", "miniprogram", "mini_program", "wxapp", "wechat_miniprogram", "wechat_mini_program"}
@@ -599,6 +610,68 @@ def _request_client_ip(request: Request) -> str:
     if request.client is None:
         return ""
     return (request.client.host or "")[:64]
+
+
+def _cookie_samesite() -> str:
+    value = str(settings.auth_cookie_samesite or "lax").strip().lower()
+    if value not in {"lax", "strict", "none"}:
+        return "lax"
+    return value
+
+
+def _auth_session_ttl_seconds() -> int:
+    return max(int(settings.refresh_token_expire_days) * 24 * 3600, int(settings.jwt_expire_minutes) * 60)
+
+
+def _store_admin_session(redis_client, *, admin_id: int, session_version: str) -> None:
+    redis_client.setex(auth_session_key("admin", str(admin_id)), _auth_session_ttl_seconds(), session_version)
+
+
+def _load_admin_session(redis_client, *, admin_id: int) -> str:
+    return str(redis_client.get(auth_session_key("admin", str(admin_id))) or "").strip()
+
+
+def _clear_admin_session(redis_client, *, admin_id: int) -> None:
+    redis_client.delete(auth_session_key("admin", str(admin_id)))
+
+
+def _apply_admin_auth_cookies(response: Response, *, access_token: str, refresh_token: str) -> None:
+    response.set_cookie(
+        key=ADMIN_ACCESS_COOKIE_NAME,
+        value=access_token,
+        httponly=True,
+        secure=settings.auth_cookie_secure_enabled,
+        samesite=_cookie_samesite(),
+        max_age=int(settings.jwt_expire_minutes) * 60,
+        path="/",
+    )
+    response.set_cookie(
+        key=settings.admin_refresh_cookie_name,
+        value=refresh_token,
+        httponly=True,
+        secure=settings.auth_cookie_secure_enabled,
+        samesite=_cookie_samesite(),
+        max_age=int(settings.refresh_token_expire_days) * 24 * 3600,
+        path="/api/v1/admin/auth",
+    )
+
+
+def _issue_admin_auth(redis_client, response: Response | None, admin: AdminUser) -> tuple[str, str]:
+    session_version = new_session_version()
+    _store_admin_session(redis_client, admin_id=admin.id, session_version=session_version)
+    access_token = create_access_token(subject=str(admin.id), scope="admin", session_version=session_version)
+    refresh_token = create_refresh_token(subject=str(admin.id), scope="admin", session_version=session_version)
+    if response is not None:
+        _apply_admin_auth_cookies(response, access_token=access_token, refresh_token=refresh_token)
+    return access_token, refresh_token
+
+
+def _assert_admin_ip_allowed(request: Request) -> None:
+    allowlist = settings.admin_login_ip_allowlist_set
+    if not allowlist:
+        return
+    if _request_client_ip(request) not in allowlist:
+        raise BizError(code=4310, message="当前 IP 不允许登录管理后台", http_status=403)
 
 
 def _admin_login_attempt_key(kind: str, value: str) -> str:
@@ -1604,9 +1677,11 @@ def _task_type_label(task_type: str) -> str:
 def admin_login(
     req: AdminLoginReq,
     request: Request,
+    response: Response,
     db: Session = Depends(db_dep),
     redis_client=Depends(get_redis),
 ) -> APIResp:
+    _assert_admin_ip_allowed(request)
     username = str(req.username or "").strip()
     _enforce_admin_login_rate_limit(
         redis_client,
@@ -1622,15 +1697,64 @@ def admin_login(
     _clear_admin_login_failures(redis_client, username=username)
     admin.last_login = datetime.utcnow()
     db.commit()
-    token = create_token(subject=str(admin.id), scope="admin")
+    token, refresh_token = _issue_admin_auth(redis_client, response, admin)
     return ok(
         data={
             "token": token,
+            "refresh_token": refresh_token,
             "admin": _admin_payload(admin),
             "permission_catalog": ADMIN_PERMISSION_CATALOG,
             "permission_templates": _permission_templates_payload(),
         }
     )
+
+
+@router.post("/auth/refresh", response_model=APIResp)
+def admin_refresh(
+    response: Response,
+    payload: dict | None = Body(default=None),
+    refresh_cookie: str | None = Cookie(default=None, alias=settings.admin_refresh_cookie_name),
+    db: Session = Depends(db_dep),
+    redis_client=Depends(get_redis),
+) -> APIResp:
+    refresh_token = str((payload or {}).get("refresh_token") or refresh_cookie or "").strip()
+    if not refresh_token:
+        raise BizError(code=4311, message="refresh token missing", http_status=401)
+    try:
+        decoded = decode_token(refresh_token)
+    except ValueError as exc:
+        raise BizError(code=4312, message="refresh token invalid", http_status=401) from exc
+    if decoded.get("scope") != "admin" or str(decoded.get("typ") or "").strip().lower() != REFRESH_TOKEN_TYPE:
+        raise BizError(code=4312, message="refresh token invalid", http_status=401)
+    admin = db.get(AdminUser, int(decoded["sub"]))
+    if admin is None or not bool(getattr(admin, "is_active", True)):
+        raise BizError(code=4309, message="管理员账号已停用，请联系超级管理员", http_status=401)
+    session_version = str(decoded.get("sv") or "").strip()
+    current_version = _load_admin_session(redis_client, admin_id=admin.id)
+    if not session_version or not current_version or session_version != current_version:
+        raise BizError(code=4312, message="refresh token revoked", http_status=401)
+    token, next_refresh_token = _issue_admin_auth(redis_client, response, admin)
+    return ok(
+        data={
+            "token": token,
+            "refresh_token": next_refresh_token,
+            "admin": _admin_payload(admin),
+            "permission_catalog": ADMIN_PERMISSION_CATALOG,
+            "permission_templates": _permission_templates_payload(),
+        }
+    )
+
+
+@router.post("/auth/logout", response_model=APIResp)
+def admin_logout(
+    response: Response,
+    admin: AdminUser = Depends(current_admin),
+    redis_client=Depends(get_redis),
+) -> APIResp:
+    _clear_admin_session(redis_client, admin_id=admin.id)
+    response.delete_cookie(ADMIN_ACCESS_COOKIE_NAME, path="/")
+    response.delete_cookie(settings.admin_refresh_cookie_name, path="/api/v1/admin/auth")
+    return ok(data={"logged_out": True})
 
 
 @router.get("/admin-users", response_model=APIResp)

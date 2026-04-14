@@ -3,7 +3,7 @@ from typing import Callable, Generator
 import time
 
 import redis
-from fastapi import Depends, HTTPException, Request, status
+from fastapi import Cookie, Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
 
@@ -11,7 +11,7 @@ from app.client_source import get_client_source
 from app.config import get_settings
 from app.database import get_db
 from app.models import AdminUser, User
-from app.security import decode_token
+from app.security import auth_session_key, decode_token
 
 settings = get_settings()
 logger = logging.getLogger("app.deps")
@@ -119,6 +119,17 @@ def get_redis():
         return memory_redis
 
 
+def _get_auth_store():
+    try:
+        redis_client.ping()
+        return redis_client
+    except redis.RedisError:
+        if settings.is_prod:
+            logger.error("auth_store_unavailable_in_production")
+            raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="auth store unavailable")
+        return memory_redis
+
+
 def redis_is_available() -> bool:
     try:
         redis_client.ping()
@@ -137,41 +148,67 @@ def db_dep() -> Generator[Session, None, None]:
 
 def current_user(
     cred: HTTPAuthorizationCredentials = Depends(auth_scheme),
+    user_access_cookie: str | None = Cookie(default=None, alias="gw_user_access"),
     db: Session = Depends(db_dep),
 ) -> User:
-    if cred is None:
+    token = cred.credentials if cred is not None and cred.credentials else str(user_access_cookie or "").strip()
+    if not token:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="missing token")
     try:
-        payload = decode_token(cred.credentials)
+        payload = decode_token(token)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid token") from exc
     if payload.get("scope") != "user":
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid scope")
+    token_type = str(payload.get("typ") or "access").strip().lower()
+    if token_type != "access":
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid scope")
     user = db.get(User, int(payload["sub"]))
     if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="user not found")
     if getattr(user, "is_banned", False):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="user banned")
+    session_version = str(payload.get("sv") or "").strip()
+    if session_version:
+        auth_store = _get_auth_store()
+        current_version = str(auth_store.get(auth_session_key("user", str(user.id))) or "").strip()
+        if not current_version or current_version != session_version:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="token revoked")
+    elif settings.is_prod:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="token upgrade required")
     return user
 
 
 def current_admin(
     cred: HTTPAuthorizationCredentials = Depends(auth_scheme),
+    admin_access_cookie: str | None = Cookie(default=None, alias="gw_admin_access"),
     db: Session = Depends(db_dep),
 ) -> AdminUser:
-    if cred is None:
+    token = cred.credentials if cred is not None and cred.credentials else str(admin_access_cookie or "").strip()
+    if not token:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="missing token")
     try:
-        payload = decode_token(cred.credentials)
+        payload = decode_token(token)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid token") from exc
     if payload.get("scope") != "admin":
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid scope")
+    token_type = str(payload.get("typ") or "access").strip().lower()
+    if token_type != "access":
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid scope")
     admin = db.get(AdminUser, int(payload["sub"]))
     if not admin:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="admin not found")
     if not getattr(admin, "is_active", True):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="admin disabled")
+    session_version = str(payload.get("sv") or "").strip()
+    if session_version:
+        auth_store = _get_auth_store()
+        current_version = str(auth_store.get(auth_session_key("admin", str(admin.id))) or "").strip()
+        if not current_version or current_version != session_version:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="token revoked")
+    elif settings.is_prod:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="token upgrade required")
     return admin
 
 

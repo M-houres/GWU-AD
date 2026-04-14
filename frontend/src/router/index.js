@@ -102,6 +102,10 @@ router.beforeEach((to) => {
   if ((to.path === '/login' || to.path === '/register') && getUserToken()) {
     return resolveUserRedirect(to.query.redirect, '/app/detect')
   }
+  if (to.meta.auth === 'user' && !getUserToken()) {
+    const redirect = encodeURIComponent(to.fullPath || '/app/detect')
+    return `/login?redirect=${redirect}`
+  }
   if (to.path === '/admin/login' && getAdminToken()) {
     const fallback = firstAccessibleAdminRoute()
     return resolveAdminRedirect(to.query.redirect, fallback)

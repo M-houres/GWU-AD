@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta, timezone
 import hashlib
+import uuid
 
 import bcrypt
 from jose import JWTError, jwt
@@ -7,6 +8,8 @@ from jose import JWTError, jwt
 from app.config import get_settings
 
 settings = get_settings()
+ACCESS_TOKEN_TYPE = "access"
+REFRESH_TOKEN_TYPE = "refresh"
 
 
 def _normalize_password(plain: str) -> bytes:
@@ -36,11 +39,54 @@ def verify_password(plain: str, hashed: str) -> bool:
         return False
 
 
-def create_token(subject: str, scope: str, expire_minutes: int | None = None) -> str:
+def create_token(
+    subject: str,
+    scope: str,
+    expire_minutes: int | None = None,
+    *,
+    token_type: str = ACCESS_TOKEN_TYPE,
+    session_version: str | None = None,
+) -> str:
     minutes = expire_minutes or settings.jwt_expire_minutes
     exp = datetime.now(timezone.utc) + timedelta(minutes=minutes)
-    payload = {"sub": subject, "scope": scope, "exp": exp}
+    payload = {
+        "sub": subject,
+        "scope": scope,
+        "typ": token_type,
+        "jti": uuid.uuid4().hex,
+        "exp": exp,
+    }
+    if session_version:
+        payload["sv"] = session_version
     return jwt.encode(payload, settings.jwt_secret, algorithm="HS256")
+
+
+def create_access_token(subject: str, scope: str, *, session_version: str | None = None) -> str:
+    return create_token(
+        subject,
+        scope,
+        expire_minutes=settings.jwt_expire_minutes,
+        token_type=ACCESS_TOKEN_TYPE,
+        session_version=session_version,
+    )
+
+
+def create_refresh_token(subject: str, scope: str, *, session_version: str | None = None) -> str:
+    return create_token(
+        subject,
+        scope,
+        expire_minutes=int(settings.refresh_token_expire_days) * 24 * 60,
+        token_type=REFRESH_TOKEN_TYPE,
+        session_version=session_version,
+    )
+
+
+def new_session_version() -> str:
+    return uuid.uuid4().hex
+
+
+def auth_session_key(scope: str, subject: str) -> str:
+    return f"auth:session:{scope}:{subject}"
 
 
 def decode_token(token: str) -> dict:

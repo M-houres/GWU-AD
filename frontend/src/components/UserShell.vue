@@ -343,7 +343,10 @@ function syncTokenState() {
   hasUserToken.value = Boolean(getUserToken())
 }
 
-function logout() {
+async function logout() {
+  try {
+    await userHttp.post("/auth/logout")
+  } catch {}
   clearUserSession()
   hasUserToken.value = false
   router.push("/login")

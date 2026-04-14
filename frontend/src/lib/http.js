@@ -24,6 +24,11 @@ function resolveBaseURL() {
 }
 
 const baseURL = resolveBaseURL()
+const refreshClient = axios.create({ baseURL, timeout: 20000, withCredentials: true })
+
+function looksLikeJwt(value) {
+  return /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(String(value || "").trim())
+}
 
 function unwrapResponse(response) {
   const responseType = response?.config?.responseType
@@ -94,11 +99,38 @@ async function normalizeError(error) {
   return Promise.reject(error)
 }
 
-export const userHttp = axios.create({ baseURL, timeout: 20000 })
+let userRefreshPromise = null
+let adminRefreshPromise = null
+
+async function refreshUserSession() {
+  if (!userRefreshPromise) {
+    userRefreshPromise = refreshClient
+      .post("/auth/refresh")
+      .then((resp) => unwrapResponse(resp))
+      .finally(() => {
+        userRefreshPromise = null
+      })
+  }
+  return userRefreshPromise
+}
+
+async function refreshAdminSession() {
+  if (!adminRefreshPromise) {
+    adminRefreshPromise = refreshClient
+      .post("/admin/auth/refresh")
+      .then((resp) => unwrapResponse(resp))
+      .finally(() => {
+        adminRefreshPromise = null
+      })
+  }
+  return adminRefreshPromise
+}
+
+export const userHttp = axios.create({ baseURL, timeout: 20000, withCredentials: true })
 userHttp.interceptors.request.use((config) => {
   config.headers["X-Client-Source"] = "web"
   const token = getUserToken()
-  if (token) {
+  if (looksLikeJwt(token)) {
     config.headers.Authorization = `Bearer ${token}`
   }
   return config
@@ -106,6 +138,15 @@ userHttp.interceptors.request.use((config) => {
 userHttp.interceptors.response.use(
   (resp) => unwrapResponse(resp),
   async (error) => {
+    const originalRequest = error?.config || {}
+    const isRefreshEndpoint = String(originalRequest.url || "").includes("/auth/refresh")
+    if (error?.response?.status === 401 && !originalRequest._retry && !isRefreshEndpoint) {
+      originalRequest._retry = true
+      try {
+        await refreshUserSession()
+        return userHttp(originalRequest)
+      } catch {}
+    }
     if (error?.response?.status === 401) {
       const hadToken = Boolean(getUserToken())
       clearUserSession()
@@ -118,11 +159,11 @@ userHttp.interceptors.response.use(
   }
 )
 
-export const adminHttp = axios.create({ baseURL, timeout: 20000 })
+export const adminHttp = axios.create({ baseURL, timeout: 20000, withCredentials: true })
 adminHttp.interceptors.request.use((config) => {
   config.headers["X-Client-Source"] = "web"
   const token = getAdminToken()
-  if (token) {
+  if (looksLikeJwt(token)) {
     config.headers.Authorization = `Bearer ${token}`
   }
   return config
@@ -130,6 +171,15 @@ adminHttp.interceptors.request.use((config) => {
 adminHttp.interceptors.response.use(
   (resp) => unwrapResponse(resp),
   async (error) => {
+    const originalRequest = error?.config || {}
+    const isRefreshEndpoint = String(originalRequest.url || "").includes("/admin/auth/refresh")
+    if (error?.response?.status === 401 && !originalRequest._retry && !isRefreshEndpoint) {
+      originalRequest._retry = true
+      try {
+        await refreshAdminSession()
+        return adminHttp(originalRequest)
+      } catch {}
+    }
     if (error?.response?.status === 401) {
       const hadToken = Boolean(getAdminToken())
       clearAdminSession()

@@ -8,19 +8,26 @@ import logging
 from urllib.parse import quote
 import uuid
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Body, Cookie, Depends, Request, Response
 from fastapi.responses import HTMLResponse
 import httpx
 from sqlalchemy.orm import Session
 
 from app.client_source import DEFAULT_CLIENT_SOURCE, get_client_source
 from app.config import get_settings
-from app.deps import db_dep, get_redis
+from app.deps import current_user, db_dep, get_redis
 from app.exceptions import BizError
 from app.models import CreditType, RegistrationRiskLog, SystemConfig, User
 from app.responses import ok
 from app.schemas import APIResp, LoginReq, MiniProgramLoginReq, MiniProgramPhoneLoginReq, SendCodeReq
-from app.security import create_token
+from app.security import (
+    REFRESH_TOKEN_TYPE,
+    auth_session_key,
+    create_access_token,
+    create_refresh_token,
+    decode_token,
+    new_session_version,
+)
 from app.services.credit_service import change_credits
 from app.services.promo_center_service import bind_promo_referral_relation, ensure_user_invite_code
 from app.services.user_navigation_service import default_user_navigation_config, normalize_user_navigation_config
@@ -33,6 +40,7 @@ logger = logging.getLogger("app.api.auth")
 WX_LOGIN_TTL_SECONDS = 120
 DEFAULT_NOTICE_TITLE = "系统公告"
 DEFAULT_HEADER_NOTICE_TEXT = "平台系统持续优化中，任务提交后请在个人中心查看处理进度。"
+USER_ACCESS_COOKIE_NAME = "gw_user_access"
 _LOGIN_CONFIG_DEFAULTS = {
     "sms_provider": "custom_webhook",
     "sms_api_key": "",
@@ -65,6 +73,60 @@ _LOGIN_CONFIG_DEFAULTS = {
     "send_code_ip_1h_limit": 30,
     "login_ip_10m_limit": 120,
 }
+
+
+def _cookie_samesite() -> str:
+    value = str(settings.auth_cookie_samesite or "lax").strip().lower()
+    if value not in {"lax", "strict", "none"}:
+        return "lax"
+    return value
+
+
+def _auth_session_ttl_seconds() -> int:
+    return max(int(settings.refresh_token_expire_days) * 24 * 3600, int(settings.jwt_expire_minutes) * 60)
+
+
+def _store_auth_session(redis_client, *, scope: str, subject: str, session_version: str) -> None:
+    redis_client.setex(auth_session_key(scope, subject), _auth_session_ttl_seconds(), session_version)
+
+
+def _load_auth_session(redis_client, *, scope: str, subject: str) -> str:
+    return str(redis_client.get(auth_session_key(scope, subject)) or "").strip()
+
+
+def _clear_auth_session(redis_client, *, scope: str, subject: str) -> None:
+    redis_client.delete(auth_session_key(scope, subject))
+
+
+def _apply_user_auth_cookies(response: Response, *, access_token: str, refresh_token: str) -> None:
+    response.set_cookie(
+        key=USER_ACCESS_COOKIE_NAME,
+        value=access_token,
+        httponly=True,
+        secure=settings.auth_cookie_secure_enabled,
+        samesite=_cookie_samesite(),
+        max_age=int(settings.jwt_expire_minutes) * 60,
+        path="/",
+    )
+    response.set_cookie(
+        key=settings.user_refresh_cookie_name,
+        value=refresh_token,
+        httponly=True,
+        secure=settings.auth_cookie_secure_enabled,
+        samesite=_cookie_samesite(),
+        max_age=int(settings.refresh_token_expire_days) * 24 * 3600,
+        path="/api/v1/auth",
+    )
+
+
+def _issue_user_auth(redis_client, response: Response | None, user: User) -> tuple[str, str]:
+    session_version = new_session_version()
+    _store_auth_session(redis_client, scope="user", subject=str(user.id), session_version=session_version)
+    access_token = create_access_token(subject=str(user.id), scope="user", session_version=session_version)
+    refresh_token = create_refresh_token(subject=str(user.id), scope="user", session_version=session_version)
+    if response is not None:
+        _apply_user_auth_cookies(response, access_token=access_token, refresh_token=refresh_token)
+    return access_token, refresh_token
 
 
 def _default_debug_code_enabled() -> bool:
@@ -839,7 +901,13 @@ def send_code(
 
 
 @router.post("/login", response_model=APIResp)
-def login(req: LoginReq, request: Request, db: Session = Depends(db_dep), redis_client=Depends(get_redis)) -> APIResp:
+def login(
+    req: LoginReq,
+    request: Request,
+    response: Response,
+    db: Session = Depends(db_dep),
+    redis_client=Depends(get_redis),
+) -> APIResp:
     login_cfg = _get_login_config(db)
     if not is_phone_valid(req.phone):
         raise BizError(code=4001, message="手机号格式错误")
@@ -930,12 +998,13 @@ def login(req: LoginReq, request: Request, db: Session = Depends(db_dep), redis_
         elif not user.source:
             user.source = client_source
 
-        token = create_token(subject=str(user.id), scope="user")
         redis_client.setex(f"user:fp:{user.id}", 30 * 24 * 3600, fp)
         db.commit()
     except Exception:
         db.rollback()
         raise
+
+    token, refresh_token = _issue_user_auth(redis_client, response, user)
 
     logger.info(
         "auth_login_success",
@@ -944,10 +1013,54 @@ def login(req: LoginReq, request: Request, db: Session = Depends(db_dep), redis_
     return ok(
         data={
             "token": token,
+            "refresh_token": refresh_token,
             "is_new_user": is_new_user,
             "user": _user_payload(user),
         }
     )
+
+
+@router.post("/refresh", response_model=APIResp)
+def refresh_user_token(
+    response: Response,
+    payload: dict | None = Body(default=None),
+    refresh_cookie: str | None = Cookie(default=None, alias=settings.user_refresh_cookie_name),
+    db: Session = Depends(db_dep),
+    redis_client=Depends(get_redis),
+) -> APIResp:
+    refresh_token = str((payload or {}).get("refresh_token") or refresh_cookie or "").strip()
+    if not refresh_token:
+        raise BizError(code=4013, message="refresh token missing", http_status=401)
+    try:
+        decoded = decode_token(refresh_token)
+    except ValueError as exc:
+        raise BizError(code=4014, message="refresh token invalid", http_status=401) from exc
+    if decoded.get("scope") != "user" or str(decoded.get("typ") or "").strip().lower() != REFRESH_TOKEN_TYPE:
+        raise BizError(code=4014, message="refresh token invalid", http_status=401)
+
+    user = db.get(User, int(decoded["sub"]))
+    if not user or getattr(user, "is_banned", False):
+        raise BizError(code=4012, message="账号不可用", http_status=401)
+
+    session_version = str(decoded.get("sv") or "").strip()
+    current_version = _load_auth_session(redis_client, scope="user", subject=str(user.id))
+    if not session_version or not current_version or session_version != current_version:
+        raise BizError(code=4014, message="refresh token revoked", http_status=401)
+
+    token, next_refresh_token = _issue_user_auth(redis_client, response, user)
+    return ok(data={"token": token, "refresh_token": next_refresh_token, "user": _user_payload(user)})
+
+
+@router.post("/logout", response_model=APIResp)
+def logout_user(
+    response: Response,
+    user: User = Depends(current_user),
+    redis_client=Depends(get_redis),
+) -> APIResp:
+    _clear_auth_session(redis_client, scope="user", subject=str(user.id))
+    response.delete_cookie(USER_ACCESS_COOKIE_NAME, path="/")
+    response.delete_cookie(settings.user_refresh_cookie_name, path="/api/v1/auth")
+    return ok(data={"logged_out": True})
 
 
 @router.post("/wx/mini-login", response_model=APIResp)
@@ -1002,16 +1115,18 @@ def wx_mini_login(
                 referrer_code=str(req.referrer_code).strip().upper(),
                 source=client_source,
             )
-        token = create_token(subject=str(user.id), scope="user")
         redis_client.setex(f"user:fp:{user.id}", 30 * 24 * 3600, fp)
         db.commit()
     except Exception:
         db.rollback()
         raise
 
+    token, refresh_token = _issue_user_auth(redis_client, None, user)
+
     return ok(
         data={
             "token": token,
+            "refresh_token": refresh_token,
             "is_new_user": is_new_user,
             "scene": "miniprogram",
             "user": _user_payload(user),
@@ -1074,16 +1189,18 @@ def wx_mini_phone_login(
                 referrer_code=str(req.referrer_code).strip().upper(),
                 source=client_source,
             )
-        token = create_token(subject=str(user.id), scope="user")
         redis_client.setex(f"user:fp:{user.id}", 30 * 24 * 3600, fp)
         db.commit()
     except Exception:
         db.rollback()
         raise
 
+    token, refresh_token = _issue_user_auth(redis_client, None, user)
+
     return ok(
         data={
             "token": token,
+            "refresh_token": refresh_token,
             "is_new_user": is_new_user,
             "scene": "miniprogram",
             "login_type": "phone_quick",
@@ -1182,15 +1299,17 @@ def wx_callback(
             ),
         )
         ensure_user_invite_code(db, user)
-        token = create_token(subject=str(user.id), scope="user")
         db.commit()
     except Exception:
         db.rollback()
         raise
 
+    token, refresh_token = _issue_user_auth(redis_client, None, user)
+
     wx_payload = {
         "status": "authorized",
         "token": token,
+        "refresh_token": refresh_token,
         "user": _user_payload(user),
         "is_new_user": is_new_user,
     }
@@ -1206,7 +1325,7 @@ def wx_callback(
 
 
 @router.get("/wx/poll/{key}", response_model=APIResp)
-def wx_poll(key: str, redis_client=Depends(get_redis)) -> APIResp:
+def wx_poll(key: str, response: Response, redis_client=Depends(get_redis)) -> APIResp:
     raw = redis_client.get(_wx_key(key))
     if not raw:
         return ok(data={"status": "expired"})
@@ -1219,11 +1338,13 @@ def wx_poll(key: str, redis_client=Depends(get_redis)) -> APIResp:
     if status != "authorized":
         return ok(data={"status": "pending"})
     token = data.get("token")
+    refresh_token = data.get("refresh_token")
     user_data = data.get("user")
-    if not token or not isinstance(user_data, dict):
+    if not token or not refresh_token or not isinstance(user_data, dict):
         return ok(data={"status": "pending"})
+    _apply_user_auth_cookies(response, access_token=str(token), refresh_token=str(refresh_token))
     redis_client.delete(_wx_key(key))
-    return ok(data={"status": "authorized", "token": token, "user": user_data})
+    return ok(data={"status": "authorized", "token": token, "refresh_token": refresh_token, "user": user_data})
 
 
 @router.post("/wx/mock-authorize", response_model=APIResp)
@@ -1266,15 +1387,17 @@ def wx_mock_authorize(
                 max_value=1_000_000,
             ),
         )
-        token = create_token(subject=str(user.id), scope="user")
         db.commit()
     except Exception:
         db.rollback()
         raise
 
+    token, refresh_token = _issue_user_auth(redis_client, None, user)
+
     wx_payload = {
         "status": "authorized",
         "token": token,
+        "refresh_token": refresh_token,
         "user": _user_payload(user),
         "is_new_user": is_new_user,
     }
