@@ -44,6 +44,17 @@ class MemoryRedisCompat:
         self._exp_at[key] = time.time() + int(seconds)
         return True
 
+    def set(self, key: str, value, ex: int | None = None, nx: bool = False):
+        self._purge_if_expired(key)
+        if nx and key in self._values:
+            return False
+        self._values[key] = str(value)
+        if ex is not None:
+            self._exp_at[key] = time.time() + int(ex)
+        else:
+            self._exp_at.pop(key, None)
+        return True
+
     def get(self, key: str):
         self._purge_if_expired(key)
         return self._values.get(key)

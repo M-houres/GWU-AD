@@ -509,6 +509,51 @@ def test_billing_packages_comes_from_admin_billing_config(
         app.dependency_overrides.pop(current_user, None)
 
 
+def test_create_order_reuses_recent_open_order_for_same_package_and_provider(
+    client: TestClient,
+    db_session: Session,
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        "app.api.billing.create_payment_session",
+        lambda *_args, **_kwargs: {"provider": "wechat", "pay_url": "weixin://wxpay/reuse-order"},
+    )
+
+    package_name = DEFAULT_BILLING_PACKAGES[0]["name"]
+    user = User(phone="13800007780", nickname="reuse-order-user", credits=0)
+    db_session.add(user)
+    db_session.add(
+        SystemConfig(
+            category="system",
+            config_key="payment",
+            config_value={
+                "provider": "wechatpay_v3",
+                "test_mode": False,
+                "app_id": "wx123",
+                "merchant_id": "1900000109",
+                "merchant_serial_no": "SERIAL001",
+                "merchant_private_key_pem": "-----BEGIN PRIVATE KEY-----\nabc\n-----END PRIVATE KEY-----",
+                "api_v3_key": "12345678901234567890123456789012",
+                "notify_url": "https://example.com",
+            },
+            updated_by=1,
+        )
+    )
+    db_session.commit()
+    db_session.refresh(user)
+
+    app.dependency_overrides[current_user] = lambda: user
+    try:
+        first = client.post("/api/v1/billing/create-order", json={"package_name": package_name, "provider": "wechat"})
+        second = client.post("/api/v1/billing/create-order", json={"package_name": package_name, "provider": "wechat"})
+        assert first.status_code == 200
+        assert second.status_code == 200
+        assert first.json()["data"]["order_no"] == second.json()["data"]["order_no"]
+        assert db_session.query(Order).filter(Order.user_id == user.id, Order.status == "created").count() == 1
+    finally:
+        app.dependency_overrides.pop(current_user, None)
+
+
 def test_unknown_error_handler_hides_internal_exception_detail(
     db_session: Session,
     monkeypatch,

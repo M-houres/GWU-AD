@@ -21,6 +21,20 @@ def test_payment_callback_signature_and_idempotency(
     db_session.commit()
     db_session.refresh(user)
 
+    db_session.add(
+        Order(
+            order_no="ODCALLBACK0001",
+            user_id=user.id,
+            amount_cny=Decimal("9.90"),
+            credits=10000,
+            source="web",
+            status="created",
+            provider="wechat",
+            is_first_pay=False,
+        )
+    )
+    db_session.commit()
+
     payload = {
         "order_no": "ODCALLBACK0001",
         "user_id": user.id,
@@ -46,7 +60,9 @@ def test_payment_callback_signature_and_idempotency(
         db_session.query(CreditTransaction).filter(CreditTransaction.related_id == payload["order_no"]).count() == 1
     )
 
-    resp2 = client.post("/api/v1/billing/callback", json={**payload, "sign": sign})
+    payload_again = {**payload, "nonce": "nonce-001-repeat"}
+    sign_again = sign_payload(payload_again)
+    resp2 = client.post("/api/v1/billing/callback", json={**payload_again, "sign": sign_again})
     assert resp2.status_code == 200
     data2 = resp2.json()["data"]
     assert data2["idempotent"] is True
@@ -110,6 +126,20 @@ def test_payment_callback_uses_payment_config_secret(
     db_session.commit()
     db_session.refresh(user)
 
+    db_session.add(
+        Order(
+            order_no="ODCALLBACK0003",
+            user_id=user.id,
+            amount_cny=Decimal("9.90"),
+            credits=10000,
+            source="web",
+            status="created",
+            provider="wechat",
+            is_first_pay=False,
+        )
+    )
+    db_session.commit()
+
     payload = {
         "order_no": "ODCALLBACK0003",
         "user_id": user.id,
@@ -141,3 +171,74 @@ def test_payment_callback_signature_is_stable_between_float_and_decimal_amounts(
     payload_decimal = {**payload_float, "amount_cny": Decimal("9.90")}
 
     assert sign_payload(payload_float) == sign_payload(payload_decimal)
+
+
+def test_payment_callback_requires_existing_order(
+    client: TestClient,
+    db_session: Session,
+    settings_override,
+) -> None:
+    user = User(phone="13800000004", nickname="测试用户4", credits=0)
+    db_session.add(user)
+    db_session.commit()
+    db_session.refresh(user)
+
+    payload = {
+        "order_no": "ODCALLBACK_MISSING_001",
+        "user_id": user.id,
+        "package_name": "入门包",
+        "amount_cny": 9.9,
+        "paid_at": int(datetime.now(timezone.utc).timestamp()),
+        "status": "paid",
+        "provider": "wechat",
+        "nonce": "nonce-missing-001",
+    }
+    sign = sign_payload(payload)
+    resp = client.post("/api/v1/billing/callback", json={**payload, "sign": sign})
+    assert resp.status_code == 404
+    body = resp.json()
+    assert body["code"] == 4044
+
+
+def test_payment_callback_rejects_replayed_nonce(
+    client: TestClient,
+    db_session: Session,
+    settings_override,
+) -> None:
+    user = User(phone="13800000005", nickname="测试用户5", credits=0)
+    db_session.add(user)
+    db_session.commit()
+    db_session.refresh(user)
+
+    order = Order(
+        order_no="ODCALLBACK_REPLAY_001",
+        user_id=user.id,
+        amount_cny=Decimal("9.90"),
+        credits=10000,
+        source="web",
+        status="created",
+        provider="wechat",
+        is_first_pay=False,
+    )
+    db_session.add(order)
+    db_session.commit()
+
+    payload = {
+        "order_no": order.order_no,
+        "user_id": user.id,
+        "package_name": "入门包",
+        "amount_cny": 9.9,
+        "paid_at": int(datetime.now(timezone.utc).timestamp()),
+        "status": "paid",
+        "provider": "wechat",
+        "nonce": "nonce-replay-001",
+    }
+    sign = sign_payload(payload)
+
+    first = client.post("/api/v1/billing/callback", json={**payload, "sign": sign})
+    assert first.status_code == 200
+
+    second = client.post("/api/v1/billing/callback", json={**payload, "sign": sign})
+    assert second.status_code == 400
+    body = second.json()
+    assert body["code"] == 4205

@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from app.client_source import DEFAULT_CLIENT_SOURCE, MINIPROGRAM_CLIENT_SOURCE, SYSTEM_CLIENT_SOURCE, get_client_source
 from app.config import get_settings
 from app.constants import DEFAULT_BILLING_PACKAGES, PACKAGE_CONFIG
-from app.deps import current_user, db_dep
+from app.deps import current_user, db_dep, get_redis
 from app.exceptions import BizError
 from app.money import cny_to_api, to_cny_decimal
 from app.models import CreditTransaction, CreditType, Order, SystemConfig, User
@@ -278,6 +278,57 @@ def _calc_remain_seconds(order: Order) -> int:
     return max(0, ORDER_PAY_TIMEOUT_SECONDS - elapsed)
 
 
+def _payment_replay_key(provider: str, nonce: str) -> str:
+    normalized_provider = normalize_payment_provider(provider)
+    return f"payment:callback:nonce:{normalized_provider}:{str(nonce or '').strip()}"
+
+
+def _consume_callback_nonce(redis_conn, *, provider: str, nonce: str) -> None:
+    normalized_nonce = str(nonce or "").strip()
+    if not normalized_nonce:
+        raise BizError(code=4205, message="支付回调缺少 nonce")
+    key = _payment_replay_key(provider, normalized_nonce)
+    ttl_seconds = max(int(settings.payment_callback_ttl_seconds or 900), 60)
+    if hasattr(redis_conn, "set"):
+        accepted = redis_conn.set(key, "1", ex=ttl_seconds, nx=True)
+    else:
+        existing = redis_conn.get(key)
+        if existing:
+            accepted = False
+        else:
+            redis_conn.setex(key, ttl_seconds, "1")
+            accepted = True
+    if not accepted:
+        raise BizError(code=4205, message="支付回调重复，请勿重放")
+
+
+def _find_reusable_open_order(
+    db: Session,
+    *,
+    user_id: int,
+    provider: str,
+    amount_cny: Decimal,
+    credits: int,
+) -> Order | None:
+    rows = (
+        db.query(Order)
+        .filter(
+            Order.user_id == user_id,
+            Order.status == "created",
+            Order.provider == provider,
+            Order.amount_cny == amount_cny,
+            Order.credits == credits,
+        )
+        .order_by(Order.created_at.desc())
+        .with_for_update()
+        .all()
+    )
+    for row in rows:
+        if _calc_remain_seconds(row) > 0:
+            return row
+    return None
+
+
 def _frontend_base_url(request: Request | None = None) -> str:
     if request is not None:
         forwarded_proto = request.headers.get("x-forwarded-proto", "").split(",")[0].strip()
@@ -408,20 +459,36 @@ def create_order(
     if scene == MINIPROGRAM_SCENE and provider == "wechat" and not str(user.wechat_openid_mp or "").strip():
         raise BizError(code=4216, message="小程序支付缺少openid，请重新登录")
 
-    order_no = make_order_no()
+    locked_user = db.query(User).filter(User.id == user.id).with_for_update().first()
+    if locked_user is None:
+        raise BizError(code=4040, message="用户不存在", http_status=404)
+
     client_source = get_client_source(request)
-    order = Order(
-        order_no=order_no,
+    amount_cny = to_cny_decimal(pkg["price"])
+    credits = int(pkg["credits"])
+    order = _find_reusable_open_order(
+        db,
         user_id=user.id,
-        amount_cny=to_cny_decimal(pkg["price"]),
-        credits=int(pkg["credits"]),
-        source=client_source,
-        status="created",
         provider=provider,
-        is_first_pay=False,
+        amount_cny=amount_cny,
+        credits=credits,
     )
-    db.add(order)
-    db.flush()
+    if order is None:
+        order_no = make_order_no()
+        order = Order(
+            order_no=order_no,
+            user_id=user.id,
+            amount_cny=amount_cny,
+            credits=credits,
+            source=client_source,
+            status="created",
+            provider=provider,
+            is_first_pay=False,
+        )
+        db.add(order)
+        db.flush()
+    else:
+        order_no = order.order_no
 
     pay_url = _default_mock_pay_url(order_no, request)
     payment_params: dict | None = None
@@ -660,7 +727,12 @@ def mock_pay(
 
 
 @router.post("/callback", response_model=APIResp)
-def pay_callback(req: PayCallbackReq, request: Request, db: Session = Depends(db_dep)) -> APIResp:
+def pay_callback(
+    req: PayCallbackReq,
+    request: Request,
+    db: Session = Depends(db_dep),
+    redis_conn=Depends(get_redis),
+) -> APIResp:
     payload = req.model_dump(exclude={"sign"})
     if not verify_payload_signature(payload, req.sign, db=db):
         raise BizError(code=4204, message="鏀粯鍥炶皟楠岀澶辫触")
@@ -670,20 +742,20 @@ def pay_callback(req: PayCallbackReq, request: Request, db: Session = Depends(db
         raise BizError(code=4205, message="支付回调已过期")
     if req.status != "paid":
         raise BizError(code=4206, message="仅支持 paid 状态回调")
+    _consume_callback_nonce(redis_conn, provider=req.provider, nonce=req.nonce)
 
-    user = db.get(User, req.user_id)
-    if user is None:
-        raise BizError(code=4040, message="用户不存在", http_status=404)
+    order = db.query(Order).filter(Order.order_no == req.order_no).with_for_update().first()
+    if order is None:
+        raise BizError(code=4044, message="订单不存在", http_status=404)
+    if order.user_id != req.user_id:
+        raise BizError(code=4208, message="订单归属用户不匹配")
 
     try:
-        order, idempotent = _settle_package_order(
+        order, idempotent = _settle_existing_order(
             db,
-            user=user,
-            package_name=req.package_name,
             order_no=req.order_no,
             provider=req.provider,
             amount_cny=req.amount_cny,
-            source=get_client_source(request, default=SYSTEM_CLIENT_SOURCE),
         )
         _trigger_referral_reward(db, order, idempotent=idempotent)
         db.commit()
@@ -694,7 +766,7 @@ def pay_callback(req: PayCallbackReq, request: Request, db: Session = Depends(db
         "billing_callback_paid",
         extra={
             "order_no": order.order_no,
-            "user_id": user.id,
+            "user_id": order.user_id,
             "provider": req.provider,
             "idempotent": idempotent,
         },
@@ -711,10 +783,12 @@ def pay_callback(req: PayCallbackReq, request: Request, db: Session = Depends(db
 
 
 @router.post("/notify/wechatpay")
-async def wechatpay_notify(request: Request, db: Session = Depends(db_dep)) -> JSONResponse:
+async def wechatpay_notify(request: Request, db: Session = Depends(db_dep), redis_conn=Depends(get_redis)) -> JSONResponse:
     try:
         body = await request.body()
+        notify_nonce = str(request.headers.get("Wechatpay-Nonce") or request.headers.get("wechatpay-nonce") or "").strip()
         result = parse_wechatpay_notify(db, body=body, headers=request.headers)
+        _consume_callback_nonce(redis_conn, provider="wechat", nonce=notify_nonce)
         if result["status"] == "paid":
             try:
                 order, idempotent = _settle_existing_order(
@@ -743,10 +817,12 @@ async def wechatpay_notify(request: Request, db: Session = Depends(db_dep)) -> J
 
 
 @router.post("/notify/alipay")
-async def alipay_notify(request: Request, db: Session = Depends(db_dep)) -> PlainTextResponse:
+async def alipay_notify(request: Request, db: Session = Depends(db_dep), redis_conn=Depends(get_redis)) -> PlainTextResponse:
     try:
         form = await request.form()
+        notify_nonce = str(form.get("notify_id") or form.get("trade_no") or form.get("out_trade_no") or "").strip()
         result = parse_alipay_notify(form, db)
+        _consume_callback_nonce(redis_conn, provider="alipay", nonce=notify_nonce)
         if result["status"] == "paid":
             try:
                 order, idempotent = _settle_existing_order(

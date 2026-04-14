@@ -2595,6 +2595,8 @@ def refund_order(
     user = db.query(User).filter(User.id == order.user_id).with_for_update().first()
     if user is None:
         raise BizError(code=4040, message="用户不存在", http_status=404)
+    if user.credits < int(order.credits):
+        raise BizError(code=4348, message="用户已消耗部分权益，当前订单不可直接退款")
     change_credits(
         db,
         user,
