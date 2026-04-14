@@ -64,6 +64,8 @@
               <label class="space-y-1 text-sm"><span>Base URL</span><input v-model="forms.llm.base_url" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" /></label>
               <label class="space-y-1 text-sm"><span>API Key</span><input v-model="forms.llm.api_key" type="password" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" /></label>
               <label class="space-y-1 text-sm"><span>超时（秒）</span><input v-model.number="forms.llm.timeout_seconds" type="number" min="5" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" /></label>
+              <label class="space-y-1 text-sm"><span>重试次数</span><input v-model.number="forms.llm.retry_attempts" type="number" min="1" max="5" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" /></label>
+              <label class="space-y-1 text-sm"><span>退避基线（秒）</span><input v-model.number="forms.llm.retry_backoff_seconds" type="number" min="0.1" max="5" step="0.1" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" /></label>
               <label class="space-y-1 text-sm"><span>最大输出 Tokens</span><input v-model.number="forms.llm.max_output_tokens" type="number" min="128" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" /></label>
               <label class="space-y-1 text-sm"><span>温度</span><input v-model.number="forms.llm.temperature" type="number" min="0" max="2" step="0.1" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" /></label>
             </div>
@@ -679,7 +681,18 @@ const activeTab = ref("login")
 const route = useRoute()
 const router = useRouter()
 const forms = ref({
-  llm: { enabled: false, provider: "openai", base_url: "", model: "", api_key: "" },
+  llm: {
+    enabled: false,
+    provider: "openai",
+    base_url: "",
+    model: "",
+    api_key: "",
+    timeout_seconds: 25,
+    retry_attempts: 3,
+    retry_backoff_seconds: 0.8,
+    max_output_tokens: 2048,
+    temperature: 0.3,
+  },
   payment: { provider: "wechatpay_v3", test_mode: true, notify_url: "" },
   billing: { aigc_rate: 1, dedup_rate: 2, rewrite_rate: 2, packages: cloneBillingPackages() },
   login: {
@@ -780,6 +793,13 @@ async function loadTab(category) {
     forms.value.login.send_code_ip_1h_limit = Number(forms.value.login.send_code_ip_1h_limit ?? 30)
     forms.value.login.login_ip_10m_limit = Number(forms.value.login.login_ip_10m_limit ?? 120)
   }
+  if (category === "llm") {
+    forms.value.llm.timeout_seconds = Number(forms.value.llm.timeout_seconds ?? 25)
+    forms.value.llm.retry_attempts = Number(forms.value.llm.retry_attempts ?? 3)
+    forms.value.llm.retry_backoff_seconds = Number(forms.value.llm.retry_backoff_seconds ?? 0.8)
+    forms.value.llm.max_output_tokens = Number(forms.value.llm.max_output_tokens ?? 2048)
+    forms.value.llm.temperature = Number(forms.value.llm.temperature ?? 0.3)
+  }
   if (category === "miniapp") {
     forms.value.miniapp = normalizeMiniappConfig(forms.value.miniapp)
   }
@@ -851,6 +871,15 @@ function validateCurrent() {
   if (activeTab.value === "payment" && !forms.value.payment.test_mode && forms.value.payment.provider === "mock") {
     return "关闭联调模式后不能选择 mock"
   }
+  if (activeTab.value === "llm") {
+    const cfg = forms.value.llm || {}
+    if (Number(cfg.retry_attempts) < 1 || Number(cfg.retry_attempts) > 5) {
+      return "LLM 重试次数必须在 1 到 5 之间"
+    }
+    if (Number(cfg.retry_backoff_seconds) < 0.1 || Number(cfg.retry_backoff_seconds) > 5) {
+      return "LLM 退避基线必须在 0.1 到 5 秒之间"
+    }
+  }
   if (activeTab.value === "login") {
     const cfg = forms.value.login || {}
     if (Number(cfg.new_user_initial_credits) < 0) {
@@ -913,6 +942,13 @@ function payloadFor(category) {
   }
   if (category === "payment" && payload.provider === "alipay" && payload.app_private_key_pem) {
     payload.api_key = payload.app_private_key_pem
+  }
+  if (category === "llm") {
+    payload.timeout_seconds = Number(payload.timeout_seconds)
+    payload.retry_attempts = Number(payload.retry_attempts)
+    payload.retry_backoff_seconds = Number(payload.retry_backoff_seconds)
+    payload.max_output_tokens = Number(payload.max_output_tokens)
+    payload.temperature = Number(payload.temperature)
   }
   if (category === "miniapp") {
     const normalized = normalizeMiniappConfig(payload)

@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import re
+import time
 from typing import Any, Mapping
 
 import httpx
@@ -13,8 +15,10 @@ from app.exceptions import BizError
 from app.models import SystemConfig, TaskType
 
 settings = get_settings()
+logger = logging.getLogger("app.services.llm_service")
 
 LOCAL_MOCK_PROVIDER = "local_mock"
+_RETRYABLE_LLM_STATUS_CODES = {408, 409, 425, 429, 500, 502, 503, 504}
 
 LLM_PROVIDER_PRESETS = {
     "openai": {
@@ -109,6 +113,11 @@ def resolve_llm_config(value: dict | None = None) -> dict:
         "api_key": api_key,
         "model": str(raw.get("model") or preset["model"] or settings.llm_model),
         "timeout_seconds": int(raw.get("timeout_seconds", settings.llm_timeout_seconds)),
+        "retry_attempts": max(int(raw.get("retry_attempts", settings.llm_retry_attempts) or settings.llm_retry_attempts), 1),
+        "retry_backoff_seconds": max(
+            float(raw.get("retry_backoff_seconds", settings.llm_retry_backoff_base_seconds) or settings.llm_retry_backoff_base_seconds),
+            0.1,
+        ),
         "max_output_tokens": int(raw.get("max_output_tokens", 2048) or 2048),
         "temperature": float(raw.get("temperature", 0.3) or 0.3),
     }
@@ -152,6 +161,38 @@ def _is_local_mock_config(cfg: Mapping[str, Any]) -> bool:
     return provider == LOCAL_MOCK_PROVIDER or api_style == LOCAL_MOCK_PROVIDER
 
 
+def _build_http_client(cfg: Mapping[str, Any]) -> httpx.Client:
+    timeout_seconds = max(float(cfg.get("timeout_seconds") or settings.llm_timeout_seconds or 25), 1.0)
+    return httpx.Client(timeout=httpx.Timeout(timeout_seconds, connect=min(timeout_seconds, 8.0)))
+
+
+def _should_retry_llm_exception(exc: Exception) -> bool:
+    if isinstance(exc, (httpx.TimeoutException, httpx.ConnectError, httpx.ReadError, httpx.WriteError, httpx.RemoteProtocolError, httpx.PoolTimeout)):
+        return True
+    if isinstance(exc, httpx.HTTPStatusError):
+        response = exc.response
+        return bool(response is not None and response.status_code in _RETRYABLE_LLM_STATUS_CODES)
+    return False
+
+
+def _llm_backoff_seconds(cfg: Mapping[str, Any], attempt: int) -> float:
+    base = max(float(cfg.get("retry_backoff_seconds") or settings.llm_retry_backoff_base_seconds or 0.8), 0.1)
+    return min(base * (2 ** max(attempt - 1, 0)), 8.0)
+
+
+def _raise_llm_error(exc: Exception) -> None:
+    if isinstance(exc, httpx.TimeoutException):
+        raise BizError(code=4603, message="LLM 服务超时，请稍后重试") from exc
+    if isinstance(exc, httpx.HTTPStatusError):
+        status_code = exc.response.status_code if exc.response is not None else 0
+        if status_code in {400, 401, 403, 404}:
+            raise BizError(code=4604, message="LLM 配置或鉴权失败，请联系管理员") from exc
+        raise BizError(code=4604, message="LLM 服务暂时不可用，请稍后重试") from exc
+    if isinstance(exc, (httpx.ConnectError, httpx.ReadError, httpx.WriteError, httpx.RemoteProtocolError, httpx.PoolTimeout)):
+        raise BizError(code=4604, message="LLM 服务连接失败，请稍后重试") from exc
+    raise BizError(code=4605, message="LLM 调用失败，请稍后重试") from exc
+
+
 def generate_with_llm(db: Session, *, task_type: TaskType, text: str) -> str:
     cfg = load_llm_config(db)
     if not cfg["enabled"]:
@@ -163,21 +204,42 @@ def generate_with_llm(db: Session, *, task_type: TaskType, text: str) -> str:
         else:
             if not cfg["api_key"]:
                 raise BizError(code=4602, message="LLM API key is missing")
-            with httpx.Client(timeout=cfg["timeout_seconds"]) as client:
-                if cfg["api_style"] == "anthropic":
-                    content = _call_anthropic(client, cfg=cfg, task_type=task_type, text=text)
-                elif cfg["api_style"] == "gemini":
-                    content = _call_gemini(client, cfg=cfg, task_type=task_type, text=text)
-                else:
-                    content = _call_openai_compatible(client, cfg=cfg, task_type=task_type, text=text)
-    except httpx.TimeoutException as exc:
-        raise BizError(code=4603, message="LLM request timed out") from exc
-    except httpx.HTTPError as exc:
-        raise BizError(code=4604, message=f"LLM HTTP error: {exc}") from exc
+            attempts = max(int(cfg.get("retry_attempts") or settings.llm_retry_attempts or 1), 1)
+            last_exc: Exception | None = None
+            with _build_http_client(cfg) as client:
+                for attempt in range(1, attempts + 1):
+                    try:
+                        if cfg["api_style"] == "anthropic":
+                            content = _call_anthropic(client, cfg=cfg, task_type=task_type, text=text)
+                        elif cfg["api_style"] == "gemini":
+                            content = _call_gemini(client, cfg=cfg, task_type=task_type, text=text)
+                        else:
+                            content = _call_openai_compatible(client, cfg=cfg, task_type=task_type, text=text)
+                        last_exc = None
+                        break
+                    except Exception as exc:
+                        last_exc = exc
+                        retryable = _should_retry_llm_exception(exc)
+                        logger.warning(
+                            "llm_call_attempt_failed",
+                            extra={
+                                "provider": cfg.get("provider"),
+                                "model": cfg.get("model"),
+                                "task_type": task_type.value,
+                                "attempt": attempt,
+                                "retryable": retryable,
+                                "error_type": exc.__class__.__name__,
+                            },
+                        )
+                        if not retryable or attempt >= attempts:
+                            break
+                        time.sleep(_llm_backoff_seconds(cfg, attempt))
+            if last_exc is not None:
+                _raise_llm_error(last_exc)
     except BizError:
         raise
     except Exception as exc:
-        raise BizError(code=4605, message=f"LLM invocation error: {exc}") from exc
+        _raise_llm_error(exc)
 
     if not isinstance(content, str) or not content.strip():
         raise BizError(code=4606, message="LLM returned empty content")

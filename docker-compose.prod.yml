@@ -137,6 +137,33 @@ services:
       - backend_output:/app/output
       - backend_algorithms:/app/algorithm_packages
 
+  worker-beat:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: wuhongai-worker-beat
+    restart: unless-stopped
+    env_file:
+      - ./.env.prod
+    command: celery -A app.worker_tasks.celery_app beat -l info
+    depends_on:
+      backend:
+        condition: service_healthy
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "from pathlib import Path; import sys; cmd = Path('/proc/1/cmdline').read_bytes().decode('utf-8', 'ignore'); sys.exit(0 if ('celery' in cmd and 'beat' in cmd) else 1)"]
+      interval: 20s
+      timeout: 8s
+      retries: 5
+      start_period: 20s
+    volumes:
+      - backend_uploads:/app/uploads
+      - backend_output:/app/output
+      - backend_algorithms:/app/algorithm_packages
+
   frontend:
     build:
       context: ./frontend

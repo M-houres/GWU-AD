@@ -70,11 +70,17 @@ class Settings(BaseSettings):
     llm_api_key: str = ""
     llm_model: str = "gpt-4o-mini"
     llm_timeout_seconds: int = 25
+    llm_retry_attempts: int = 3
+    llm_retry_backoff_base_seconds: float = 0.8
 
     db_pool_size: int = 5
     db_max_overflow: int = 5
     db_pool_timeout: int = 30
     db_pool_recycle: int = 3600
+    db_connect_timeout_seconds: int = 10
+    db_read_timeout_seconds: int = 30
+    db_write_timeout_seconds: int = 30
+    db_statement_timeout_ms: int = 30000
 
     task_submit_ip_1m_limit: int = 60
     task_submit_user_1m_limit: int = 20

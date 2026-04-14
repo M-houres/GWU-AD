@@ -1,6 +1,7 @@
 import time
 
 from app.config import get_settings
+from app import worker_tasks
 from app.worker_tasks import dispatch_background_task, wait_for_local_tasks
 
 
@@ -40,3 +41,9 @@ def test_dispatch_background_task_falls_back_to_local_worker_pool(monkeypatch) -
     finally:
         settings.app_env = old_env
         settings.local_processing_worker_concurrency = old_processing_concurrency
+
+
+def test_cleanup_artifact_task_registered_in_beat_schedule() -> None:
+    schedule = worker_tasks.celery_app.conf.beat_schedule
+    assert "cleanup-expired-task-artifacts-daily" in schedule
+    assert schedule["cleanup-expired-task-artifacts-daily"]["task"] == "tasks.cleanup_expired_task_artifacts"

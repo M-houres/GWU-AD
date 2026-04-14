@@ -7,6 +7,7 @@ import threading
 import time
 
 from celery import Celery
+from celery.schedules import crontab
 import redis
 from redis import RedisError
 
@@ -42,6 +43,13 @@ celery_app.conf.update(
         "tasks.grant_order_referral_rewards": {"queue": "maintenance"},
         "tasks.grant_register_rewards": {"queue": "maintenance"},
         "tasks.retry_referral_reward": {"queue": "maintenance"},
+        "tasks.cleanup_expired_task_artifacts": {"queue": "maintenance"},
+    },
+    beat_schedule={
+        "cleanup-expired-task-artifacts-daily": {
+            "task": "tasks.cleanup_expired_task_artifacts",
+            "schedule": crontab(hour=3, minute=0),
+        },
     },
 )
 
@@ -457,3 +465,11 @@ def grant_register_rewards_async(self, relation_id: int) -> dict:
 @celery_app.task(name="tasks.retry_referral_reward")
 def retry_referral_reward_async(reward_id: int) -> dict:
     return {"ok": False, "reason": "referral_module_disabled", "reward_id": reward_id}
+
+
+@celery_app.task(name="tasks.cleanup_expired_task_artifacts")
+def cleanup_expired_task_artifacts_async() -> dict:
+    from app.main import cleanup_expired_task_artifacts
+
+    cleanup_expired_task_artifacts()
+    return {"ok": True}

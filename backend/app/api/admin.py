@@ -120,6 +120,8 @@ CONFIG_FIELD_LABELS = {
         "model": "模型名",
         "api_key": "API Key",
         "timeout_seconds": "超时(秒)",
+        "retry_attempts": "重试次数",
+        "retry_backoff_seconds": "退避基线(秒)",
         "max_output_tokens": "最大输出 Tokens",
         "temperature": "温度",
     },
@@ -221,6 +223,8 @@ CONFIG_DEFAULTS = {
         "model": "gpt-4o-mini",
         "api_key": "",
         "timeout_seconds": 25,
+        "retry_attempts": 3,
+        "retry_backoff_seconds": 0.8,
         "max_output_tokens": 2048,
         "temperature": 0.3,
     },
@@ -1087,6 +1091,23 @@ def _normalize_category_payload(category: str, payload: dict) -> dict:
             min_value=5,
             max_value=180,
             field="timeout_seconds",
+        )
+        base["retry_attempts"] = _as_int(
+            raw.get("retry_attempts", base["retry_attempts"]),
+            default=3,
+            min_value=1,
+            max_value=5,
+            field="retry_attempts",
+        )
+        base["retry_backoff_seconds"] = round(
+            _as_float(
+                raw.get("retry_backoff_seconds", base["retry_backoff_seconds"]),
+                default=0.8,
+                min_value=0.1,
+                max_value=5,
+                field="retry_backoff_seconds",
+            ),
+            2,
         )
         base["max_output_tokens"] = _as_int(
             raw.get("max_output_tokens", base["max_output_tokens"]),
