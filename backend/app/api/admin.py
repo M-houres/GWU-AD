@@ -3060,7 +3060,32 @@ def upload_algo_package(
 ) -> APIResp:
     if not file.filename or not file.filename.lower().endswith(".zip"):
         raise BizError(code=4500, message="仅支持 zip 文件")
-    file_bytes = file.file.read()
+
+    def _read_limited_upload_bytes(upload: UploadFile, *, max_bytes: int) -> bytes:
+        total = 0
+        chunks: list[bytes] = []
+        while True:
+            chunk = upload.file.read(1024 * 1024)
+            if not chunk:
+                break
+            total += len(chunk)
+            if total > max_bytes:
+                raise BizError(code=4502, message=f"算法包大小超过{settings.algorithm_package_max_mb}MB")
+            chunks.append(chunk)
+        if total <= 0:
+            raise BizError(code=4501, message="算法包文件为空")
+        data = b"".join(chunks)
+        if not data.startswith(b"PK\x03\x04"):
+            raise BizError(code=4513, message="上传文件不是有效 zip")
+        content_type = str(upload.content_type or "").split(";")[0].strip().lower()
+        if content_type not in {"application/zip", "application/x-zip-compressed", "application/octet-stream"}:
+            raise BizError(code=4500, message="zip 文件 MIME 类型不支持")
+        return data
+
+    file_bytes = _read_limited_upload_bytes(
+        file,
+        max_bytes=int(settings.algorithm_package_max_mb) * 1024 * 1024,
+    )
     req = AlgoPackageUploadReq(platform=platform, function_type=function_type)
     try:
         result = install_algorithm_package(

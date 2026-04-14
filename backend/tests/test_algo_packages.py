@@ -89,6 +89,21 @@ def test_admin_upload_algorithm_package_manifest_smoke_fail(
     assert body["code"] == 4507
 
 
+def test_admin_upload_algorithm_package_rejects_non_zip_magic(
+    client: TestClient,
+    admin_override,
+    settings_override,
+) -> None:
+    resp = client.post(
+        "/api/v1/admin/algo-packages/upload",
+        data={"activate": "true", "platform": "cnki", "function_type": "dedup"},
+        files={"file": ("dedup_engine.zip", b"not-a-zip", "application/zip")},
+    )
+    assert resp.status_code == 400
+    body = resp.json()
+    assert body["code"] == 4513
+
+
 def test_run_package_smoke_test_uses_manifest_entry(
     settings_override,
 ) -> None:

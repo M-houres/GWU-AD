@@ -39,6 +39,35 @@ TASK_REPORT_EXTENSIONS: dict[TaskType, set[str]] = {
     TaskType.DEDUP: {".docx", ".pdf"},
     TaskType.REWRITE: {".docx", ".pdf"},
 }
+TASK_PAPER_MIME_TYPES: dict[TaskType, set[str]] = {
+    TaskType.AIGC_DETECT: {
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "application/pdf",
+        "text/plain",
+        "application/octet-stream",
+    },
+    TaskType.DEDUP: {
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "application/octet-stream",
+    },
+    TaskType.REWRITE: {
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "application/octet-stream",
+    },
+}
+TASK_REPORT_MIME_TYPES: dict[TaskType, set[str]] = {
+    TaskType.AIGC_DETECT: set(),
+    TaskType.DEDUP: {
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "application/pdf",
+        "application/octet-stream",
+    },
+    TaskType.REWRITE: {
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "application/pdf",
+        "application/octet-stream",
+    },
+}
 
 
 def _parse_task_type(raw: str) -> TaskType:
@@ -103,6 +132,12 @@ def _validate_report_extension(task_type: TaskType, ext: str) -> None:
         raise BizError(code=4106, message="当前任务不支持上传辅助报告")
     if ext not in allowed:
         raise BizError(code=4106, message=f"报告文件格式不支持，仅支持{_format_exts(allowed)}")
+
+
+def _validate_upload_content_type(upload: UploadFile, *, allowed: set[str], label: str, code: int) -> None:
+    content_type = str(upload.content_type or "").split(";")[0].strip().lower()
+    if not content_type or content_type not in allowed:
+        raise BizError(code=code, message=f"{label} MIME 类型不支持")
 
 
 def _report_is_full(task_type: TaskType, text: str) -> bool:
@@ -212,6 +247,20 @@ def _decrement_submit_backlog(redis_conn, *, user_id: int) -> None:
             redis_conn.decr(user_key)
     except Exception:
         logger.warning("task_submit_counter_decrement_failed", exc_info=True, extra={"user_id": user_id})
+
+
+def _safe_remove_task_artifact(raw_path: str | None) -> None:
+    if not raw_path:
+        return
+    try:
+        path = Path(raw_path).resolve()
+        allowed_roots = [settings.upload_dir.resolve(), settings.output_dir.resolve()]
+        if not any(path == root or root in path.parents for root in allowed_roots):
+            logger.warning("skip_untrusted_task_artifact_delete", extra={"path": str(path)})
+            return
+        path.unlink(missing_ok=True)
+    except Exception:
+        logger.warning("task_artifact_delete_failed", exc_info=True, extra={"path": raw_path})
 
 
 def _build_idempotency_key(request: Request, *, user_id: int, task_type: TaskType, platform: str, filename: str) -> str | None:
@@ -340,6 +389,7 @@ def submit_task(
     if ext not in ALLOWED_EXTENSIONS:
         raise BizError(code=4104, message="文件格式不支持")
     _validate_paper_extension(t, ext)
+    _validate_upload_content_type(paper, allowed=TASK_PAPER_MIME_TYPES[t], label="主文稿", code=4104)
 
     upload_dir = settings.upload_dir / str(user.id)
     max_bytes = MAX_FILE_SIZE_MB * 1024 * 1024
@@ -384,7 +434,7 @@ def submit_task(
         _save_upload_to(src_path, paper, max_bytes)
 
         magic = detect_file_magic(src_path)
-        if magic and magic != ext:
+        if magic != ext:
             raise BizError(code=4105, message="文件内容与扩展名不匹配")
 
         if report is not None and report.filename:
@@ -392,9 +442,13 @@ def submit_task(
             if rpt_ext not in ALLOWED_EXTENSIONS:
                 raise BizError(code=4106, message="报告文件格式不支持")
             _validate_report_extension(t, rpt_ext)
+            _validate_upload_content_type(report, allowed=TASK_REPORT_MIME_TYPES[t], label="辅助报告", code=4106)
             _, report_storage_name = _build_storage_name(report.filename, f"report{rpt_ext or '.tmp'}")
             report_file_path = upload_dir / report_storage_name
             _save_upload_to(report_file_path, report, max_bytes)
+            report_magic = detect_file_magic(report_file_path)
+            if report_magic != rpt_ext:
+                raise BizError(code=4106, message="报告文件内容与扩展名不匹配")
             report_path = str(report_file_path)
 
         submission_meta = {}
@@ -566,7 +620,7 @@ def task_detail(task_id: int, user: User = Depends(current_user), db: Session = 
             "cost_credits": row.cost_credits,
             "result_json": sanitize_user_result_json(row.result_json),
             "error_message": row.error_message,
-            "output_path": row.output_path,
+            "download_ready": bool(row.status == TaskStatus.COMPLETED and row.output_path),
             "created_at": row.created_at,
             "updated_at": row.updated_at,
         }
@@ -593,6 +647,12 @@ def delete_task(task_id: int, user: User = Depends(current_user), db: Session = 
         raise BizError(code=4041, message="任务不存在", http_status=404)
     if row.status == TaskStatus.RUNNING:
         raise BizError(code=4113, message="处理中任务不可删除")
+    source_path = row.source_path
+    report_path = row.report_path
+    output_path = row.output_path
     db.delete(row)
     db.commit()
+    _safe_remove_task_artifact(source_path)
+    _safe_remove_task_artifact(report_path)
+    _safe_remove_task_artifact(output_path)
     return ok(data={"task_id": task_id, "deleted": True})

@@ -2,6 +2,7 @@ import random
 import re
 import string
 from pathlib import Path
+import zipfile
 
 from docx import Document
 from pypdf import PdfReader
@@ -25,19 +26,37 @@ def safe_filename(name: str) -> str:
     return "".join(ch if ch in allow else "_" for ch in name)
 
 
+_DOCX_REQUIRED_MEMBERS = {"[Content_Types].xml", "word/document.xml"}
+
+
 def detect_file_magic(path: Path) -> str:
     with path.open("rb") as f:
-        head = f.read(8)
-    if head.startswith(b"%PDF"):
-        return ".pdf"
+        head = f.read(16)
+    if head.startswith(b"%PDF-"):
+        with path.open("rb") as f:
+            try:
+                f.seek(-2048, 2)
+            except OSError:
+                f.seek(0)
+            tail = f.read()
+        return ".pdf" if b"%%EOF" in tail else ""
     if head.startswith(b"PK\x03\x04"):
-        return ".docx"
+        try:
+            with zipfile.ZipFile(path, "r") as zf:
+                members = {name for name in zf.namelist() if name and not name.endswith("/")}
+        except zipfile.BadZipFile:
+            return ""
+        return ".docx" if _DOCX_REQUIRED_MEMBERS.issubset(members) else ""
     try:
-        content = path.read_text(encoding="utf-8")
-        if content:
-            return ".txt"
+        raw = path.read_bytes()
+        if not raw.strip():
+            return ""
+        if b"\x00" in raw[:4096]:
+            return ""
+        raw.decode("utf-8")
+        return ".txt"
     except Exception:
-        pass
+        return ""
     return ""
 
 

@@ -9,6 +9,7 @@ from docx import Document
 from sqlalchemy.orm import Session
 
 from app import worker_tasks
+from app.config import get_settings
 from app.deps import current_user
 from app.main import app
 from app.models import Task, TaskStatus, TaskType, User
@@ -83,6 +84,85 @@ def test_user_can_download_completed_task_result(client, db_session: Session, tm
         app.dependency_overrides.pop(current_user, None)
 
 
+def test_task_detail_hides_output_path_and_exposes_download_ready(client, db_session: Session, tmp_path: Path) -> None:
+    output_path = tmp_path / "hidden_result.txt"
+    output_path.write_text("hidden result", encoding="utf-8")
+
+    user = User(phone="13800006663", nickname="detail-user", credits=1000)
+    db_session.add(user)
+    db_session.flush()
+
+    task = Task(
+        user_id=user.id,
+        task_type=TaskType.DEDUP,
+        platform="cnki",
+        status=TaskStatus.COMPLETED,
+        source_filename="paper.docx",
+        source_path=str(tmp_path / "paper.docx"),
+        output_path=str(output_path),
+        char_count=120,
+        cost_credits=20,
+        result_json={"paper_title": "详情测试"},
+    )
+    db_session.add(task)
+    db_session.commit()
+
+    app.dependency_overrides[current_user] = lambda: user
+    try:
+        resp = client.get(f"/api/v1/tasks/{task.id}")
+        assert resp.status_code == 200
+        data = resp.json()["data"]
+        assert "output_path" not in data
+        assert data["download_ready"] is True
+    finally:
+        app.dependency_overrides.pop(current_user, None)
+
+
+def test_delete_task_removes_task_artifacts(client, db_session: Session) -> None:
+    settings = get_settings()
+    user = User(phone="13800006664", nickname="delete-user", credits=1000)
+    db_session.add(user)
+    db_session.flush()
+
+    upload_dir = settings.upload_dir / str(user.id)
+    output_dir = settings.output_dir / str(user.id)
+    upload_dir.mkdir(parents=True, exist_ok=True)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    source_path = upload_dir / "source_delete.docx"
+    report_path = upload_dir / "report_delete.pdf"
+    output_path = output_dir / "result_delete.docx"
+    source_path.write_text("source", encoding="utf-8")
+    report_path.write_text("report", encoding="utf-8")
+    output_path.write_text("result", encoding="utf-8")
+
+    task = Task(
+        user_id=user.id,
+        task_type=TaskType.DEDUP,
+        platform="cnki",
+        status=TaskStatus.FAILED,
+        source_filename="source_delete.docx",
+        source_path=str(source_path),
+        report_path=str(report_path),
+        output_path=str(output_path),
+        char_count=120,
+        cost_credits=20,
+        result_json={"paper_title": "删除测试"},
+    )
+    db_session.add(task)
+    db_session.commit()
+
+    app.dependency_overrides[current_user] = lambda: user
+    try:
+        resp = client.delete(f"/api/v1/tasks/{task.id}")
+        assert resp.status_code == 200
+        assert not source_path.exists()
+        assert not report_path.exists()
+        assert not output_path.exists()
+    finally:
+        app.dependency_overrides.pop(current_user, None)
+
+
 def test_multiple_quick_submissions_can_all_process_and_download(
     client,
     db_session: Session,
@@ -153,5 +233,47 @@ def test_multiple_quick_submissions_can_all_process_and_download(
             download_resp = client.get(f"/api/v1/tasks/{task_id}/download")
             assert download_resp.status_code == 200
             assert len(download_resp.content) > 0
+    finally:
+        app.dependency_overrides.pop(current_user, None)
+
+
+def test_submit_task_rejects_generic_zip_renamed_as_docx(
+    client,
+    db_session: Session,
+    monkeypatch,
+    settings_override,
+) -> None:
+    user = User(phone="13800006665", nickname="magic-user", credits=10000)
+    db_session.add(user)
+    db_session.commit()
+    db_session.refresh(user)
+
+    _activate_slot(db_session, platform="cnki", function_type="dedup")
+    monkeypatch.setattr("app.worker_tasks.dispatch_background_task", lambda *_args, **_kwargs: "test-noop")
+
+    fake_zip = io.BytesIO()
+    with zipfile.ZipFile(fake_zip, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("hello.txt", "not a docx")
+
+    app.dependency_overrides[current_user] = lambda: user
+    try:
+        resp = client.post(
+            "/api/v1/tasks/submit",
+            data={
+                "task_type": "dedup",
+                "platform": "cnki",
+                "paper_title": "伪装文件测试",
+                "authors": "测试作者",
+            },
+            files={
+                "paper": (
+                    "fake.docx",
+                    fake_zip.getvalue(),
+                    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                )
+            },
+        )
+        assert resp.status_code == 400
+        assert resp.json()["code"] == 4105
     finally:
         app.dependency_overrides.pop(current_user, None)
