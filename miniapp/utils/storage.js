@@ -5,6 +5,9 @@ const AUTH_PENDING_KEY = "gw_auth_pending"
 const HOME_DRAFT_KEY = "gw_home_draft"
 const REFERRER_CODE_KEY = "gw_referrer_code"
 
+const ACCESS_TOKEN_TTL_MS = 2 * 60 * 60 * 1000
+const REFRESH_TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000
+
 function setToken(token) {
   if (!token) {
     wx.removeStorageSync(TOKEN_KEY)
@@ -12,7 +15,7 @@ function setToken(token) {
   }
   wx.setStorageSync(TOKEN_KEY, {
     value: token,
-    expiresAt: Date.now() + 2 * 60 * 60 * 1000,
+    expiresAt: Date.now() + ACCESS_TOKEN_TTL_MS,
   })
 }
 
@@ -36,11 +39,25 @@ function setRefreshToken(token) {
     wx.removeStorageSync(REFRESH_TOKEN_KEY)
     return
   }
-  wx.setStorageSync(REFRESH_TOKEN_KEY, token)
+  wx.setStorageSync(REFRESH_TOKEN_KEY, {
+    value: token,
+    expiresAt: Date.now() + REFRESH_TOKEN_TTL_MS,
+  })
 }
 
 function getRefreshToken() {
-  return wx.getStorageSync(REFRESH_TOKEN_KEY) || ""
+  const raw = wx.getStorageSync(REFRESH_TOKEN_KEY)
+  if (!raw) return ""
+  if (typeof raw === "string") return raw
+  if (typeof raw !== "object" || !raw.value || !raw.expiresAt) {
+    wx.removeStorageSync(REFRESH_TOKEN_KEY)
+    return ""
+  }
+  if (Date.now() >= Number(raw.expiresAt)) {
+    wx.removeStorageSync(REFRESH_TOKEN_KEY)
+    return ""
+  }
+  return raw.value
 }
 
 function clearRefreshToken() {
@@ -108,6 +125,14 @@ function clearReferrerCode() {
   wx.removeStorageSync(REFERRER_CODE_KEY)
 }
 
+function clearAuthState() {
+  clearToken()
+  clearRefreshToken()
+  clearUser()
+  clearPendingAuth()
+  clearHomeDraft()
+}
+
 module.exports = {
   setToken,
   getToken,
@@ -127,4 +152,5 @@ module.exports = {
   setReferrerCode,
   getReferrerCode,
   clearReferrerCode,
+  clearAuthState,
 }

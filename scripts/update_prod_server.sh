@@ -95,6 +95,10 @@ normalize_runtime_scripts() {
     run_root sed -i 's/\r$//' "${APP_DIR}/scripts/update_prod_server.sh" || true
     run_root chmod +x "${APP_DIR}/scripts/update_prod_server.sh" || true
   fi
+  if [ -f "${APP_DIR}/deploy/backup_runtime_state.sh" ]; then
+    run_root sed -i 's/\r$//' "${APP_DIR}/deploy/backup_runtime_state.sh" || true
+    run_root chmod +x "${APP_DIR}/deploy/backup_runtime_state.sh" || true
+  fi
 }
 
 prepare_public_edge() {
@@ -118,9 +122,13 @@ health_check() {
     services="$(run_root docker compose --env-file "${ENV_FILE}" -f "${COMPOSE_FILE}" ps --status running --services || true)"
     if \
       echo "${services}" | grep -qx "backend" && \
+      echo "${services}" | grep -qx "worker-submission" && \
+      echo "${services}" | grep -qx "worker-processing" && \
+      echo "${services}" | grep -qx "worker-maintenance" && \
+      echo "${services}" | grep -qx "worker-beat" && \
       echo "${services}" | grep -qx "frontend" && \
-      echo "${services}" | grep -qx "worker" && \
-      echo "${services}" | grep -qx "edge"
+      echo "${services}" | grep -qx "edge" && \
+      echo "${services}" | grep -qx "backup"
     then
       if curl -kfsS https://127.0.0.1 >/dev/null 2>&1; then
         echo "Health check passed."

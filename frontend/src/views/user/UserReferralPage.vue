@@ -134,7 +134,9 @@
                     <div class="task-table__row"><span>发放方式</span><strong>7个工作日内审核通过后，发送到用户余额</strong></div>
                     <div class="task-table__row">
                       <span>对应奖励</span>
-                      <strong v-html="currentShareRewardHtml"></strong>
+                      <strong class="task-table__reward-list">
+                        <span v-for="item in currentShareRewards" :key="item">{{ item }}</span>
+                      </strong>
                     </div>
                   </div>
                 </div>
@@ -340,8 +342,7 @@ const sharePageRules = {
 }
 
 const currentShareRule = computed(() => sharePageRules[activePlatform.value] || sharePageRules.weibo)
-const currentShareRewardHtml = computed(() => currentShareRule.value.rewards.join("<br />"))
-const currentShareStepOneHtml = computed(() => currentShareRule.value.stepOne.join("<br />"))
+const currentShareRewards = computed(() => currentShareRule.value.rewards || [])
 const shareTiers = computed(() => [
   { key: "base", title: "5元红包", reward: "5元红包", desc: "获得5个及以上点赞" },
   { key: "boost", title: "10元红包", reward: "10元红包", desc: "获得10个及以上点赞" },
@@ -700,6 +701,7 @@ async function submitShare() {
 .task-table__row:last-child{border-bottom:none}
 .task-table__row span{font-size:12px;color:#6b7280}
 .task-table__row strong{font-size:12px;color:#374151;line-height:1.5;font-weight:500}
+.task-table__reward-list{display:flex;flex-direction:column;gap:2px}
 .task-table__row--compact{align-items:center}
 .reward-inline-text{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .activity-page--share .task-table__row{grid-template-columns:96px 1fr;gap:10px;padding:5px 0}

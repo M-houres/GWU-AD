@@ -19,14 +19,14 @@ from app.config import get_settings
 from app.database import Base, engine
 from app.deps import redis_is_available
 from app.exceptions import BizError
-from app.logging_setup import setup_logging
+from app.logging_setup import clear_log_context, set_log_context, setup_logging
 from app.models import AdminUser, RegistrationRiskLog, Task, TaskStatus, User
 from app.responses import fail, ok
 from app.security import hash_password
 
-setup_logging()
-logger = logging.getLogger("app.main")
 settings = get_settings()
+setup_logging(level=getattr(logging, str(settings.log_level or "INFO").upper(), logging.INFO))
+logger = logging.getLogger("app.main")
 
 
 def _cors_origins() -> list[str]:
@@ -154,14 +154,21 @@ async def access_log_middleware(request: Request, call_next):
     start = time.perf_counter()
     status_code = 500
     response = None
+    forwarded = request.headers.get("x-forwarded-for", "").split(",")[0].strip()
+    client_ip = forwarded or (request.client.host if request.client else "")
+    set_log_context(
+        request_id=request_id,
+        client_ip=client_ip,
+        user_id=None,
+        method=request.method,
+        path=request.url.path,
+    )
     try:
         response = await call_next(request)
         status_code = response.status_code
         return response
     finally:
         elapsed_ms = int((time.perf_counter() - start) * 1000)
-        forwarded = request.headers.get("x-forwarded-for", "").split(",")[0].strip()
-        client_ip = forwarded or (request.client.host if request.client else "")
         logger.info(
             "http_request",
             extra={
@@ -175,6 +182,7 @@ async def access_log_middleware(request: Request, call_next):
         )
         if response is not None:
             response.headers["x-request-id"] = request_id
+        clear_log_context()
 
 
 def init_super_admin() -> None:

@@ -13,6 +13,11 @@ class Settings(BaseSettings):
     app_host: str = "0.0.0.0"
     app_port: int = 8000
     cors_allow_origins: str = "*"
+    log_level: str = "INFO"
+    log_file_enabled: bool = True
+    log_file_max_mb: int = 20
+    log_file_backup_count: int = 7
+    log_dirname: str = "logs"
 
     jwt_secret: str = "change_me_in_prod"
     jwt_expire_minutes: int = 120
@@ -94,6 +99,7 @@ class Settings(BaseSettings):
     local_processing_worker_concurrency: int = 4
     local_maintenance_worker_concurrency: int = 2
     task_artifact_retention_days: int = 30
+    backup_retention_days: int = 7
 
     @field_validator("app_env", mode="before")
     @classmethod
@@ -160,6 +166,12 @@ class Settings(BaseSettings):
     @property
     def output_dir(self) -> Path:
         p = Path(__file__).resolve().parent.parent / "output"
+        p.mkdir(parents=True, exist_ok=True)
+        return p
+
+    @property
+    def log_dir(self) -> Path:
+        p = Path(__file__).resolve().parent.parent / self.log_dirname
         p.mkdir(parents=True, exist_ok=True)
         return p
 

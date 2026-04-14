@@ -1,6 +1,6 @@
 const env = require("../config/env")
 const { request } = require("./request")
-const { setRefreshToken, setToken, setUser, getToken, clearRefreshToken, clearToken, clearUser } = require("./storage")
+const { setRefreshToken, setToken, setUser, getToken, clearAuthState } = require("./storage")
 
 function shouldUseMockMiniLogin() {
   return env.currentEnv === "develop"
@@ -93,9 +93,7 @@ function ensureLogin() {
 
 function logout() {
   request({ url: "/auth/logout", method: "POST", silent: true }).catch(() => null)
-  clearToken()
-  clearRefreshToken()
-  clearUser()
+  clearAuthState()
 }
 
 module.exports = {

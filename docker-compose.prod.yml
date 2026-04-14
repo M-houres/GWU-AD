@@ -1,8 +1,15 @@
+x-default-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
 services:
   mysql:
     image: mysql:8.0
     container_name: wuhongai-mysql
     restart: unless-stopped
+    logging: *default-logging
     env_file:
       - ./.env.prod
     command: --default-authentication-plugin=mysql_native_password --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
@@ -19,6 +26,7 @@ services:
     image: redis:7-alpine
     container_name: wuhongai-redis
     restart: unless-stopped
+    logging: *default-logging
     command: redis-server --appendonly yes
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
@@ -35,6 +43,7 @@ services:
       dockerfile: Dockerfile
     container_name: wuhongai-backend
     restart: unless-stopped
+    logging: *default-logging
     env_file:
       - ./.env.prod
     command: sh -c "python -m app.bootstrap && uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers ${WEB_CONCURRENCY:-6}"
@@ -62,6 +71,7 @@ services:
       dockerfile: Dockerfile
     container_name: wuhongai-worker-submission
     restart: unless-stopped
+    logging: *default-logging
     env_file:
       - ./.env.prod
     command: celery -A app.worker_tasks.celery_app worker -l info -Q submission -c ${CELERY_SUBMISSION_CONCURRENCY:-8} --max-tasks-per-child=200
@@ -89,6 +99,7 @@ services:
       dockerfile: Dockerfile
     container_name: wuhongai-worker-processing
     restart: unless-stopped
+    logging: *default-logging
     env_file:
       - ./.env.prod
     command: celery -A app.worker_tasks.celery_app worker -l info -Q processing -c ${CELERY_PROCESSING_CONCURRENCY:-4} --max-tasks-per-child=20
@@ -116,6 +127,7 @@ services:
       dockerfile: Dockerfile
     container_name: wuhongai-worker-maintenance
     restart: unless-stopped
+    logging: *default-logging
     env_file:
       - ./.env.prod
     command: celery -A app.worker_tasks.celery_app worker -l info -Q maintenance,default -c ${CELERY_MAINTENANCE_CONCURRENCY:-2} --max-tasks-per-child=500
@@ -143,6 +155,7 @@ services:
       dockerfile: Dockerfile
     container_name: wuhongai-worker-beat
     restart: unless-stopped
+    logging: *default-logging
     env_file:
       - ./.env.prod
     command: celery -A app.worker_tasks.celery_app beat -l info
@@ -174,6 +187,7 @@ services:
         VITE_PAYMENT_TEST_MODE: ${VITE_PAYMENT_TEST_MODE:-false}
     container_name: wuhongai-frontend
     restart: unless-stopped
+    logging: *default-logging
     depends_on:
       backend:
         condition: service_healthy
@@ -192,6 +206,7 @@ services:
     image: nginx:1.27-alpine
     container_name: wuhongai-edge
     restart: unless-stopped
+    logging: *default-logging
     depends_on:
       frontend:
         condition: service_healthy
@@ -209,9 +224,41 @@ services:
       - /etc/letsencrypt/live/restin.top/fullchain.pem:/etc/nginx/certs/fullchain.pem:ro
       - /etc/letsencrypt/live/restin.top/privkey.pem:/etc/nginx/certs/privkey.pem:ro
 
+  backup:
+    image: mysql:8.0
+    container_name: wuhongai-backup
+    restart: unless-stopped
+    logging: *default-logging
+    env_file:
+      - ./.env.prod
+    environment:
+      BACKUP_DIR: /backups
+      BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-7}
+      BACKUP_INTERVAL_SECONDS: ${BACKUP_INTERVAL_SECONDS:-86400}
+    command:
+      - sh
+      - -c
+      - sh /scripts/backup_runtime_state.sh && while true; do sleep "$${BACKUP_INTERVAL_SECONDS:-86400}"; sh /scripts/backup_runtime_state.sh; done
+    depends_on:
+      mysql:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "find /backups -type f -mmin -1500 | grep -q ."]
+      interval: 30m
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    volumes:
+      - ./deploy/backup_runtime_state.sh:/scripts/backup_runtime_state.sh:ro
+      - backup_data:/backups
+      - backend_uploads:/volumes/uploads:ro
+      - backend_output:/volumes/output:ro
+      - backend_algorithms:/volumes/algorithms:ro
+
 volumes:
   mysql_data:
   redis_data:
   backend_uploads:
   backend_output:
   backend_algorithms:
+  backup_data:

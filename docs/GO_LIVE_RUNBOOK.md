@@ -27,6 +27,8 @@
    - 计费配置
    - 登录配置
    - 推广规则配置
+7. `docker compose ps` 中 `backend / worker-submission / worker-processing / worker-maintenance / worker-beat / backup / frontend / edge` 全部为 `healthy` 或 `running`
+8. 备份目录已有最近 24 小时内生成的数据库备份和运行时归档
 
 ## 2. 必改环境变量
 
@@ -39,6 +41,12 @@ PAYMENT_SIGN_SECRET=请替换为高强度随机字符串
 ADMIN_INIT_PASSWORD=请替换为强密码
 FRONTEND_BASE_URL=https://你的前端域名
 VITE_API_BASE_URL=https://你的后端域名/api/v1
+LOG_LEVEL=INFO
+LOG_FILE_ENABLED=true
+LOG_FILE_MAX_MB=20
+LOG_FILE_BACKUP_COUNT=7
+BACKUP_RETENTION_DAYS=7
+BACKUP_INTERVAL_SECONDS=86400
 ```
 
 建议同时确认：
@@ -71,6 +79,10 @@ VITE_ENABLE_WECHAT_LOGIN=true
 如果 Celery 没启动：
 - 任务可能一直停留在排队中
 - 推广奖励异步发放可能不执行
+
+补充：
+- `worker-beat` 负责定时清理过期任务产物
+- `backup` 服务负责每日导出 MySQL 并归档 `uploads / output / algorithm_packages`
 
 ## 4. 配置中心填写说明
 
@@ -257,6 +269,7 @@ VITE_ENABLE_WECHAT_LOGIN=true
 - Celery Worker 是否运行
 - Redis 是否连接正常
 - Worker 日志是否报错
+- `worker-submission / worker-processing / worker-maintenance / worker-beat` 是否都在运行
 
 ### 7.3 支付页面可以打开但不能到账
 
@@ -275,7 +288,50 @@ VITE_ENABLE_WECHAT_LOGIN=true
 - `wechat_redirect_uri`
 - 前端 `VITE_ENABLE_WECHAT_LOGIN`
 
-## 8. 回滚建议
+## 8. 日志与监控
+
+生产环境建议每天至少检查一次：
+
+1. `docker compose ps`
+2. `docker compose logs --tail=200 backend`
+3. `docker compose logs --tail=200 worker-processing`
+4. `docker compose logs --tail=200 edge`
+5. `/health` 返回是否为 `200`
+
+当前日志设计：
+- 应用日志为 JSON 结构，包含时间、级别、logger、message、request_id、client_ip 等字段
+- Docker 容器日志已开启轮转：单文件 `10m`，保留 `5` 份
+- 后端进程内部也会写本地轮转日志 `backend/logs/app.log`
+
+建议告警阈值：
+- `/health` 连续失败 3 次立即告警
+- `5xx` 错误日志连续出现时立即告警
+- 磁盘使用率超过 `80%` 告警
+- 备份目录 24 小时无新文件立即告警
+
+## 9. 备份与恢复
+
+备份策略：
+- `backup` 容器首次启动立即执行一次备份
+- 之后默认每 `86400` 秒执行一次
+- 数据库存放在 `/backups/db`
+- 运行时文件归档存放在 `/backups/runtime`
+- 超过 `BACKUP_RETENTION_DAYS` 的备份会自动清理
+
+手动执行一次备份：
+
+```bash
+docker compose --env-file .env.prod -f docker-compose.prod.yml exec backup sh /scripts/backup_runtime_state.sh
+```
+
+恢复要点：
+
+1. 先停写入流量
+2. 选择目标 `.sql.gz` 和对应运行时归档
+3. 恢复数据库后，再恢复 `uploads / output / algorithm_packages`
+4. 恢复完成后执行一次 `docker compose up -d`
+5. 最后验证 `/health`、后台登录、任务下载
+## 10. 回滚建议
 
 如果线上联调出问题，优先回滚以下内容：
 
@@ -289,7 +345,7 @@ VITE_ENABLE_WECHAT_LOGIN=true
 4. 大模型配置
    - 出现异常时先关闭 LLM，走算法降级
 
-## 9. 建议保留的上线证据
+## 11. 建议保留的上线证据
 
 建议每次上线都保留：
 

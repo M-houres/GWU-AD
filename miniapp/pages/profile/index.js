@@ -435,9 +435,16 @@ Page({
   },
 
   onLogout() {
-    logout()
-    this.syncGuestProfile()
-    wx.switchTab({ url: "/pages/home/index" })
+    wx.showModal({
+      title: "退出登录",
+      content: "退出后将清除当前登录状态，需要重新登录后才能继续下单和查看记录。是否继续？",
+      success: (res) => {
+        if (!res.confirm) return
+        logout()
+        this.syncGuestProfile()
+        wx.switchTab({ url: "/pages/home/index" })
+      },
+    })
   },
 
   onDeleteAccount() {
