@@ -1,5 +1,6 @@
 from contextlib import contextmanager
 import logging
+import time
 from typing import Generator
 
 from sqlalchemy import create_engine, event, text
@@ -58,17 +59,31 @@ def _create_engine():
         finally:
             cursor.close()
 
-    try:
-        with mysql_engine.connect() as conn:
-            conn.execute(text("SELECT 1"))
-        return mysql_engine
-    except Exception:
-        if settings.is_prod:
-            raise RuntimeError("生产环境数据库必须连接 MySQL，禁止回退到 SQLite")
-        if not settings.db_fallback_sqlite:
-            raise
-        logger.warning("mysql_unavailable_fallback_to_sqlite", extra={"app_env": settings.app_env})
-        return _build_sqlite_engine()
+    attempts = max(int(settings.db_startup_retry_attempts or 0), 1)
+    retry_delay = max(float(settings.db_startup_retry_delay_seconds or 0), 0.2)
+    last_exc = None
+    for attempt in range(1, attempts + 1):
+        try:
+            with mysql_engine.connect() as conn:
+                conn.execute(text("SELECT 1"))
+            return mysql_engine
+        except Exception as exc:
+            last_exc = exc
+            if attempt >= attempts:
+                break
+            logger.warning(
+                "mysql_connect_retrying",
+                extra={"attempt": attempt, "max_attempts": attempts, "delay_seconds": retry_delay},
+                exc_info=True,
+            )
+            time.sleep(retry_delay)
+
+    if settings.is_prod:
+        raise RuntimeError("生产环境数据库必须连接 MySQL，禁止回退到 SQLite") from last_exc
+    if not settings.db_fallback_sqlite:
+        raise last_exc if last_exc is not None else RuntimeError("mysql unavailable")
+    logger.warning("mysql_unavailable_fallback_to_sqlite", extra={"app_env": settings.app_env}, exc_info=True)
+    return _build_sqlite_engine()
 
 
 engine = _create_engine()

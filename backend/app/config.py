@@ -86,6 +86,8 @@ class Settings(BaseSettings):
     db_read_timeout_seconds: int = 30
     db_write_timeout_seconds: int = 30
     db_statement_timeout_ms: int = 30000
+    db_startup_retry_attempts: int = 12
+    db_startup_retry_delay_seconds: float = 2.0
 
     task_submit_ip_1m_limit: int = 60
     task_submit_user_1m_limit: int = 20
