@@ -37,16 +37,6 @@
             </div>
           </label>
 
-          <label class="gw-auth-card__policy">
-            <input v-model="agreedPolicy" type="checkbox" />
-            <span>
-              我已阅读并同意
-              <RouterLink to="/terms" target="_blank">《服务协议》</RouterLink>
-              与
-              <RouterLink to="/privacy" target="_blank">《隐私政策》</RouterLink>
-            </span>
-          </label>
-
           <button class="gw-auth-card__submit" :disabled="loading">
             {{ loading ? '处理中...' : primaryButtonText }}
           </button>
@@ -70,6 +60,16 @@
           </div>
         </div>
 
+        <label class="gw-auth-card__policy">
+          <input v-model="agreedPolicy" type="checkbox" />
+          <span>
+            我已阅读并同意
+            <RouterLink to="/terms" target="_blank">《服务协议》</RouterLink>
+            与
+            <RouterLink to="/privacy" target="_blank">《隐私政策》</RouterLink>
+          </span>
+        </label>
+
         <p v-if="errorText" class="gw-auth-card__msg gw-auth-card__msg--error">{{ errorText }}</p>
         <p v-if="hintText" class="gw-auth-card__msg gw-auth-card__msg--ok">{{ hintText }}</p>
 
@@ -88,7 +88,7 @@ import { RouterLink, useRoute, useRouter } from "vue-router"
 import { getDeviceFingerprint } from "../../../lib/device"
 import { userHttp } from "../../../lib/http"
 import { resolveUserRedirect } from "../../../lib/redirect"
-import { setUserInfo, setUserToken } from "../../../lib/session"
+import { setUserInfo, setUserRefreshToken, setUserToken } from "../../../lib/session"
 
 const props = defineProps({
   entryType: {
@@ -243,6 +243,10 @@ async function switchMode(nextMode) {
   errorText.value = ""
   hintText.value = ""
   if (nextMode === "wx") {
+    if (!agreedPolicy.value) {
+      errorText.value = "请先同意服务协议与隐私条款"
+      return
+    }
     await loadWxQrcode()
     return
   }
@@ -309,7 +313,7 @@ async function submitPhoneAuth() {
       referrer_code: referrerCode.value || undefined,
       device_fingerprint: getDeviceFingerprint(),
     })
-    completeLogin(data.token, data.user)
+    completeLogin(data.token, data.user, data.refresh_token)
   } catch (error) {
     errorText.value = error.message || "登录失败，请稍后再试"
   } finally {
@@ -318,6 +322,10 @@ async function submitPhoneAuth() {
 }
 
 async function loadWxQrcode() {
+  if (!agreedPolicy.value) {
+    errorText.value = "请先同意服务协议与隐私条款"
+    return
+  }
   stopWxTimers()
   wxStatus.value = "pending"
   errorText.value = ""
@@ -349,7 +357,7 @@ async function pollWxStatus() {
     wxStatus.value = data.status || "pending"
     if (wxStatus.value === "authorized" && data.token && data.user) {
       stopWxTimers()
-      completeLogin(data.token, data.user)
+      completeLogin(data.token, data.user, data.refresh_token)
       return
     }
     if (wxStatus.value === "expired") stopWxTimers()
@@ -360,6 +368,10 @@ async function pollWxStatus() {
 
 async function mockWxAuthorize() {
   if (!wxKey.value) return
+  if (!agreedPolicy.value) {
+    errorText.value = "请先同意服务协议与隐私条款"
+    return
+  }
   try {
     await userHttp.post("/auth/wx/mock-authorize", { key: wxKey.value, openid: "demo_view_user_001" })
     hintText.value = "模拟授权成功"
@@ -369,8 +381,9 @@ async function mockWxAuthorize() {
   }
 }
 
-function completeLogin(token, user) {
+function completeLogin(token, user, refreshToken) {
   setUserToken(token)
+  setUserRefreshToken(refreshToken)
   setUserInfo(user)
   localStorage.removeItem("wuhong_referrer_code")
   router.push(resolveUserRedirect(route.query.redirect, "/app/detect"))

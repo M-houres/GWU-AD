@@ -149,7 +149,7 @@ import { RouterLink, useRoute, useRouter } from "vue-router"
 
 import { adminHttp } from "../../lib/http"
 import { resolveAdminRedirect } from "../../lib/redirect"
-import { setAdminInfo, setAdminToken } from "../../lib/session"
+import { setAdminInfo, setAdminRefreshToken, setAdminToken } from "../../lib/session"
 
 const router = useRouter()
 const route = useRoute()
@@ -168,6 +168,7 @@ async function login() {
       password: password.value,
     })
     setAdminToken(data.token)
+    setAdminRefreshToken(data.refresh_token)
     setAdminInfo(data.admin || null)
     router.push(resolveAdminRedirect(route.query.redirect, "/admin/dashboard"))
   } catch (error) {

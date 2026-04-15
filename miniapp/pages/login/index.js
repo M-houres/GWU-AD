@@ -37,8 +37,8 @@ function getLoginCopy(pending = {}) {
       }
     default:
       return {
-        title: "继续进入你的任务空间",
-        desc: "首次登录会自动创建账户，并绑定当前微信小程序身份。",
+        title: "微信登录",
+        desc: "",
       }
   }
 }
@@ -61,8 +61,8 @@ Page({
     loading: false,
     referrerCode: "",
     agreedPolicy: false,
-    loginTitle: "继续进入你的任务空间",
-    loginDesc: "首次登录会自动创建账户，并绑定当前微信小程序身份。",
+    loginTitle: "微信登录",
+    loginDesc: "",
     phoneQuickLoginReady: false,
   },
 

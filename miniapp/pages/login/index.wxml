@@ -4,7 +4,6 @@
 
   <view class="login-hero">
     <view class="login-hero-top">
-      <view class="login-brand-mark">格</view>
       <view class="login-brand-copy">
         <view class="login-brand-name">格物学术</view>
         <view class="login-brand-sub">微信学术工作台</view>
@@ -12,39 +11,12 @@
     </view>
 
     <view class="login-hero-main">
-      <view class="login-kicker">微信登录</view>
-      <view class="login-title">登录后继续你的检测与处理流程</view>
-      <view class="login-subtitle">AIGC 检测、降AIGC、降重任务统一保存在同一条任务链里，登录后继续即可。</view>
-    </view>
-
-    <view class="login-hero-chips">
-      <view class="login-chip">新用户积分 5000</view>
-      <view class="login-chip">AIGC 每日免费 6 篇</view>
-      <view class="login-chip">支持邀请码绑定</view>
     </view>
   </view>
 
   <view class="login-sheet">
     <view class="login-sheet-head">
-      <view class="login-sheet-kicker">登录入口</view>
       <view class="login-sheet-title">{{ loginTitle }}</view>
-      <view class="login-sheet-desc">{{ loginDesc }}</view>
-    </view>
-
-    <view class="login-highlight" wx:if="{{ referrerCode }}">
-      <view class="login-highlight-label">已带入邀请码</view>
-      <view class="login-highlight-code">{{ referrerCode }}</view>
-    </view>
-
-    <view class="login-field">
-      <view class="login-field-label">邀请码</view>
-      <input
-        class="login-input"
-        placeholder="有邀请码可填写，没有可留空"
-        value="{{ referrerCode }}"
-        bindinput="onInputReferrer"
-      />
-      <view class="login-helper">邀请码会在首次注册时自动记录邀请来源。</view>
     </view>
 
     <label class="login-policy">
@@ -75,14 +47,6 @@
       >
         {{ loading ? "登录中..." : "微信手机号快捷登录" }}
       </button>
-    </view>
-
-    <view class="login-tip-card">
-      <view class="login-tip-title">登录后立即可用</view>
-      <view class="login-tip-line">1. 自动带回刚才的页面和待完成操作</view>
-      <view class="login-tip-line">2. 自动绑定邀请码并创建账号</view>
-      <view class="login-tip-line" wx:if="{{ phoneQuickLoginReady }}">3. 支持微信手机号快捷授权登录</view>
-      <view class="login-tip-note" wx:if="{{ phoneQuickLoginReady }}">手机号快捷登录会先获取微信验证后的手机号，再完成小程序账号绑定。</view>
     </view>
   </view>
 </view>

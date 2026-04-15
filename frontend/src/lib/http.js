@@ -3,8 +3,14 @@ import axios from "axios"
 import {
   clearAdminSession,
   clearUserSession,
+  getAdminRefreshToken,
   getAdminToken,
+  getUserRefreshToken,
   getUserToken,
+  setAdminRefreshToken,
+  setAdminToken,
+  setUserRefreshToken,
+  setUserToken,
 } from "./session"
 
 function resolveBaseURL() {
@@ -12,12 +18,12 @@ function resolveBaseURL() {
   if (explicit) {
     return explicit
   }
-  // Local fallback: make API target explicit so both `vite dev` and `vite preview`
-  // can work without depending on proxy configuration.
+  // Local fallback: keep browser requests same-origin in dev so auth cookies,
+  // refresh, uploads, and task submission do not depend on cross-site behavior.
   if (typeof window !== "undefined") {
     const { hostname } = window.location
     if (hostname === "127.0.0.1" || hostname === "localhost") {
-      return "http://127.0.0.1:8000/api/v1"
+      return "/api/v1"
     }
   }
   return "/api/v1"
@@ -105,8 +111,15 @@ let adminRefreshPromise = null
 async function refreshUserSession() {
   if (!userRefreshPromise) {
     userRefreshPromise = refreshClient
-      .post("/auth/refresh")
+      .post("/auth/refresh", {
+        refresh_token: getUserRefreshToken() || undefined,
+      })
       .then((resp) => unwrapResponse(resp))
+      .then((data) => {
+        if (data?.token) setUserToken(data.token)
+        if (data?.refresh_token) setUserRefreshToken(data.refresh_token)
+        return data
+      })
       .finally(() => {
         userRefreshPromise = null
       })
@@ -117,8 +130,15 @@ async function refreshUserSession() {
 async function refreshAdminSession() {
   if (!adminRefreshPromise) {
     adminRefreshPromise = refreshClient
-      .post("/admin/auth/refresh")
+      .post("/admin/auth/refresh", {
+        refresh_token: getAdminRefreshToken() || undefined,
+      })
       .then((resp) => unwrapResponse(resp))
+      .then((data) => {
+        if (data?.token) setAdminToken(data.token)
+        if (data?.refresh_token) setAdminRefreshToken(data.refresh_token)
+        return data
+      })
       .finally(() => {
         adminRefreshPromise = null
       })

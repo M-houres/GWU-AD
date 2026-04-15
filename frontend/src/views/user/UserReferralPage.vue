@@ -9,177 +9,176 @@
   >
     <section class="promo-page">
       <div class="activity-wrap activity-wrap--center">
-        <div class="activity-content">
-          <div class="activity-topbar">
+        <div class="activity-layout">
+          <aside class="activity-sidebar">
             <ul class="activity-topbar__nav">
               <li v-for="item in tabs" :key="item.key">
                 <button type="button" :class="{ 'is-active': activePage === item.key }" @click="activePage = item.key">{{ item.label }}</button>
               </li>
             </ul>
-          </div>
+          </aside>
 
-          <p v-if="feedback.text" class="activity-feedback" :class="`is-${feedback.tone}`">{{ feedback.text }}</p>
+          <div class="activity-main">
+            <p v-if="feedback.text" class="activity-feedback" :class="`is-${feedback.tone}`">{{ feedback.text }}</p>
 
-          <section v-if="activePage === 'classroom'" class="activity-page">
-            <div class="page-title-bar">
-              <div>
-                <h2>全班免费查</h2>
-                <div class="subtitle">创建班级后持续邀请同学，人数越高，整班解锁的卡券档位越高</div>
+            <section v-if="activePage === 'classroom'" class="activity-page">
+              <div class="page-title-bar page-title-bar--center">
+                <div>
+                  <h2>全班免费查</h2>
+                  <div class="subtitle">创建班级后持续邀请同学，人数越高，整班解锁的卡券档位越高</div>
+                </div>
               </div>
-              <button type="button" class="btn-primary" @click="createClassroom">{{ classroom.created ? "继续邀请同学" : "立即创建班级" }}</button>
-            </div>
 
-            <div class="class-show-wrap">
-              <div>
-                <div class="class-hero">
+              <div class="class-show-wrap">
+                <div>
+                  <div class="class-hero">
                   <div class="class-hero__eyebrow">班级裂变福利</div>
-                  <h1>创建班级，解锁卡券<br />全班免费查</h1>
-                  <p>把同学拉进同一个班级池，按人数门槛统一解锁查重券和降重券。</p>
-                  <div class="class-hero__stats">
-                    <article>
-                      <span>当前人数</span>
-                      <strong>{{ classroom.created ? classroom.memberCount : 0 }}</strong>
-                    </article>
-                    <article>
-                      <span>班级等级</span>
-                      <strong>{{ classroom.created ? classroom.level : "待创建" }}</strong>
-                    </article>
-                    <article>
-                      <span>下一档目标</span>
-                      <strong>{{ nextClassroomTarget }}</strong>
-                    </article>
-                  </div>
-                </div>
-
-                <div class="class-tiers">
-                  <div v-for="item in classroomTiers" :key="item.title" class="class-tier">
-                    <div class="class-tier-icon">{{ item.icon }}</div>
-                    <div>
-                      <div class="class-tier-title">{{ item.title }}</div>
-                      <div class="class-tier-cond">{{ item.desc }}</div>
+                    <h1>创建班级后邀请同学加入，按人数逐步解锁查重券与降重券，人数越多，整班可领取的免费权益越高。</h1>
+                    <div class="class-hero__stats">
+                      <article>
+                        <span>当前人数</span>
+                        <strong>{{ classroom.created ? classroom.memberCount : 0 }}</strong>
+                      </article>
+                      <article>
+                        <span>班级等级</span>
+                        <strong>{{ classroom.created ? classroom.level : "待创建" }}</strong>
+                      </article>
+                      <article>
+                        <span>下一档目标</span>
+                        <strong>{{ nextClassroomTarget }}</strong>
+                      </article>
                     </div>
-                    <span class="class-tier-tag">{{ item.tag }}</span>
+                  </div>
+
+                  <div class="class-tiers">
+                    <div v-for="item in classroomTiers" :key="item.title" class="class-tier">
+                      <div class="class-tier-icon">{{ item.icon }}</div>
+                      <div>
+                        <div class="class-tier-title">{{ item.title }}</div>
+                        <div class="class-tier-cond">{{ item.desc }}</div>
+                      </div>
+                      <span class="class-tier-tag">{{ item.tag }}</span>
+                    </div>
+                  </div>
+
+                  <button type="button" class="create-btn-big" @click="createClassroom">
+                    {{ classroom.created ? "继续邀请同学，全班免费查" : "立即创建班级，全班免费查" }}
+                  </button>
+
+                  <div v-if="classroom.created" class="class-room-box">
+                    <article>
+                      <strong>{{ classroom.name }}</strong>
+                      <p>{{ classroom.level }} · {{ classroom.memberCount }} 人 · 活跃度 {{ classroom.activityScore }}</p>
+                    </article>
+                    <article>
+                      <strong>入班口令：{{ classroom.inviteCode }}</strong>
+                      <p>支持复制口令和二维码邀请两种拉人方式</p>
+                    </article>
+                    <div class="class-room-actions">
+                      <button type="button" class="btn-ghost" @click="copyClassroomCode">复制口令</button>
+                      <button type="button" class="btn-ghost" @click="downloadPoster">下载海报</button>
+                    </div>
                   </div>
                 </div>
 
-                <button type="button" class="create-btn-big" @click="createClassroom">
-                  {{ classroom.created ? "继续邀请同学，全班免费查" : "立即创建班级，全班免费查" }}
+                <div class="lb-card">
+                  <h3>上周班级活跃榜</h3>
+                  <div v-for="item in classroomLeaderboard" :key="item.rank" class="lb-row">
+                    <div class="lb-rank">{{ item.rank }}</div>
+                    <div class="lb-info">
+                      <div class="lb-name">{{ item.name }}</div>
+                      <div class="lb-meta">活跃度: {{ item.activity }} · {{ item.members }}人</div>
+                    </div>
+                    <span class="lb-level">{{ item.level }}</span>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <section v-else class="activity-page activity-page--share">
+              <div class="page-title-bar page-title-bar--center">
+                <div>
+                  <h2>分享领红包</h2>
+                  <div class="subtitle">选择平台后直接提交审核，奖励按档位人工发放</div>
+                </div>
+              </div>
+
+              <div class="share-plat-tabs share-plat-tabs--center">
+                <button
+                  v-for="item in sharePlatforms"
+                  :key="item.key"
+                  type="button"
+                  class="plat-tab"
+                  :class="{ active: activePlatform === item.key }"
+                  @click="activePlatform = item.key"
+                >
+                  <div class="plat-tab__icon" :class="`is-${item.tone}`">{{ item.mark }}</div>
+                  <div class="plat-tab__body">
+                    <strong>{{ item.name }}-分享</strong>
+                    <small>{{ item.rewardText }}</small>
+                    <em>{{ activePlatform === item.key ? "当前" : "立即领取" }}</em>
+                  </div>
+                  <div v-if="activePlatform === item.key" class="plat-tab__check">✓</div>
                 </button>
-
-                <div v-if="classroom.created" class="class-room-box">
-                  <article>
-                    <strong>{{ classroom.name }}</strong>
-                    <p>{{ classroom.level }} · {{ classroom.memberCount }} 人 · 活跃度 {{ classroom.activityScore }}</p>
-                  </article>
-                  <article>
-                    <strong>入班口令：{{ classroom.inviteCode }}</strong>
-                    <p>支持复制口令和二维码邀请两种拉人方式</p>
-                  </article>
-                  <div class="class-room-actions">
-                    <button type="button" class="btn-ghost" @click="copyClassroomCode">复制口令</button>
-                    <button type="button" class="btn-ghost" @click="downloadPoster">下载海报</button>
-                  </div>
-                </div>
               </div>
 
-              <div class="lb-card">
-                <h3>上周班级活跃榜</h3>
-                <div v-for="item in classroomLeaderboard" :key="item.rank" class="lb-row">
-                  <div class="lb-rank">{{ item.rank }}</div>
-                  <div class="lb-info">
-                    <div class="lb-name">{{ item.name }}</div>
-                    <div class="lb-meta">活跃度: {{ item.activity }} · {{ item.members }}人</div>
-                  </div>
-                  <span class="lb-level">{{ item.level }}</span>
-                </div>
-              </div>
-            </div>
-          </section>
-
-          <section v-else class="activity-page activity-page--share">
-            <div class="page-title-bar page-title-bar--center">
-              <div>
-                <h2>分享领红包</h2>
-                <div class="subtitle">选择平台后直接提交审核，奖励按档位人工发放</div>
-              </div>
-            </div>
-
-            <div class="share-plat-tabs share-plat-tabs--center">
-              <button
-                v-for="item in sharePlatforms"
-                :key="item.key"
-                type="button"
-                class="plat-tab"
-                :class="{ active: activePlatform === item.key }"
-                @click="activePlatform = item.key"
-              >
-                <div class="plat-tab__icon" :class="`is-${item.tone}`">{{ item.mark }}</div>
-                <div class="plat-tab__body">
-                  <strong>{{ item.name }}-分享</strong>
-                  <small>{{ item.rewardText }}</small>
-                  <em>{{ activePlatform === item.key ? "当前" : "立即领取" }}</em>
-                </div>
-                <div v-if="activePlatform === item.key" class="plat-tab__check">✓</div>
-              </button>
-            </div>
-
-            <div class="share-layout">
-              <div class="share-layout__left">
-                <div class="reward-card">
-                  <h4>任务详情</h4>
-                  <div class="task-table">
-                    <div class="task-table__row"><span>任务时间</span><strong>长期有效</strong></div>
-                    <div class="task-table__row"><span>参与次数</span><strong>每个三方平台各参与1次（更换手机号视为同一账户，不可再次参与）</strong></div>
-                    <div class="task-table__row"><span>参与对象</span><strong>格物学术平台用户</strong></div>
-                    <div class="task-table__row"><span>发放方式</span><strong>7个工作日内审核通过后，发送到用户余额</strong></div>
-                    <div class="task-table__row">
-                      <span>对应奖励</span>
-                      <strong class="task-table__reward-list">
-                        <span v-for="item in currentShareRewards" :key="item">{{ item }}</span>
-                      </strong>
+              <div class="share-layout">
+                <div class="share-layout__left">
+                  <div class="reward-card">
+                    <h4>任务详情</h4>
+                    <div class="task-table">
+                      <div class="task-table__row"><span>任务时间</span><strong>长期有效</strong></div>
+                      <div class="task-table__row"><span>参与次数</span><strong>每个三方平台各参与1次（更换手机号视为同一账户，不可再次参与）</strong></div>
+                      <div class="task-table__row"><span>参与对象</span><strong>格物学术平台用户</strong></div>
+                      <div class="task-table__row"><span>发放方式</span><strong>7个工作日内审核通过后，发送到用户余额</strong></div>
+                      <div class="task-table__row">
+                        <span>对应奖励</span>
+                        <strong class="task-table__reward-list">
+                          <span v-for="item in currentShareRewards" :key="item">{{ item }}</span>
+                        </strong>
+                      </div>
                     </div>
                   </div>
-                </div>
 
-                <div class="submit-card">
-                  <h4>{{ currentPlatformName }}提交审核</h4>
-                  <div class="submit-grid">
-                    <label class="form-group">
-                      <span>输入{{ currentPlatformName }}分享链接</span>
-                      <input v-model.trim="shareForm.link" type="text" placeholder="填写分享后的链接（链接必须为可访问地址）" />
-                    </label>
-                    <label class="form-group">
-                      <span>输入平台昵称</span>
-                      <input v-model.trim="shareForm.nickname" type="text" placeholder="请输入账号昵称（提交后不可修改哦，请谨慎填写）" />
-                    </label>
-                    <label class="form-group">
-                      <span>输入领取奖励的支付宝号</span>
-                      <input v-model.trim="shareForm.account" type="text" placeholder="请输入支付宝号（提交后不可修改哦，请谨慎填写）" />
-                    </label>
-                    <label class="form-group">
-                      <span>输入支付宝认证姓名</span>
-                      <input v-model.trim="shareForm.realName" type="text" placeholder="请输入支付宝认证姓名（用于打款时的身份验证）" />
-                    </label>
-                    <label class="form-group form-group--full">
-                      <span>选择符合条件的奖励</span>
-                      <select v-model="shareForm.tier">
-                        <option v-for="item in shareTiers" :key="item.key" :value="item.key">
-                          {{ item.reward }}（{{ item.desc }}）
-                        </option>
-                      </select>
-                    </label>
-                    <label class="form-group form-group--full">
-                      <span>补充说明</span>
-                      <textarea v-model.trim="shareForm.note" rows="1" placeholder="可补充点赞数、发布时间或作品说明"></textarea>
-                    </label>
+                  <div class="submit-card">
+                    <h4>{{ currentPlatformName }}提交审核</h4>
+                    <div class="submit-grid">
+                      <label class="form-group">
+                        <span>输入{{ currentPlatformName }}分享链接</span>
+                        <input v-model.trim="shareForm.link" type="text" placeholder="填写分享后的链接（链接必须为可访问地址）" />
+                      </label>
+                      <label class="form-group">
+                        <span>输入平台昵称</span>
+                        <input v-model.trim="shareForm.nickname" type="text" placeholder="请输入账号昵称（提交后不可修改哦，请谨慎填写）" />
+                      </label>
+                      <label class="form-group">
+                        <span>输入领取奖励的支付宝号</span>
+                        <input v-model.trim="shareForm.account" type="text" placeholder="请输入支付宝号（提交后不可修改哦，请谨慎填写）" />
+                      </label>
+                      <label class="form-group">
+                        <span>输入支付宝认证姓名</span>
+                        <input v-model.trim="shareForm.realName" type="text" placeholder="请输入支付宝认证姓名（用于打款时的身份验证）" />
+                      </label>
+                      <label class="form-group form-group--full">
+                        <span>选择符合条件的奖励</span>
+                        <select v-model="shareForm.tier">
+                          <option v-for="item in shareTiers" :key="item.key" :value="item.key">
+                            {{ item.reward }}（{{ item.desc }}）
+                          </option>
+                        </select>
+                      </label>
+                      <label class="form-group form-group--full">
+                        <span>补充说明</span>
+                        <textarea v-model.trim="shareForm.note" rows="1" placeholder="可补充点赞数、发布时间或作品说明"></textarea>
+                      </label>
+                    </div>
+                    <button type="button" class="btn-primary" :disabled="!canSubmitShare" @click="submitShare">提交审核</button>
+                    <p class="risk-tip">⚠️ 提交后不可修改，请谨慎填写（若发现任何形式的弄虚作假骗取奖励的行为，将拒绝审核，并取消所有活动资格。）</p>
                   </div>
-                  <button type="button" class="btn-primary" :disabled="!canSubmitShare" @click="submitShare">提交审核</button>
-                  <p class="risk-tip">⚠️ 提交后不可修改，请谨慎填写（若发现任何形式的弄虚作假骗取奖励的行为，将拒绝审核，并取消所有活动资格。）</p>
                 </div>
-
               </div>
-            </div>
-          </section>
+            </section>
+          </div>
         </div>
       </div>
     </section>
@@ -542,11 +541,13 @@ async function submitShare() {
 .promo-page{display:grid;padding:8px 0;background:#fff}
 .activity-wrap{display:block;background:#fff;border-radius:20px;overflow:hidden;border:1px solid #e5e7eb;box-shadow:none;backdrop-filter:none}
 .activity-wrap--center{width:100%;max-width:1380px;margin:0 auto}
-.activity-content{flex:1;min-height:0;padding:16px 18px;background:#fff;display:grid;align-content:start;justify-items:center}
-.activity-topbar{width:min(100%,1165px);margin:0 auto 12px;padding:6px;border-radius:18px;border:1px solid #e5e7eb;background:linear-gradient(180deg,#fff 0%,#f8fbff 100%)}
-.activity-topbar__nav{list-style:none;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.activity-content{padding:16px 18px;background:#fff}
+.activity-layout{display:grid;grid-template-columns:180px minmax(0,1fr);gap:16px;align-items:start}
+.activity-sidebar{position:sticky;top:16px;align-self:start;padding:6px;border-radius:18px;border:1px solid #e5e7eb;background:linear-gradient(180deg,#fff 0%,#f8fbff 100%)}
+.activity-main{display:grid;gap:10px;min-width:0}
+.activity-topbar__nav{list-style:none;display:grid;grid-template-columns:1fr;gap:8px}
 .activity-topbar__nav li{min-width:0}
-.activity-topbar__nav button{width:100%;display:flex;align-items:center;justify-content:center;min-height:40px;padding:9px 12px;border-radius:14px;font-size:12px;font-weight:600;letter-spacing:.02em;color:#52627d;text-decoration:none;transition:all .18s ease;cursor:pointer;border:1px solid transparent;background:transparent;text-align:center}
+.activity-topbar__nav button{width:100%;display:flex;align-items:center;justify-content:flex-start;min-height:44px;padding:11px 14px;border-radius:14px;font-size:13px;font-weight:600;letter-spacing:.02em;color:#52627d;text-decoration:none;transition:all .18s ease;cursor:pointer;border:1px solid transparent;background:transparent;text-align:left}
 .activity-topbar__nav button:hover{background:#f8fafc;color:#10294b;border-color:#e2e8f0}
 .activity-topbar__nav button.is-active{background:#fff;color:#1d4ed8;font-weight:700;box-shadow:none;border-color:#dbeafe}
 .activity-feedback{width:min(100%,1260px);margin:0 auto 10px;padding:10px 14px;border-radius:14px;border:1px solid #dbeafe;background:#fff;color:#1d4ed8;font-size:13px;box-shadow:none}
@@ -643,8 +644,8 @@ async function submitShare() {
 .share-layout__left,.share-layout__right{display:grid;gap:12px}
 .class-hero{background:#fff;border:1px solid #e5e7eb;border-radius:20px;padding:22px 22px;color:#10294b;margin-bottom:12px;box-shadow:none}
 .class-hero__eyebrow{display:inline-flex;align-items:center;min-height:26px;padding:0 12px;border-radius:999px;background:#fff;font-size:11px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;border:1px solid #dbeafe;color:#1d4ed8}
-.class-hero h1{font-size:28px;font-weight:900;line-height:1.12;margin:8px 0 6px;color:#10294b}
-.class-hero p{font-size:13px;opacity:1;max-width:620px;line-height:1.6;color:#5d7393}
+.class-hero h1{max-width:520px;font-size:13px;font-weight:400;line-height:1.8;margin:8px 0 4px;color:#355070;white-space:normal}
+.class-hero p{font-size:10px;opacity:1;max-width:520px;line-height:1.6;color:#6b7f99}
 .class-hero__stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:12px}
 .class-hero__stats article{padding:9px 11px;border-radius:16px;background:#fff;border:1px solid #e5e7eb}
 .class-hero__stats span{display:block;font-size:11px;opacity:1;margin-bottom:6px;color:#64748b}
@@ -737,6 +738,6 @@ async function submitShare() {
 .risk-tip{font-size:10px;color:#6b7280;display:flex;gap:5px;margin-top:6px;line-height:1.4}
 .activity-page--share .submit-card .btn-primary{min-width:132px;margin-top:2px;padding:8px 18px}
 .activity-page--share .risk-tip{font-size:9px;margin-top:4px;line-height:1.3}
-@media (max-width:1100px){.promo-page{height:auto;min-height:unset;max-height:none}.activity-page{max-width:980px;height:auto;min-height:auto;aspect-ratio:auto;padding:14px 16px;overflow:visible}.class-show-wrap,.share-layout,.steps-grid,.submit-grid,.subsidy-simple,.subsidy-guide{grid-template-columns:1fr}.activity-content{padding:18px;overflow:visible}}
-@media (max-width:720px){.jf-header,.page-title-bar,.invite-stats,.class-room-actions,.promo-actions,.subsidy-actions{flex-direction:column;align-items:stretch}.jf-pipeline,.subsidy-code-row{display:grid;grid-template-columns:1fr}.stage-rail,.detail-table__head,.detail-table__row,.task-table__row,.steps-grid,.submit-grid{grid-template-columns:1fr}.share-plat-tabs{display:grid;grid-template-columns:1fr}.plat-tab{min-width:0}.activity-content{padding:16px}.activity-topbar{margin-bottom:10px;padding:5px}.activity-topbar__nav{gap:6px}.activity-topbar__nav button{min-height:36px;padding:8px 10px;font-size:11px}}
+@media (max-width:1100px){.promo-page{height:auto;min-height:unset;max-height:none}.activity-layout{grid-template-columns:1fr}.activity-sidebar{position:static;top:auto}.activity-topbar__nav{grid-template-columns:repeat(2,minmax(0,1fr))}.activity-page{max-width:980px;height:auto;min-height:auto;aspect-ratio:auto;padding:14px 16px;overflow:visible}.class-show-wrap,.share-layout,.steps-grid,.submit-grid,.subsidy-simple,.subsidy-guide{grid-template-columns:1fr}.activity-content{padding:18px;overflow:visible}}
+@media (max-width:720px){.jf-header,.page-title-bar,.invite-stats,.class-room-actions,.promo-actions,.subsidy-actions{flex-direction:column;align-items:stretch}.jf-pipeline,.subsidy-code-row{display:grid;grid-template-columns:1fr}.stage-rail,.detail-table__head,.detail-table__row,.task-table__row,.steps-grid,.submit-grid,.activity-topbar__nav{grid-template-columns:1fr}.share-plat-tabs{display:grid;grid-template-columns:1fr}.plat-tab{min-width:0}.activity-content{padding:16px}.activity-sidebar{padding:5px}.activity-topbar__nav{gap:6px}.activity-topbar__nav button{min-height:36px;padding:8px 10px;font-size:11px}}
 </style>

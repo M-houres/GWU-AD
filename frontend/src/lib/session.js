@@ -1,41 +1,78 @@
-const USER_TOKEN_KEY = "wuhong_user_access_marker"
-const ADMIN_TOKEN_KEY = "wuhong_admin_access_marker"
+const USER_TOKEN_KEY = "wuhong_user_access_token"
+const USER_REFRESH_TOKEN_KEY = "wuhong_user_refresh_token"
+const ADMIN_TOKEN_KEY = "wuhong_admin_access_token"
+const ADMIN_REFRESH_TOKEN_KEY = "wuhong_admin_refresh_token"
 const USER_INFO_KEY = "wuhong_user_info"
 const ADMIN_INFO_KEY = "wuhong_admin_info"
 const USER_NAVIGATION_KEY = "wuhong_user_navigation"
 
+function normalizeToken(value) {
+  const token = String(value || "").trim()
+  return /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(token) ? token : ""
+}
+
 export function getUserToken() {
-  return localStorage.getItem(USER_TOKEN_KEY) || ""
+  return normalizeToken(localStorage.getItem(USER_TOKEN_KEY))
 }
 
 export function setUserToken(token) {
-  if (!token) {
+  const normalized = normalizeToken(token)
+  if (!normalized) {
     localStorage.removeItem(USER_TOKEN_KEY)
     return
   }
-  localStorage.setItem(USER_TOKEN_KEY, "1")
+  localStorage.setItem(USER_TOKEN_KEY, normalized)
+}
+
+export function getUserRefreshToken() {
+  return normalizeToken(localStorage.getItem(USER_REFRESH_TOKEN_KEY))
+}
+
+export function setUserRefreshToken(token) {
+  const normalized = normalizeToken(token)
+  if (!normalized) {
+    localStorage.removeItem(USER_REFRESH_TOKEN_KEY)
+    return
+  }
+  localStorage.setItem(USER_REFRESH_TOKEN_KEY, normalized)
 }
 
 export function clearUserSession() {
   localStorage.removeItem(USER_TOKEN_KEY)
+  localStorage.removeItem(USER_REFRESH_TOKEN_KEY)
   localStorage.removeItem(USER_INFO_KEY)
   localStorage.removeItem(USER_NAVIGATION_KEY)
 }
 
 export function getAdminToken() {
-  return localStorage.getItem(ADMIN_TOKEN_KEY) || ""
+  return normalizeToken(localStorage.getItem(ADMIN_TOKEN_KEY))
 }
 
 export function setAdminToken(token) {
-  if (!token) {
+  const normalized = normalizeToken(token)
+  if (!normalized) {
     localStorage.removeItem(ADMIN_TOKEN_KEY)
     return
   }
-  localStorage.setItem(ADMIN_TOKEN_KEY, "1")
+  localStorage.setItem(ADMIN_TOKEN_KEY, normalized)
+}
+
+export function getAdminRefreshToken() {
+  return normalizeToken(localStorage.getItem(ADMIN_REFRESH_TOKEN_KEY))
+}
+
+export function setAdminRefreshToken(token) {
+  const normalized = normalizeToken(token)
+  if (!normalized) {
+    localStorage.removeItem(ADMIN_REFRESH_TOKEN_KEY)
+    return
+  }
+  localStorage.setItem(ADMIN_REFRESH_TOKEN_KEY, normalized)
 }
 
 export function clearAdminSession() {
   localStorage.removeItem(ADMIN_TOKEN_KEY)
+  localStorage.removeItem(ADMIN_REFRESH_TOKEN_KEY)
   localStorage.removeItem(ADMIN_INFO_KEY)
 }
 

@@ -15,7 +15,6 @@
             <span class="brand-mark">GW</span>
             <div class="brand-copy">
               <strong>格物学术</strong>
-              <span>Academic Workspace</span>
             </div>
           </RouterLink>
 
