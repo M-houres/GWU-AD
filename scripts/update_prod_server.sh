@@ -9,6 +9,8 @@ APP_DIR="${APP_DIR:-/opt/gewuxueshu}"
 ENV_FILE="${ENV_FILE:-${APP_DIR}/.env.prod}"
 COMPOSE_FILE="${COMPOSE_FILE:-${APP_DIR}/docker-compose.prod.yml}"
 KEEP_ENV="${KEEP_ENV:-1}"
+INFRA_SERVICES=(mysql redis)
+APP_SERVICES=(backend worker-submission worker-processing worker-maintenance worker-beat frontend edge backup)
 
 TARBALL_URL="${TARBALL_URL:-https://codeload.github.com/${REPO_OWNER}/${REPO_NAME}/tar.gz/refs/heads/${BRANCH}}"
 TMP_ROOT="$(mktemp -d /tmp/gewu-update.XXXXXX)"
@@ -108,35 +110,51 @@ prepare_public_edge() {
   fi
 }
 
-deploy_compose() {
-  log "Deploying containers"
+wait_for_service_state() {
+  local service="$1"
+  local desired="$2"
+  local max_attempts="${3:-60}"
+  local attempt status
+  for attempt in $(seq 1 "${max_attempts}"); do
+    status="$(run_root docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "wuhongai-${service}" 2>/dev/null || true)"
+    if [ "${status}" = "${desired}" ]; then
+      return 0
+    fi
+    sleep 2
+  done
+  echo "Service ${service} did not reach state ${desired}. Current: ${status:-unknown}" >&2
+  return 1
+}
+
+ensure_infra() {
+  log "Ensuring infrastructure services"
   cd "${APP_DIR}"
-  run_root docker compose --env-file "${ENV_FILE}" -f "${COMPOSE_FILE}" up -d --build --remove-orphans
+  run_root docker compose --env-file "${ENV_FILE}" -f "${COMPOSE_FILE}" up -d "${INFRA_SERVICES[@]}"
+  wait_for_service_state mysql healthy 90
+  wait_for_service_state redis healthy 60
+}
+
+deploy_compose() {
+  log "Deploying application services"
+  cd "${APP_DIR}"
+  run_root docker compose --env-file "${ENV_FILE}" -f "${COMPOSE_FILE}" up -d --build --no-deps --remove-orphans "${APP_SERVICES[@]}"
   run_root docker compose --env-file "${ENV_FILE}" -f "${COMPOSE_FILE}" ps
 }
 
 health_check() {
   log "Health check"
-  local i services
-  for i in $(seq 1 40); do
-    services="$(run_root docker compose --env-file "${ENV_FILE}" -f "${COMPOSE_FILE}" ps --status running --services || true)"
-    if \
-      echo "${services}" | grep -qx "backend" && \
-      echo "${services}" | grep -qx "worker-submission" && \
-      echo "${services}" | grep -qx "worker-processing" && \
-      echo "${services}" | grep -qx "worker-maintenance" && \
-      echo "${services}" | grep -qx "worker-beat" && \
-      echo "${services}" | grep -qx "frontend" && \
-      echo "${services}" | grep -qx "edge" && \
-      echo "${services}" | grep -qx "backup"
-    then
-      if curl -kfsS https://127.0.0.1 >/dev/null 2>&1; then
-        echo "Health check passed."
-        return 0
-      fi
-    fi
-    sleep 2
-  done
+  wait_for_service_state backend healthy 120
+  wait_for_service_state frontend healthy 90
+  wait_for_service_state edge healthy 90
+  wait_for_service_state worker-submission healthy 90
+  wait_for_service_state worker-processing healthy 90
+  wait_for_service_state worker-maintenance healthy 90
+  wait_for_service_state worker-beat healthy 90
+
+  if curl -kfsS -H "Host: restin.top" https://127.0.0.1/api/v1/auth/options >/dev/null 2>&1; then
+    echo "Health check passed."
+    return 0
+  fi
   echo "WARNING: health check timeout."
   echo "Run: sudo docker compose --env-file ${ENV_FILE} -f ${COMPOSE_FILE} logs --tail=200"
   return 1
@@ -151,6 +169,7 @@ main() {
   sync_source
   normalize_runtime_scripts
   prepare_public_edge
+  ensure_infra
   deploy_compose
   health_check
   log "Update complete"
