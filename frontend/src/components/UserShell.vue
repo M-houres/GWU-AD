@@ -101,8 +101,13 @@
           <button type="button" class="header-link" :class="{ 'is-active': isPrimaryAccountActionActive }" @click="hasUserToken ? goProfile() : goLogin()">
             {{ hasUserToken ? "个人中心" : "登录" }}
           </button>
-          <button type="button" class="header-link header-link--muted" :class="{ 'is-active': isSecondaryAccountActionActive }" @click="hasUserToken ? logout() : goRegister()">
-            {{ hasUserToken ? "退出" : "注册" }}
+          <button
+            v-if="hasUserToken"
+            type="button"
+            class="header-link header-link--muted"
+            @click="logout()"
+          >
+            退出
           </button>
         </div>
       </header>
@@ -228,7 +233,6 @@ const shouldHideTopbar = computed(() => {
 })
 const isBuyActive = computed(() => isRouteMatch(route.path, "/app/buy"))
 const isPrimaryAccountActionActive = computed(() => (hasUserToken.value ? isRouteMatch(route.path, "/app/profile") : isRouteMatch(route.path, "/login")))
-const isSecondaryAccountActionActive = computed(() => (!hasUserToken.value ? isRouteMatch(route.path, "/register") : false))
 const noticeTitle = computed(() => String(noticeState.value.title || "公告"))
 const showNoticeEntry = computed(() => noticeState.value.enabled)
 const noticeBodyText = computed(() => {
@@ -363,11 +367,6 @@ function goProfile() {
 function goLogin() {
   const redirect = encodeURIComponent(route.fullPath || "/app/detect")
   router.push(`/login?redirect=${redirect}`)
-}
-
-function goRegister() {
-  const redirect = encodeURIComponent(route.fullPath || "/app/detect")
-  router.push(`/register?redirect=${redirect}`)
 }
 
 function isMenuActive(path) {

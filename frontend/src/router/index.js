@@ -16,7 +16,6 @@ const AdminNoticeConfigPage = () => import('../views/admin/AdminNoticeConfigPage
 const AdminLogsPage = () => import('../views/admin/AdminLogsPage.vue')
 const AdminAdminUsersPage = () => import('../views/admin/AdminAdminUsersPage.vue')
 const LoginPage = () => import('../views/user/LoginPage.vue')
-const RegisterPage = () => import('../views/user/RegisterPage.vue')
 const UserBuyPage = () => import('../views/user/UserBuyPage.vue')
 const UserProfilePage = () => import('../views/user/UserProfilePage.vue')
 const UserDetectPage = () => import('../views/user/UserDetectPage.vue')
@@ -70,7 +69,8 @@ const router = createRouter({
     { path: '/', redirect: '/login' },
     { path: '/home', redirect: '/login' },
     { path: '/login', component: LoginPage },
-    { path: '/register', component: RegisterPage },
+    // Keep invite links like /register?ref=... working, but render login page.
+    { path: '/register', component: LoginPage },
     { path: '/terms', component: TermsPage, meta: { title: '服务协议' } },
     { path: '/privacy', component: PrivacyPage, meta: { title: '隐私政策' } },
     { path: '/detect', redirect: '/app/detect' },

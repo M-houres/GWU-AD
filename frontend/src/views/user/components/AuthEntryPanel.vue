@@ -1,16 +1,14 @@
 <template>
   <div class="gw-auth-page">
     <main class="gw-auth-page__main">
-      <section class="gw-auth-card" :aria-label="isRegisterPage ? '注册面板' : '登录面板'">
+      <section class="gw-auth-card" aria-label="登录面板">
         <header class="gw-auth-card__head">
           <div class="gw-auth-card__brand" role="img" aria-label="格物学术">
             <span class="gw-auth-card__brand-mark">GW</span>
             <span class="gw-auth-card__brand-name">格物学术</span>
           </div>
 
-          <RouterLink class="gw-auth-card__entry-link" :to="alternateEntryLink">
-            {{ alternateEntryText }}
-          </RouterLink>
+          <span class="gw-auth-card__entry-link">验证码登录</span>
         </header>
 
         <h1 class="gw-auth-card__title">{{ panelTitle }}</h1>
@@ -114,7 +112,6 @@ const sending = ref(false)
 const countdown = ref(0)
 const errorText = ref("")
 const hintText = ref("")
-const alternateEntryLink = ref("/register")
 const referrerCode = ref("")
 
 const wxKey = ref("")
@@ -126,13 +123,11 @@ let smsCountdownTimer = null
 let wxCountTimer = null
 let wxPollTimer = null
 
-const isRegisterPage = computed(() => props.entryType === "register")
-const panelTitle = computed(() => (isRegisterPage.value ? "账号注册" : "账号登录"))
-const primaryButtonText = computed(() => (isRegisterPage.value ? "注册并进入工作台" : "登录并进入工作台"))
-const alternateEntryText = computed(() => (isRegisterPage.value ? "已有账号，去登录" : "没有账号，去注册"))
+const panelTitle = computed(() => "账号登录")
+const primaryButtonText = computed(() => "登录并进入工作台")
 const authHintText = computed(() => {
   if (mode.value === "wx") return "请使用微信扫码完成授权登录"
-  return isRegisterPage.value ? "使用手机号验证码快速注册" : "请输入手机号与验证码登录"
+  return "请输入手机号与验证码登录"
 })
 const wxStatusText = computed(() => {
   if (wxStatus.value === "authorized") return "已授权，正在登录"
@@ -173,23 +168,14 @@ onUnmounted(() => {
 })
 
 function syncRouteParams() {
-  const params = new URLSearchParams()
-  const redirect = resolveUserRedirect(route.query.redirect, "")
-  if (redirect) params.set("redirect", redirect)
-
   const queryRef = route.query.ref
   if (typeof queryRef === "string" && queryRef.trim()) {
     referrerCode.value = queryRef.trim().toUpperCase()
     localStorage.setItem("wuhong_referrer_code", referrerCode.value)
-    params.set("ref", referrerCode.value)
   } else {
     const cachedRef = localStorage.getItem("wuhong_referrer_code")
     referrerCode.value = cachedRef ? cachedRef.toUpperCase() : ""
-    if (referrerCode.value) params.set("ref", referrerCode.value)
   }
-
-  const targetPath = isRegisterPage.value ? "/login" : "/register"
-  alternateEntryLink.value = params.toString() ? `${targetPath}?${params.toString()}` : targetPath
 }
 
 function stopSmsCountdown() {
@@ -726,7 +712,7 @@ function enterGuest() {
 @media (max-width: 480px) {
   .gw-auth-page__main {
     padding: 12px;
-    align-items: start;
+    align-items: center;
   }
 
   .gw-auth-card__head {
