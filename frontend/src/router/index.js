@@ -44,6 +44,17 @@ const adminEntryRoutes = [
   { path: '/admin/admin-users', permission: 'admins:view' },
 ]
 
+// Pages that can be browsed without login; action buttons inside these pages
+// still enforce login through `ensureUserLogin`.
+const userGuestBrowsablePaths = new Set([
+  '/app/detect',
+  '/app/dedup',
+  '/app/rewrite',
+  '/app/review',
+  '/app/defense',
+  '/app/buy',
+])
+
 function firstAccessibleAdminRoute() {
   for (const item of adminEntryRoutes) {
     if (adminHasPermission(item.permission)) {
@@ -107,6 +118,9 @@ router.beforeEach((to) => {
     return resolveUserRedirect(to.query.redirect, '/app/detect')
   }
   if (to.meta.auth === 'user' && !getUserToken()) {
+    if (userGuestBrowsablePaths.has(to.path)) {
+      return true
+    }
     const redirect = encodeURIComponent(to.fullPath || '/app/detect')
     return `/login?redirect=${redirect}`
   }

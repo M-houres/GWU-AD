@@ -398,8 +398,11 @@ function enterGuest() {
 .gw-auth-page {
   min-height: 100vh;
   display: grid;
-  background: #ffffff;
-  color: #111111;
+  background:
+    radial-gradient(1200px 600px at 8% -10%, rgba(30, 91, 223, 0.2), rgba(30, 91, 223, 0) 60%),
+    radial-gradient(900px 500px at 92% 110%, rgba(30, 91, 223, 0.12), rgba(30, 91, 223, 0) 62%),
+    linear-gradient(180deg, #f5f9ff 0%, #eef4ff 100%);
+  color: #173b70;
 }
 
 .gw-auth-page__main {
@@ -411,12 +414,13 @@ function enterGuest() {
 
 .gw-auth-card {
   width: min(100%, 420px);
-  border: 1px solid #d9d9d9;
+  border: 1px solid #c8dafd;
   border-radius: 16px;
   background: #ffffff;
   padding: 22px;
   display: grid;
   gap: 12px;
+  box-shadow: 0 20px 42px rgba(30, 91, 223, 0.12);
 }
 
 .gw-auth-card__head {
@@ -438,7 +442,7 @@ function enterGuest() {
   border-radius: 8px;
   display: grid;
   place-items: center;
-  background: #111111;
+  background: linear-gradient(135deg, #2d6ff0 0%, #1e5bdf 60%, #184ec8 100%);
   color: #ffffff;
   font-size: 11px;
   font-weight: 800;
@@ -449,14 +453,15 @@ function enterGuest() {
   font-size: 17px;
   font-weight: 700;
   letter-spacing: 0.02em;
+  color: #143a73;
 }
 
 .gw-auth-card__entry-link {
   min-height: 34px;
   padding: 0 10px;
   border-radius: 8px;
-  border: 1px solid #111111;
-  background: #111111;
+  border: 1px solid #1e5bdf;
+  background: #1e5bdf;
   color: #ffffff;
   text-decoration: none;
   font-size: 12px;
@@ -471,12 +476,13 @@ function enterGuest() {
   font-size: 24px;
   line-height: 1.2;
   letter-spacing: 0.01em;
+  color: #143a73;
 }
 
 .gw-auth-card__hint {
   margin: 0;
   font-size: 13px;
-  color: #3f3f3f;
+  color: #5a77a4;
   line-height: 1.55;
 }
 
@@ -493,9 +499,9 @@ function enterGuest() {
 .gw-auth-card__wechat-actions button,
 .gw-auth-card__guest {
   min-height: 40px;
-  border: 1px solid #111111;
+  border: 1px solid #1e5bdf;
   border-radius: 10px;
-  background: #111111;
+  background: #1e5bdf;
   color: #ffffff;
   font-size: 13px;
   font-weight: 700;
@@ -504,13 +510,15 @@ function enterGuest() {
 }
 
 .gw-auth-card__tabs button {
-  background: #ffffff;
-  color: #111111;
+  background: #eef4ff;
+  color: #244f91;
+  border-color: #c8dafd;
 }
 
 .gw-auth-card__tabs button.is-active {
-  background: #111111;
+  background: #1e5bdf;
   color: #ffffff;
+  border-color: #1e5bdf;
 }
 
 .gw-auth-card__tabs button:hover,
@@ -519,8 +527,8 @@ function enterGuest() {
 .gw-auth-card__secondary:hover,
 .gw-auth-card__wechat-actions button:hover,
 .gw-auth-card__entry-link:hover {
-  background: #2b2b2b;
-  border-color: #2b2b2b;
+  background: #225be4;
+  border-color: #225be4;
   color: #ffffff;
 }
 
@@ -530,9 +538,9 @@ function enterGuest() {
 .gw-auth-card__secondary:active,
 .gw-auth-card__wechat-actions button:active,
 .gw-auth-card__entry-link:active {
-  background: #ffffff;
-  border-color: #111111;
-  color: #111111;
+  background: #eef4ff;
+  border-color: #1e5bdf;
+  color: #1e5bdf;
 }
 
 .gw-auth-card__form {
@@ -547,30 +555,31 @@ function enterGuest() {
 
 .gw-auth-card__field span {
   font-size: 12px;
-  color: #333333;
+  color: #3e6295;
 }
 
 .gw-auth-card__field input,
 .gw-auth-card__code-row input {
   width: 100%;
   height: 40px;
-  border: 1px solid #d0d0d0;
+  border: 1px solid #c8dafd;
   border-radius: 10px;
   padding: 0 12px;
   background: #ffffff;
-  color: #111111;
+  color: #173b70;
   font-size: 14px;
 }
 
 .gw-auth-card__field input::placeholder,
 .gw-auth-card__code-row input::placeholder {
-  color: #777777;
+  color: #8aa3c9;
 }
 
 .gw-auth-card__field input:focus,
 .gw-auth-card__code-row input:focus {
   outline: none;
-  border-color: #111111;
+  border-color: #1e5bdf;
+  box-shadow: 0 0 0 3px rgba(30, 91, 223, 0.14);
 }
 
 .gw-auth-card__code-row {
@@ -588,13 +597,23 @@ function enterGuest() {
   display: inline-flex;
   align-items: flex-start;
   gap: 8px;
-  color: #333333;
+  color: #4f6a91;
   font-size: 12px;
   line-height: 1.6;
 }
 
 .gw-auth-card__policy input {
   margin-top: 2px;
+}
+
+.gw-auth-card__policy a {
+  color: #1e5bdf;
+  text-decoration: none;
+}
+
+.gw-auth-card__policy a:hover {
+  color: #184ec8;
+  text-decoration: underline;
 }
 
 .gw-auth-card__submit {
@@ -609,18 +628,19 @@ function enterGuest() {
 
 .gw-auth-card__secondary {
   min-height: 38px;
-  background: #ffffff;
-  color: #111111;
+  background: #eef4ff;
+  color: #1e5bdf;
+  border-color: #c8dafd;
 }
 
 .gw-auth-card__secondary:hover {
-  background: #f5f5f5;
-  color: #111111;
-  border-color: #111111;
+  background: #e2ecff;
+  color: #1e5bdf;
+  border-color: #1e5bdf;
 }
 
 .gw-auth-card__secondary:active {
-  background: #111111;
+  background: #1e5bdf;
   color: #ffffff;
 }
 
@@ -631,11 +651,11 @@ function enterGuest() {
 
 .gw-auth-card__qrcode {
   min-height: 220px;
-  border: 1px solid #d9d9d9;
+  border: 1px solid #c8dafd;
   border-radius: 12px;
   display: grid;
   place-items: center;
-  color: #333333;
+  color: #4f6a91;
   font-size: 13px;
 }
 
@@ -645,12 +665,12 @@ function enterGuest() {
   border-radius: 10px;
   background: #ffffff;
   padding: 8px;
-  border: 1px solid #d9d9d9;
+  border: 1px solid #d4e3fb;
 }
 
 .gw-auth-card__wechat-status {
   margin: 0;
-  color: #333333;
+  color: #4f6a91;
   font-size: 12px;
 }
 
@@ -670,32 +690,37 @@ function enterGuest() {
   border-radius: 8px;
   font-size: 12px;
   line-height: 1.5;
-  border: 1px solid #d9d9d9;
+  border: 1px solid #d4e3fb;
 }
 
 .gw-auth-card__msg--error {
-  color: #8f2424;
+  color: #b33349;
+  background: #fff3f6;
+  border-color: #f3c3cf;
 }
 
 .gw-auth-card__msg--ok {
-  color: #245542;
+  color: #1f6a42;
+  background: #eefbf4;
+  border-color: #bfe8ce;
 }
 
 .gw-auth-card__footer {
   padding-top: 6px;
-  border-top: 1px solid #e5e5e5;
+  border-top: 1px solid #dce8ff;
 }
 
 .gw-auth-card__guest {
   width: 100%;
   background: #ffffff;
-  color: #111111;
+  color: #1e5bdf;
+  border-color: #c8dafd;
 }
 
 .gw-auth-card__guest:hover {
-  background: #f5f5f5;
-  border-color: #111111;
-  color: #111111;
+  background: #eef4ff;
+  border-color: #1e5bdf;
+  color: #1e5bdf;
 }
 
 @media (max-width: 480px) {

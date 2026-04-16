@@ -1,5 +1,5 @@
 param(
-  [string]$ServerHost = "106.54.2.9",
+  [string]$ServerHost = "124.220.228.197",
   [string]$User = "ubuntu",
   [string]$KeyPath = "$env:USERPROFILE\.ssh\txssh2.pem"
 )
