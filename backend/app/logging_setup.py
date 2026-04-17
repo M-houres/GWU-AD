@@ -48,11 +48,16 @@ def clear_log_context() -> None:
 class RequestContextFilter(logging.Filter):
     def filter(self, record: logging.LogRecord) -> bool:
         ctx = _LOG_CONTEXT.get()
-        record.request_id = ctx.get("request_id")
-        record.client_ip = ctx.get("client_ip")
-        record.user_id = ctx.get("user_id")
-        record.path = ctx.get("path")
-        record.method = ctx.get("method")
+        if getattr(record, "request_id", None) is None:
+            record.request_id = ctx.get("request_id")
+        if getattr(record, "client_ip", None) is None:
+            record.client_ip = ctx.get("client_ip")
+        if getattr(record, "user_id", None) is None:
+            record.user_id = ctx.get("user_id")
+        if getattr(record, "path", None) is None:
+            record.path = ctx.get("path")
+        if getattr(record, "method", None) is None:
+            record.method = ctx.get("method")
         return True
 
 

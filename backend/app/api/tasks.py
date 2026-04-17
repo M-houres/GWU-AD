@@ -1,5 +1,6 @@
 from pathlib import Path
 from datetime import datetime
+import hashlib
 import logging
 import uuid
 
@@ -28,6 +29,9 @@ from app.utils import count_billable_chars, detect_file_magic, extract_text_from
 router = APIRouter()
 settings = get_settings()
 logger = logging.getLogger("app.api.tasks")
+IDEMPOTENCY_KEY_MAX_LEN = 128
+IDEMPOTENCY_HEADER_MAX_LEN = 96
+IDEMPOTENCY_HASH_HEX_LEN = 40
 
 TASK_PAPER_EXTENSIONS: dict[TaskType, set[str]] = {
     TaskType.AIGC_DETECT: {".docx", ".pdf", ".txt"},
@@ -267,8 +271,14 @@ def _build_idempotency_key(request: Request, *, user_id: int, task_type: TaskTyp
     raw = str(request.headers.get("Idempotency-Key") or request.headers.get("X-Idempotency-Key") or "").strip()
     if not raw:
         return None
-    normalized = raw[:96]
-    return f"{user_id}:{task_type.value}:{platform}:{filename}:{normalized}"
+    normalized = raw[:IDEMPOTENCY_HEADER_MAX_LEN]
+    legacy_key = f"{user_id}:{task_type.value}:{platform}:{filename}:{normalized}"
+    if len(legacy_key) <= IDEMPOTENCY_KEY_MAX_LEN:
+        return legacy_key
+    digest = hashlib.sha256(legacy_key.encode("utf-8")).hexdigest()[:IDEMPOTENCY_HASH_HEX_LEN]
+    # Keep a stable fallback key that always fits the DB column while preserving dedup semantics.
+    hashed_key = f"{user_id}:{task_type.value}:{platform}:sha256:{digest}"
+    return hashed_key[:IDEMPOTENCY_KEY_MAX_LEN]
 
 
 def _resolve_task_rate(db: Session, task_type: TaskType) -> int:
@@ -531,6 +541,49 @@ def submit_task(
             "billing": billing_payload,
             "idempotent": False,
             "dispatch_mode": dispatch_mode,
+        }
+    )
+
+
+@router.post("/submit/recover", response_model=APIResp)
+def recover_submitted_task(
+    request: Request,
+    payload: dict,
+    user: User = Depends(current_user),
+    db: Session = Depends(db_dep),
+) -> APIResp:
+    task_type = _parse_task_type(str(payload.get("task_type", "")).strip())
+    source_filename = safe_filename(str(payload.get("source_filename", "")).strip())
+    if not source_filename:
+        raise BizError(code=4119, message="缺少源文件名", http_status=422)
+    normalized_platform = normalize_platform(str(payload.get("platform", "cnki")))
+    idempotency_key = _build_idempotency_key(
+        request,
+        user_id=user.id,
+        task_type=task_type,
+        platform=normalized_platform,
+        filename=source_filename,
+    )
+    if not idempotency_key:
+        raise BizError(code=4120, message="缺少提交幂等键", http_status=422)
+    row = (
+        db.query(Task)
+        .filter(Task.user_id == user.id, Task.idempotency_key == idempotency_key)
+        .order_by(desc(Task.id))
+        .first()
+    )
+    if row is None:
+        raise BizError(code=4041, message="任务不存在", http_status=404)
+    return ok(
+        data={
+            "id": row.id,
+            "task_type": row.task_type.value,
+            "platform": row.platform,
+            "status": row.status.value,
+            "source_filename": row.source_filename,
+            "cost_credits": row.cost_credits,
+            "created_at": row.created_at,
+            "updated_at": row.updated_at,
         }
     )
 

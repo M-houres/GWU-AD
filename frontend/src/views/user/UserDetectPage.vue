@@ -1,7 +1,7 @@
 ﻿<template>
   <UserShell
     title="AIGC检测"
-    subtitle="上传文档后提交检测，系统将按模拟知网、模拟维普、模拟PaperPass规则生成简洁报告与全文报告。"
+    subtitle="上传文档后提交检测，系统将按模拟知网、模拟维普、模拟PaperPass规则生成一份全文报告。"
     :credits="userCredits"
     :hide-topbar="true"
     :hide-header-title="true"
@@ -169,11 +169,14 @@ import WorkbenchTaskFeed from "../../components/WorkbenchTaskFeed.vue"
 import { useUserProfile } from "../../composables/useUserProfile"
 import { userHttp } from "../../lib/http"
 import {
+  buildTaskSubmitNetworkHint,
   createTaskSubmitIdempotencyKey,
   isTaskSubmitCanceledError,
   isTaskSubmitNetworkError,
   isTaskSubmitTimeoutError,
+  recoverSubmittedTaskByIdempotency,
   recoverSubmittedTask,
+  submitTaskWithRetry,
 } from "../../lib/taskSubmitRecovery"
 import { derivePaperTitleFromFilename, shouldAutoFillPaperTitle } from "../../lib/paperTitle"
 import { AIGC_PLATFORM_OPTIONS } from "../../lib/taskPlatform"
@@ -188,6 +191,8 @@ const userCredits = computed(() => {
   const value = user.value && user.value.credits
   return typeof value === "number" ? value : null
 })
+const pageHeadQuotaText = "多平台仿真检测，提交后自动生成全文报告并可在记录页持续查看进度。"
+const submitQuotaHint = "提交后可在检测记录页查看进度、回看结果并下载报告。"
 
 const form = reactive({
   platform: "cnki",
@@ -211,8 +216,8 @@ const features = [
   },
   {
     icon: "2",
-    title: "双报告输出",
-    desc: "每次任务同时整理简洁报告与全文报告，便于快速判断和继续人工复核。",
+    title: "全文报告输出",
+    desc: "每次任务输出一份完整全文报告，便于统一归档和后续人工复核。",
   },
   {
     icon: "3",
@@ -368,21 +373,28 @@ async function submitTask() {
   submitting.value = true
   errorText.value = ""
   successText.value = ""
-
-  try {
+  const submitOnce = () => {
     const payload = new FormData()
     payload.append("task_type", snapshot.taskType)
     payload.append("platform", snapshot.platform)
     payload.append("paper", snapshot.paper)
     payload.append("paper_title", snapshot.paperTitle)
     payload.append("authors", snapshot.authors)
-
-    const data = await userHttp.post("/tasks/submit", payload, {
+    return userHttp.post("/tasks/submit", payload, {
       timeout: 120000,
       signal,
       headers: {
         "X-Idempotency-Key": idempotencyKey,
       },
+    })
+  }
+
+  try {
+    const data = await submitTaskWithRetry({
+      signal,
+      maxAttempts: 4,
+      retryDelayMs: 1200,
+      submitOnce,
     })
     if (!isActiveSubmit(token)) return
 
@@ -399,12 +411,34 @@ async function submitTask() {
       return
     }
     if (isTaskSubmitTimeoutError(error) || isTaskSubmitNetworkError(error)) {
+      const idempotentTask = await recoverSubmittedTaskByIdempotency({
+        userHttp,
+        taskType: snapshot.taskType,
+        platform: snapshot.platform,
+        sourceFilename: snapshot.sourceFilename,
+        idempotencyKey,
+        signal,
+      })
+      if (!isActiveSubmit(token)) return
+      if (idempotentTask?.id) {
+        successText.value = `任务已找回：#${idempotentTask.id}，正在跳转记录页`
+        try {
+          await refreshUser()
+        } catch (refreshError) {
+          console.warn("task_submit_refresh_user_failed", refreshError)
+        }
+        if (!isActiveSubmit(token)) return
+        router.push({ path: "/app/detect/records", query: { focus: String(idempotentTask.id) } })
+        return
+      }
       const recoveredTask = await recoverSubmittedTask({
         taskType: snapshot.taskType,
         paperTitle: snapshot.paperTitle,
         authors: snapshot.authors,
         sourceFilename: snapshot.sourceFilename,
         submittedAt,
+        attempts: 6,
+        retryDelayMs: 1200,
         signal,
       })
       if (!isActiveSubmit(token)) return
@@ -419,6 +453,28 @@ async function submitTask() {
         router.push({ path: "/app/detect/records", query: { focus: String(recoveredTask.id) } })
         return
       }
+      try {
+        const rescueData = await submitTaskWithRetry({
+          signal,
+          maxAttempts: 6,
+          retryDelayMs: 1500,
+          submitOnce,
+        })
+        if (!isActiveSubmit(token)) return
+        successText.value = `网络恢复后已补交成功，任务 #${rescueData.id} 已进入处理队列`
+        try {
+          await refreshUser()
+        } catch (refreshError) {
+          console.warn("task_submit_refresh_user_failed", refreshError)
+        }
+        if (!isActiveSubmit(token)) return
+        router.push({ path: "/app/detect/records", query: { focus: String(rescueData.id) } })
+        return
+      } catch (rescueError) {
+        if (isTaskSubmitCanceledError(rescueError) || !isActiveSubmit(token)) {
+          return
+        }
+      }
     }
     const message = String(error?.message || "").trim()
     if (isTaskSubmitTimeoutError(error)) {
@@ -426,7 +482,7 @@ async function submitTask() {
       return
     }
     if (isTaskSubmitNetworkError(error)) {
-      errorText.value = "提交未收到有效响应，请检查后端服务；也可到检测记录页查看任务是否已创建"
+      errorText.value = await buildTaskSubmitNetworkHint({ signal })
       return
     }
     errorText.value = message || "提交失败，请稍后重试"

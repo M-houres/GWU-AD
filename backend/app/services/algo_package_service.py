@@ -1,6 +1,7 @@
-﻿import hashlib
+import hashlib
 import io
 import json
+import logging
 import re
 import subprocess
 import sys
@@ -18,6 +19,7 @@ from app.exceptions import BizError
 from app.models import SystemConfig, TaskType
 
 settings = get_settings()
+logger = logging.getLogger('app.services.algo_package')
 
 SUPPORTED_PLATFORMS = ("cnki", "vip", "paperpass")
 SUPPORTED_FUNCTION_TYPES = tuple(t.value for t in TaskType)
@@ -605,4 +607,5 @@ def run_active_package(
     except Exception as exc:
         detail = traceback.format_exc(limit=3)
         raise BizError(code=4532, message=f"算法包执行失败: {exc}\n{detail}") from exc
+
 

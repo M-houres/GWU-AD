@@ -4,8 +4,7 @@ from sqlalchemy import engine_from_config
 from sqlalchemy import pool
 
 from alembic import context
-from app.config import get_settings
-from app.database import Base
+from app.database import Base, engine
 from app import models  # noqa: F401
 
 # this is the Alembic Config object, which provides
@@ -17,12 +16,11 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-# add your model's MetaData object here
-# for 'autogenerate' support
-# from myapp import mymodel
-settings = get_settings()
-db_url = settings.mysql_dsn if settings.app_env == "prod" else settings.sqlite_dsn
-config.set_main_option("sqlalchemy.url", db_url)
+# Keep Alembic bound to the same database URL selected by runtime engine
+# (MySQL when available, SQLite fallback otherwise).
+# NOTE: use hide_password=False, otherwise URL string masks password as "***"
+# and migrations will fail authentication.
+config.set_main_option("sqlalchemy.url", engine.url.render_as_string(hide_password=False))
 target_metadata = Base.metadata
 
 # other values from the config, defined by the needs of env.py,

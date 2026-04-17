@@ -39,6 +39,26 @@ function deriveTitleFromFilename(filename) {
   return normalizeFilename(filename).replace(/\.[^.]+$/, "")
 }
 
+function hashTextToHex(value) {
+  const text = String(value || "")
+  let hash = 2166136261
+  for (let i = 0; i < text.length; i += 1) {
+    hash ^= text.charCodeAt(i)
+    hash = Math.imul(hash, 16777619)
+  }
+  return (hash >>> 0).toString(16).padStart(8, "0")
+}
+
+function toHeaderSafeSegment(value, { maxLen = 24 } = {}) {
+  const normalized = String(value || "").trim().toLowerCase()
+  if (!normalized) return ""
+  const ascii = normalized.replace(/[^a-z0-9._-]/g, "")
+  if (ascii.length >= 6) {
+    return ascii.slice(0, maxLen)
+  }
+  return hashTextToHex(normalized)
+}
+
 function parseTimestamp(value) {
   const timestamp = Date.parse(String(value || ""))
   return Number.isFinite(timestamp) ? timestamp : null
@@ -95,7 +115,7 @@ export function isTaskSubmitTimeoutError(error) {
   const message = String(error?.message || "").trim()
   const code = String(error?.code || "").trim()
   return (
-    /timeout|timed out|exceeded/i.test(message) ||
+    /timeout|timed out|exceeded|请求超时/i.test(message) ||
     code === "ECONNABORTED" ||
     code === "ETIMEDOUT"
   )
@@ -104,17 +124,27 @@ export function isTaskSubmitTimeoutError(error) {
 export function isTaskSubmitNetworkError(error) {
   const message = String(error?.message || "").trim()
   const code = String(error?.code || "").trim().toUpperCase()
+  const numericCode = Number(code || 0)
   const status = Number(error?.response?.status || 0)
   return (
-    /network error|failed to fetch|fetch failed|load failed|err_network|connection closed|empty response|socket hang up/i.test(
+    /network error|failed to fetch|fetch failed|load failed|err_network|connection closed|empty response|socket hang up|网络连接异常|连接异常|服务暂时不可用|网关异常/i.test(
       message
     ) ||
     [
       "ERR_NETWORK",
+      "NETWORK_ERROR",
       "ERR_CONNECTION_CLOSED",
       "ERR_CONNECTION_RESET",
       "ERR_EMPTY_RESPONSE",
+      "GATEWAY_ERROR",
+      "502",
+      "503",
+      "504",
+      "520",
+      "522",
+      "524",
     ].includes(code) ||
+    [502, 503, 504, 520, 522, 524].includes(numericCode) ||
     (!error?.response && Boolean(error?.request)) ||
     [502, 503, 504, 520, 522, 524].includes(status)
   )
@@ -124,6 +154,63 @@ export function isTaskSubmitCanceledError(error) {
   const code = String(error?.code || "").trim().toUpperCase()
   const message = String(error?.message || "").trim()
   return code === "ERR_CANCELED" || /canceled|cancelled|aborted/i.test(message)
+}
+
+async function probeBackendReachability({ signal, timeoutMs = 3500 } = {}) {
+  if (typeof fetch !== "function" || typeof window === "undefined") {
+    return { reachable: true, reason: "unsupported" }
+  }
+  if (signal?.aborted) {
+    return { reachable: false, reason: "aborted" }
+  }
+  const controller = typeof AbortController !== "undefined" ? new AbortController() : null
+  const timer = controller ? window.setTimeout(() => controller.abort(), timeoutMs) : null
+  let detachAbort = null
+  if (controller && signal) {
+    const handleAbort = () => controller.abort()
+    signal.addEventListener("abort", handleAbort, { once: true })
+    detachAbort = () => signal.removeEventListener("abort", handleAbort)
+  }
+  try {
+    const resp = await fetch(`/api/v1/auth/options?_ts=${Date.now()}`, {
+      method: "GET",
+      cache: "no-store",
+      credentials: "include",
+      signal: controller?.signal,
+      headers: {
+        "X-Client-Source": "web",
+      },
+    })
+    if (resp.ok) {
+      return { reachable: true, reason: "ok", status: resp.status }
+    }
+    if ([502, 503, 504, 520, 522, 524].includes(Number(resp.status))) {
+      return { reachable: false, reason: "gateway", status: resp.status }
+    }
+    // 401/403/404 still means backend is reachable.
+    return { reachable: true, reason: "http", status: resp.status }
+  } catch (error) {
+    if (isTaskSubmitCanceledError(error)) {
+      return { reachable: false, reason: "aborted" }
+    }
+    return { reachable: false, reason: "network" }
+  } finally {
+    if (timer) {
+      window.clearTimeout(timer)
+    }
+    detachAbort?.()
+  }
+}
+
+export async function buildTaskSubmitNetworkHint({ signal } = {}) {
+  const probe = await probeBackendReachability({ signal })
+  if (!probe.reachable && probe.reason === "network") {
+    return "提交失败：前端无法连接后端服务，请确认后端已启动（127.0.0.1:8000）后重试"
+  }
+  if (!probe.reachable && probe.reason === "gateway") {
+    return "提交失败：后端服务暂不可用（网关异常），请稍后重试；也可到记录页确认任务是否已创建"
+  }
+  return "提交未收到有效响应，请稍后到记录页确认任务是否已创建"
 }
 
 export function createTaskSubmitIdempotencyKey({
@@ -139,17 +226,85 @@ export function createTaskSubmitIdempotencyKey({
       ? crypto.randomUUID().replace(/-/g, "").slice(0, 12)
       : Math.random().toString(36).slice(2, 14)
   return [
-    String(taskType || "").trim().toLowerCase(),
-    String(platform || "").trim().toLowerCase(),
-    normalizeText(paperTitle).slice(0, 24),
-    normalizeText(authors).slice(0, 24),
-    normalizeFilename(sourceFilename).slice(0, 24),
+    toHeaderSafeSegment(taskType, { maxLen: 24 }),
+    toHeaderSafeSegment(platform, { maxLen: 24 }),
+    toHeaderSafeSegment(paperTitle, { maxLen: 24 }),
+    toHeaderSafeSegment(authors, { maxLen: 24 }),
+    toHeaderSafeSegment(normalizeFilename(sourceFilename), { maxLen: 24 }),
     String(submittedAt),
     randomSuffix,
   ]
     .filter(Boolean)
     .join(":")
     .slice(0, 96)
+}
+
+export async function submitTaskWithRetry({
+  submitOnce,
+  signal,
+  maxAttempts = 4,
+  retryDelayMs = 1200,
+}) {
+  const totalAttempts = Math.max(1, Number(maxAttempts || 1))
+  let lastError = null
+  for (let attempt = 0; attempt < totalAttempts; attempt += 1) {
+    try {
+      return await submitOnce()
+    } catch (error) {
+      lastError = error
+      if (isTaskSubmitCanceledError(error)) {
+        throw error
+      }
+      const retryable = isTaskSubmitTimeoutError(error) || isTaskSubmitNetworkError(error)
+      if (!retryable || attempt >= totalAttempts - 1) {
+        throw error
+      }
+      const waitMs = retryDelayMs * (attempt + 1)
+      await sleep(waitMs, signal)
+    }
+  }
+  throw lastError || new Error("提交失败")
+}
+
+export async function recoverSubmittedTaskByIdempotency({
+  userHttp,
+  taskType,
+  platform,
+  sourceFilename,
+  idempotencyKey,
+  signal,
+}) {
+  if (!userHttp || !taskType || !sourceFilename || !idempotencyKey) {
+    return null
+  }
+  try {
+    const data = await userHttp.post(
+      "/tasks/submit/recover",
+      {
+        task_type: taskType,
+        platform: platform || "cnki",
+        source_filename: sourceFilename,
+      },
+      {
+        timeout: 15000,
+        signal,
+        headers: {
+          "X-Idempotency-Key": idempotencyKey,
+        },
+      }
+    )
+    return data?.id ? data : null
+  } catch (error) {
+    if (isTaskSubmitCanceledError(error)) {
+      throw error
+    }
+    const status = Number(error?.response?.status || 0)
+    const code = Number(error?.code || 0)
+    if (status === 404 || code === 4041) {
+      return null
+    }
+    return null
+  }
 }
 
 export async function recoverSubmittedTask({

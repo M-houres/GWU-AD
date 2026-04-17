@@ -14,13 +14,13 @@
     >
       <aside class="scholar-sidebar scholar-sidebar--admin" :class="{ 'is-open': isDrawerOpen }">
         <div class="scholar-sidebar__header-row">
-          <div class="scholar-brand">
-            <div class="scholar-brand__eyebrow">运营后台</div>
+          <div class="scholar-brand admin-brand-block">
+            <div class="scholar-brand__eyebrow">管理后台</div>
             <div class="admin-brand">
               <span class="admin-brand__mark">GW</span>
               <span class="admin-brand__name">格物学术</span>
             </div>
-            <p class="scholar-brand__lead">统一管理用户、任务、订单、推广、配置与审计，支持多管理员协同运营。</p>
+            <p class="scholar-brand__lead">用户、任务、订单与系统配置</p>
           </div>
 
           <div class="scholar-sidebar__actions">
@@ -47,56 +47,21 @@
           </div>
         </div>
 
-        <section v-if="coreMenus.length" class="scholar-sidebar__section">
-          <div class="scholar-sidebar__label">核心运营</div>
-          <nav class="scholar-nav">
-            <RouterLink
-              v-for="item in coreMenus"
-              :key="item.path"
-              :to="item.path"
-              class="scholar-nav__item"
-              :title="isCollapsedDesktop ? item.label : ''"
-              :class="{ 'is-active': isMenuActive(item.path) }"
-            >
-              <span class="scholar-nav__icon">
-                <component :is="item.icon" :size="16" />
-              </span>
-              <span class="scholar-nav__label">{{ item.label }}</span>
-            </RouterLink>
-          </nav>
-        </section>
-
-        <section v-if="advancedMenus.length" class="scholar-sidebar__section">
-          <div class="scholar-sidebar__label">系统能力</div>
-          <nav class="scholar-nav">
-            <RouterLink
-              v-for="item in advancedMenus"
-              :key="item.path"
-              :to="item.path"
-              class="scholar-nav__item"
-              :title="isCollapsedDesktop ? item.label : ''"
-              :class="{ 'is-active': isMenuActive(item.path) }"
-            >
-              <span class="scholar-nav__icon">
-                <component :is="item.icon" :size="16" />
-              </span>
-              <span class="scholar-nav__label">{{ item.label }}</span>
-            </RouterLink>
-          </nav>
-        </section>
-
-        <div class="scholar-rail-card scholar-rail-card--accent" :class="{ 'is-condensed': isCollapsedDesktop }">
-          <div class="scholar-rail-card__eyeline">当前账号</div>
-          <div class="scholar-rail-card__headline">{{ isCollapsedDesktop ? adminShortLabel : (adminInfo?.username || "未登录") }}</div>
-          <div class="scholar-rail-card__body">
-            角色：{{ roleLabel }}
-            <br />
-            模式：{{ systemModeText }}
-          </div>
-          <div class="scholar-inline-actions" style="margin-top: 12px">
-            <button class="scholar-button scholar-button--secondary scholar-button--block" type="button" @click="logout">退出后台</button>
-          </div>
-        </div>
+        <nav class="scholar-nav">
+          <RouterLink
+            v-for="item in allMenus"
+            :key="item.path"
+            :to="item.path"
+            class="scholar-nav__item"
+            :title="isCollapsedDesktop ? item.label : ''"
+            :class="{ 'is-active': isMenuActive(item.path) }"
+          >
+            <span class="scholar-nav__icon">
+              <component :is="item.icon" :size="16" />
+            </span>
+            <span class="scholar-nav__label">{{ item.label }}</span>
+          </RouterLink>
+        </nav>
       </aside>
 
       <div class="scholar-main">
@@ -116,14 +81,10 @@
             </div>
 
             <div class="scholar-topbar__intro">
-              <div class="scholar-topbar__eyebrow">当前模块</div>
               <div class="scholar-topbar__title">{{ title }}</div>
-              <p class="scholar-topbar__lead">{{ subtitle || "后台配置尽量收敛到页面维护，减少依赖环境变量的手工操作。" }}</p>
             </div>
 
             <div class="scholar-topbar__status">
-              <span class="scholar-badge scholar-badge--info">{{ roleLabel }}</span>
-              <span class="scholar-badge" :class="systemModeBadgeClass">{{ systemModeText }}</span>
               <button type="button" class="scholar-topbar__logout" @click="logout">退出后台</button>
             </div>
           </div>
@@ -154,12 +115,12 @@ import {
   Users,
   X,
 } from "lucide-vue-next"
-import { computed, onMounted, ref, watch } from "vue"
+import { computed, watch } from "vue"
 import { RouterLink, useRoute, useRouter } from "vue-router"
 
 import { useShellLayout } from "../composables/useShellLayout"
 import { adminHttp } from "../lib/http"
-import { adminHasPermission, clearAdminSession, getAdminInfo } from "../lib/session"
+import { adminHasPermission, clearAdminSession } from "../lib/session"
 
 defineProps({
   title: {
@@ -181,26 +142,12 @@ const {
   toggleSidebar,
   closeDrawer,
 } = useShellLayout({ storageKey: "wuhong_admin_shell_collapsed" })
-const adminInfo = ref(getAdminInfo())
-const systemMode = ref("LLM_PLUS_ALGO")
-
-const roleLabel = computed(() => {
-  if (adminInfo.value?.role === "super_admin") {
-    return "超级管理员"
-  }
-  return "普通管理员"
-})
-
-const adminShortLabel = computed(() => {
-  const text = String(adminInfo.value?.username || "后台").trim()
-  return text.slice(0, 2).toUpperCase()
-})
 
 const sidebarToggleIcon = computed(() => (isCollapsedDesktop.value ? PanelLeftOpen : PanelLeftClose))
 const sidebarToggleLabel = computed(() => (isCollapsedDesktop.value ? "展开后台导航" : "折叠后台导航"))
 const mobileMenuLabel = computed(() => (isDrawerOpen.value ? "关闭后台导航" : "打开后台导航"))
 
-const coreMenuDefs = [
+const menuDefs = [
   { path: "/admin/dashboard", label: "总览看板", permission: "dashboard:view", icon: LayoutDashboard },
   { path: "/admin/users", label: "用户管理", permission: "users:view", icon: Users },
   { path: "/admin/tasks", label: "任务管理", permission: "tasks:view", icon: ListTodo },
@@ -208,49 +155,17 @@ const coreMenuDefs = [
   { path: "/admin/referrals", label: "推广管理", permission: "referrals:view", icon: Gift },
   { path: "/admin/configs/notice", label: "公告配置", permission: "configs:view", icon: Megaphone },
   { path: "/admin/logs", label: "系统日志", permission: "logs:view", icon: ScrollText },
-]
-
-const advancedMenuDefs = [
   { path: "/admin/algo-packages", label: "算法配置", permission: "algo:view", icon: Boxes },
   { path: "/admin/configs", label: "配置中心", permission: "configs:view", icon: Settings2 },
   { path: "/admin/admin-users", label: "权限管理", permission: "admins:view", icon: ShieldCheck },
 ]
 
-const coreMenus = computed(() => coreMenuDefs.filter((item) => adminHasPermission(item.permission)))
-const advancedMenus = computed(() => advancedMenuDefs.filter((item) => adminHasPermission(item.permission)))
-
-const systemModeText = computed(() => {
-  if (systemMode.value === "ALGO_ONLY") {
-    return "算法降级模式"
-  }
-  return "大模型 + 算法"
-})
-
-const systemModeBadgeClass = computed(() => {
-  if (systemMode.value === "ALGO_ONLY") {
-    return "scholar-badge--danger"
-  }
-  return "scholar-badge--success"
-})
-
-onMounted(loadSystemStatus)
+const allMenus = computed(() => menuDefs.filter((item) => adminHasPermission(item.permission)))
 
 watch(
   () => route.fullPath,
   () => closeDrawer()
 )
-
-async function loadSystemStatus() {
-  if (!adminHasPermission("dashboard:view")) {
-    return
-  }
-  try {
-    const data = await adminHttp.get("/admin/switch/current")
-    systemMode.value = data.current_mode || "LLM_PLUS_ALGO"
-  } catch {
-    systemMode.value = "LLM_PLUS_ALGO"
-  }
-}
 
 async function logout() {
   try {
@@ -287,63 +202,117 @@ function isRouteMatch(currentPath, targetPath) {
   inset: 0;
   z-index: 79;
   border: 0;
-  background: rgba(10, 24, 51, 0.42);
-  backdrop-filter: blur(4px);
+  background: rgba(15, 23, 42, 0.36);
+  backdrop-filter: blur(3px);
 }
 
 .scholar-shell--admin {
-  --admin-sidebar-width: 292px;
+  --admin-sidebar-width: 268px;
   grid-template-columns: var(--admin-sidebar-width) minmax(0, 1fr);
   min-height: 100vh;
   min-height: 100svh;
-  transition: grid-template-columns 0.22s ease;
+  transition: grid-template-columns 0.2s ease;
 }
 
 .scholar-shell--admin.scholar-shell--collapsed {
-  --admin-sidebar-width: 104px;
+  --admin-sidebar-width: 84px;
 }
 
 .scholar-sidebar--admin {
-  transition: transform 0.22s ease;
+  border: 1px solid #dbe3ee !important;
+  border-radius: 18px !important;
+  background: #ffffff !important;
+  box-shadow: 0 14px 34px rgba(15, 23, 42, 0.08) !important;
+  transition: transform 0.2s ease;
   z-index: 80;
+}
+
+.scholar-sidebar--admin::before,
+.scholar-sidebar--admin::after {
+  display: none !important;
 }
 
 .scholar-sidebar__header-row {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 12px;
+  gap: 10px;
 }
 
-.scholar-sidebar__actions {
+.admin-brand-block {
+  margin-bottom: 10px;
+  padding-left: 0;
+}
+
+.scholar-brand__eyebrow {
+  margin-bottom: 6px;
+  font-size: 11px;
+  color: #64748b !important;
+  letter-spacing: 0.12em;
+}
+
+.admin-brand {
+  margin-top: 6px;
   display: inline-flex;
   align-items: center;
   gap: 8px;
 }
 
+.admin-brand__mark {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  background: #1d4ed8;
+  color: #ffffff;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+}
+
+.admin-brand__name {
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: 0;
+  color: #0f172a !important;
+}
+
+.scholar-brand__lead {
+  margin-top: 8px;
+  color: #64748b !important;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.scholar-sidebar__actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .scholar-shell__toggle {
-  width: 38px;
-  height: 38px;
-  border-radius: 12px;
-  border: 1px solid #d9d9d9;
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  border: 1px solid #d5dee9;
   background: #ffffff;
-  color: #111111;
+  color: #334155;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  transition:
-    transform 0.16s ease,
-    border-color 0.16s ease,
-    background-color 0.16s ease,
-    box-shadow 0.16s ease;
+  transition: border-color 0.16s ease, background-color 0.16s ease;
 }
 
 .scholar-shell__toggle:hover {
-  transform: translateY(-1px);
-  border-color: #bfc8d4;
-  background: #ffffff;
-  box-shadow: 0 12px 24px rgba(0, 0, 0, 0.08);
+  border-color: #93c5fd;
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+.scholar-nav {
+  gap: 8px;
 }
 
 .scholar-nav__icon {
@@ -353,11 +322,46 @@ function isRouteMatch(currentPath, targetPath) {
   flex-shrink: 0;
 }
 
+.scholar-sidebar--admin .scholar-nav__item {
+  min-height: 40px;
+  padding: 9px 12px;
+  border-radius: 10px;
+  border: 1px solid #dbe3ee !important;
+  background: #ffffff !important;
+  color: #334155 !important;
+  box-shadow: none !important;
+  justify-content: flex-start;
+}
+
+.scholar-sidebar--admin .scholar-nav__item:hover,
+.scholar-sidebar--admin .scholar-nav__item:focus,
+.scholar-sidebar--admin .scholar-nav__item:active {
+  border-color: #93c5fd !important;
+  background: #f8fbff !important;
+  color: #1f2937 !important;
+  box-shadow: none !important;
+}
+
+.scholar-sidebar--admin .scholar-nav__item.is-active {
+  border-color: #93c5fd !important;
+  background: #eff6ff !important;
+  color: #1d4ed8 !important;
+}
+
+.scholar-sidebar--admin .scholar-nav__item.is-active::before {
+  background: #1d4ed8 !important;
+}
+
+.scholar-sidebar--admin .scholar-nav__item .scholar-nav__label {
+  color: inherit !important;
+  font-size: 13px;
+}
+
 .scholar-topbar__meta {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
-  align-items: flex-start;
-  gap: 16px;
+  align-items: center;
+  gap: 14px;
 }
 
 .scholar-topbar__left {
@@ -369,150 +373,54 @@ function isRouteMatch(currentPath, targetPath) {
   min-width: 0;
 }
 
+.scholar-topbar__title {
+  margin: 0;
+}
+
 .scholar-topbar__status {
   display: inline-flex;
   align-items: center;
   justify-content: flex-end;
-  flex-wrap: wrap;
-  gap: 10px;
 }
 
 .scholar-topbar__logout {
   min-height: 34px;
   padding: 0 14px;
   border-radius: 10px;
-  border: 1px solid #d0d0d0;
+  border: 1px solid #d5dee9;
   background: #ffffff;
-  color: #111111;
-  font-size: 12.5px;
+  color: #334155;
+  font-size: 12px;
   font-weight: 600;
   cursor: pointer;
-  transition:
-    transform 0.16s ease,
-    border-color 0.16s ease,
-    background-color 0.16s ease;
+  transition: border-color 0.16s ease, background-color 0.16s ease;
 }
 
 .scholar-topbar__logout:hover {
-  transform: translateY(-1px);
-  border-color: #bfc8d4;
-}
-
-.admin-brand {
-  margin-top: 10px;
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.admin-brand__mark {
-  width: 34px;
-  height: 34px;
-  border-radius: 10px;
-  display: grid;
-  place-items: center;
-  background: #111111;
-  color: #ffffff;
-  font-size: 11px;
-  font-weight: 800;
-  letter-spacing: 0.08em;
-}
-
-.admin-brand__name {
-  font-size: 18px;
-  font-weight: 700;
-  letter-spacing: 0.02em;
-  color: #111111;
-}
-
-.scholar-sidebar .scholar-nav__item,
-.scholar-sidebar .scholar-nav__item:hover,
-.scholar-sidebar .scholar-nav__item:focus,
-.scholar-sidebar .scholar-nav__item:focus-visible,
-.scholar-sidebar .scholar-nav__item:active,
-.scholar-sidebar .scholar-nav__item.is-active,
-.scholar-sidebar .scholar-nav__item:visited {
-  background: #ffffff !important;
-  color: #000000 !important;
-  border-color: #d0d0d0 !important;
-  box-shadow: none !important;
-}
-
-.scholar-sidebar .scholar-nav__item .scholar-nav__label {
-  color: #000000 !important;
-}
-
-.scholar-sidebar .scholar-nav__item.is-active::before {
-  background: #000000 !important;
-}
-
-.scholar-sidebar .scholar-rail-card,
-.scholar-sidebar .scholar-rail-card--accent {
-  background: #ffffff !important;
-  border: 1px solid #d9d9d9 !important;
-  color: #111111 !important;
-}
-
-.scholar-sidebar .scholar-rail-card::before,
-.scholar-sidebar .scholar-rail-card::after {
-  display: none !important;
-  content: none !important;
-}
-
-.scholar-sidebar .scholar-rail-card__eyeline,
-.scholar-sidebar .scholar-rail-card__headline,
-.scholar-sidebar .scholar-rail-card__body,
-.scholar-sidebar .scholar-rail-card__label,
-.scholar-sidebar .scholar-rail-card__value,
-.scholar-sidebar .scholar-rail-card__metric span,
-.scholar-sidebar .scholar-rail-card__metric strong {
-  color: #111111 !important;
-}
-
-.scholar-sidebar .scholar-rail-card__metric {
-  background: #ffffff !important;
-  border: 1px solid #d9d9d9 !important;
+  border-color: #93c5fd;
+  background: #eff6ff;
+  color: #1d4ed8;
 }
 
 .scholar-shell--collapsed .scholar-sidebar__header-row {
-  justify-content: center;
+  justify-content: space-between;
 }
 
-.scholar-shell--collapsed .scholar-sidebar__actions,
-.scholar-shell--collapsed .scholar-sidebar__label,
 .scholar-shell--collapsed .scholar-brand__lead,
 .scholar-shell--collapsed .admin-brand__name,
-.scholar-shell--collapsed .scholar-nav__label,
-.scholar-shell--collapsed .scholar-rail-card__eyeline,
-.scholar-shell--collapsed .scholar-rail-card__body,
-.scholar-shell--collapsed .scholar-inline-actions {
+.scholar-shell--collapsed .scholar-nav__label {
   display: none;
 }
 
 .scholar-shell--collapsed .scholar-brand {
-  margin-bottom: 14px;
+  margin-bottom: 8px;
   padding-left: 0;
-}
-
-.scholar-shell--collapsed .admin-brand {
-  justify-content: center;
 }
 
 .scholar-shell--collapsed .scholar-nav__item {
   justify-content: center;
   gap: 0;
-  padding-inline: 14px;
-}
-
-.scholar-shell--collapsed .scholar-rail-card {
-  padding: 14px 10px;
-}
-
-.scholar-shell--collapsed .scholar-rail-card__headline {
-  margin-top: 0;
-  font-size: 16px;
-  text-align: center;
-  letter-spacing: 0.06em;
+  padding-inline: 8px;
 }
 
 @media (max-width: 1023px) {
@@ -528,9 +436,9 @@ function isRouteMatch(currentPath, targetPath) {
     max-height: none;
     height: 100vh;
     height: 100svh;
-    border-radius: 0 28px 28px 0;
+    border-radius: 0 16px 16px 0 !important;
     transform: translateX(-104%);
-    box-shadow: 0 24px 44px rgba(8, 26, 66, 0.26);
+    box-shadow: 0 20px 38px rgba(15, 23, 42, 0.2) !important;
   }
 
   .scholar-sidebar--admin.is-open {
@@ -545,12 +453,7 @@ function isRouteMatch(currentPath, targetPath) {
   }
 
   .scholar-topbar__meta {
-    grid-template-columns: auto minmax(0, 1fr);
-  }
-
-  .scholar-topbar__status {
-    grid-column: 1 / -1;
-    justify-content: flex-start;
+    grid-template-columns: auto minmax(0, 1fr) auto;
   }
 }
 
@@ -560,20 +463,15 @@ function isRouteMatch(currentPath, targetPath) {
   }
 
   .scholar-topbar__meta {
-    gap: 12px;
+    gap: 10px;
   }
 
   .scholar-topbar__title {
-    font-size: 26px;
+    font-size: 22px;
   }
 
-  .scholar-topbar__lead {
-    font-size: 13px;
-    line-height: 1.7;
-  }
-
-  .scholar-topbar__status {
-    gap: 8px;
+  .admin-brand__name {
+    font-size: 15px;
   }
 }
 </style>

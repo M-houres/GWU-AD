@@ -76,9 +76,21 @@ async function normalizeBlobError(data) {
 
 async function normalizeError(error) {
   const blobError = await normalizeBlobError(error?.response?.data)
+  const status = Number(error?.response?.status || 0)
+  const requestId = String(
+    error?.response?.headers?.["x-request-id"] ||
+      error?.response?.headers?.["X-Request-Id"] ||
+      ""
+  ).trim()
   if (blobError?.message) {
-    const err = new Error(blobError.message)
+    const message =
+      status >= 500 && requestId && !String(blobError.message).includes(requestId)
+        ? `${blobError.message}（请求ID: ${requestId}）`
+        : blobError.message
+    const err = new Error(message)
     err.code = blobError.code
+    err.status = status
+    err.requestId = requestId
     return Promise.reject(err)
   }
   const rawMessage = String(error?.message || "").trim()
@@ -89,17 +101,35 @@ async function normalizeError(error) {
   }
   if (!error?.response) {
     const err = new Error("网络连接异常，请稍后重试")
-    err.code = error?.code || "NETWORK_ERROR"
+    err.code = error?.code || "ERR_NETWORK"
     return Promise.reject(err)
   }
   if (error?.response?.data?.message) {
-    const err = new Error(error.response.data.message)
+    const baseMessage = String(error.response.data.message || "").trim() || "请求失败"
+    const message =
+      status >= 500 && requestId && !baseMessage.includes(requestId)
+        ? `${baseMessage}（请求ID: ${requestId}）`
+        : baseMessage
+    const err = new Error(message)
     err.code = error.response.data.code
+    err.status = status
+    err.requestId = requestId
     return Promise.reject(err)
   }
-  if ([502, 503, 504].includes(Number(error?.response?.status))) {
+  if ([502, 503, 504].includes(status)) {
     const err = new Error("服务暂时不可用，请稍后重试")
-    err.code = error?.response?.status
+    err.code = String(status || "GATEWAY_ERROR")
+    err.status = status
+    err.requestId = requestId
+    return Promise.reject(err)
+  }
+  if (status >= 500) {
+    const err = new Error(
+      requestId ? `服务器内部错误（请求ID: ${requestId}）` : "服务器内部错误，请稍后重试"
+    )
+    err.code = "SERVER_ERROR"
+    err.status = status
+    err.requestId = requestId
     return Promise.reject(err)
   }
   return Promise.reject(error)
@@ -107,12 +137,43 @@ async function normalizeError(error) {
 
 let userRefreshPromise = null
 let adminRefreshPromise = null
+let userAuthRedirecting = false
+let adminAuthRedirecting = false
+
+function hasWindowLocation() {
+  return typeof window !== "undefined" && typeof location !== "undefined"
+}
+
+function buildCurrentPath() {
+  if (!hasWindowLocation()) return "/"
+  return `${location.pathname || "/"}${location.search || ""}`
+}
+
+function redirectUserToLogin() {
+  if (!hasWindowLocation() || userAuthRedirecting) return
+  userAuthRedirecting = true
+  const redirect = encodeURIComponent(buildCurrentPath())
+  location.replace(`/login?redirect=${redirect}`)
+}
+
+function redirectAdminToLogin() {
+  if (!hasWindowLocation() || adminAuthRedirecting) return
+  adminAuthRedirecting = true
+  const redirect = encodeURIComponent(buildCurrentPath())
+  location.replace(`/admin/login?redirect=${redirect}`)
+}
 
 async function refreshUserSession() {
+  const refreshToken = getUserRefreshToken()
+  if (!looksLikeJwt(refreshToken)) {
+    const err = new Error("refresh token missing")
+    err.code = "NO_REFRESH_TOKEN"
+    return Promise.reject(err)
+  }
   if (!userRefreshPromise) {
     userRefreshPromise = refreshClient
       .post("/auth/refresh", {
-        refresh_token: getUserRefreshToken() || undefined,
+        refresh_token: refreshToken,
       })
       .then((resp) => unwrapResponse(resp))
       .then((data) => {
@@ -128,10 +189,16 @@ async function refreshUserSession() {
 }
 
 async function refreshAdminSession() {
+  const refreshToken = getAdminRefreshToken()
+  if (!looksLikeJwt(refreshToken)) {
+    const err = new Error("refresh token missing")
+    err.code = "NO_REFRESH_TOKEN"
+    return Promise.reject(err)
+  }
   if (!adminRefreshPromise) {
     adminRefreshPromise = refreshClient
       .post("/admin/auth/refresh", {
-        refresh_token: getAdminRefreshToken() || undefined,
+        refresh_token: refreshToken,
       })
       .then((resp) => unwrapResponse(resp))
       .then((data) => {
@@ -165,14 +232,20 @@ userHttp.interceptors.response.use(
       try {
         await refreshUserSession()
         return userHttp(originalRequest)
-      } catch {}
+      } catch (refreshError) {
+        const hadToken = Boolean(getUserToken())
+        clearUserSession()
+        if (hadToken) {
+          redirectUserToLogin()
+        }
+        return normalizeError(refreshError)
+      }
     }
     if (error?.response?.status === 401) {
       const hadToken = Boolean(getUserToken())
       clearUserSession()
       if (hadToken) {
-        const redirect = encodeURIComponent(`${location.pathname}${location.search}`)
-        location.href = `/login?redirect=${redirect}`
+        redirectUserToLogin()
       }
     }
     return normalizeError(error)
@@ -198,14 +271,20 @@ adminHttp.interceptors.response.use(
       try {
         await refreshAdminSession()
         return adminHttp(originalRequest)
-      } catch {}
+      } catch (refreshError) {
+        const hadToken = Boolean(getAdminToken())
+        clearAdminSession()
+        if (hadToken) {
+          redirectAdminToLogin()
+        }
+        return normalizeError(refreshError)
+      }
     }
     if (error?.response?.status === 401) {
       const hadToken = Boolean(getAdminToken())
       clearAdminSession()
       if (hadToken) {
-        const redirect = encodeURIComponent(`${location.pathname}${location.search}`)
-        location.href = `/admin/login?redirect=${redirect}`
+        redirectAdminToLogin()
       }
     }
     return normalizeError(error)

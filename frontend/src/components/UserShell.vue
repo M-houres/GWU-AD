@@ -1030,6 +1030,7 @@ function isRouteMatch(currentPath, targetPath) {
   .header-right {
     width: 100%;
     justify-content: flex-start;
+    flex-wrap: nowrap;
   }
 
   .main-wrap {
@@ -1054,20 +1055,27 @@ function isRouteMatch(currentPath, targetPath) {
   }
 
   .header-right {
-    gap: 8px;
+    gap: 6px;
+    flex-wrap: nowrap;
+    align-items: center;
   }
 
   .header-notice-btn,
   .header-topup,
   .header-link {
     min-height: 32px;
-    padding: 0 12px;
-    font-size: 12px;
+    padding: 0 8px;
+    font-size: 11.5px;
+    min-width: 0;
   }
 
   .header-right > * {
-    flex: 1 1 calc(50% - 8px);
+    flex: 1 1 0;
+    min-width: 0;
     justify-content: center;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   .header-title {

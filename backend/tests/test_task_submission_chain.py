@@ -97,6 +97,116 @@ def test_submit_task_stores_metadata_and_unique_storage_paths(
         app.dependency_overrides.pop(current_user, None)
 
 
+def test_submit_recover_by_idempotency_key(
+    client,
+    db_session: Session,
+    monkeypatch,
+    settings_override,
+) -> None:
+    user = User(phone="13800007773", nickname="recover-user", credits=10000)
+    db_session.add(user)
+    db_session.commit()
+    db_session.refresh(user)
+    _activate_slot(db_session, platform="cnki", function_type="dedup")
+
+    monkeypatch.setattr("app.worker_tasks.process_task_async.delay", lambda *_args, **_kwargs: None)
+    app.dependency_overrides[current_user] = lambda: user
+    try:
+        idem = "recover-chain-001"
+        submit_resp = client.post(
+            "/api/v1/tasks/submit",
+            data={
+                "task_type": "dedup",
+                "platform": "cnki",
+                "paper_title": "幂等找回测试",
+                "authors": "测试作者",
+            },
+            files={
+                "paper": (
+                    "recover.docx",
+                    _make_docx_bytes("这是用于幂等找回测试的正文。"),
+                    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                )
+            },
+            headers={"X-Idempotency-Key": idem},
+        )
+        assert submit_resp.status_code == 200
+        task_id = int(submit_resp.json()["data"]["id"])
+
+        recover_resp = client.post(
+            "/api/v1/tasks/submit/recover",
+            json={
+                "task_type": "dedup",
+                "platform": "cnki",
+                "source_filename": "recover.docx",
+            },
+            headers={"X-Idempotency-Key": idem},
+        )
+        assert recover_resp.status_code == 200
+        data = recover_resp.json()["data"]
+        assert int(data["id"]) == task_id
+        assert data["task_type"] == "dedup"
+        assert data["platform"] == "cnki"
+    finally:
+        app.dependency_overrides.pop(current_user, None)
+
+
+def test_submit_recover_with_long_idempotency_key_does_not_overflow_column(
+    client,
+    db_session: Session,
+    monkeypatch,
+    settings_override,
+) -> None:
+    user = User(phone="13800007774", nickname="recover-long-idem-user", credits=10000)
+    db_session.add(user)
+    db_session.commit()
+    db_session.refresh(user)
+    _activate_slot(db_session, platform="cnki", function_type="dedup")
+
+    monkeypatch.setattr("app.worker_tasks.process_task_async.delay", lambda *_args, **_kwargs: None)
+    app.dependency_overrides[current_user] = lambda: user
+    try:
+        idem = "recover-chain-overflow-" + ("x" * 220)
+        source_filename = "recover_" + ("x" * 48) + ".docx"
+        submit_resp = client.post(
+            "/api/v1/tasks/submit",
+            data={
+                "task_type": "dedup",
+                "platform": "cnki",
+                "paper_title": "幂等超长键测试",
+                "authors": "测试作者",
+            },
+            files={
+                "paper": (
+                    source_filename,
+                    _make_docx_bytes("这是用于幂等超长键回归测试的正文。"),
+                    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                )
+            },
+            headers={"X-Idempotency-Key": idem},
+        )
+        assert submit_resp.status_code == 200
+        task_id = int(submit_resp.json()["data"]["id"])
+        task = db_session.get(Task, task_id)
+        assert task is not None
+        assert task.idempotency_key is not None
+        assert len(task.idempotency_key) <= 128
+
+        recover_resp = client.post(
+            "/api/v1/tasks/submit/recover",
+            json={
+                "task_type": "dedup",
+                "platform": "cnki",
+                "source_filename": source_filename,
+            },
+            headers={"X-Idempotency-Key": idem},
+        )
+        assert recover_resp.status_code == 200
+        assert int(recover_resp.json()["data"]["id"]) == task_id
+    finally:
+        app.dependency_overrides.pop(current_user, None)
+
+
 def test_submit_task_still_returns_success_when_dispatch_fails_after_commit(
     client,
     db_session: Session,

@@ -1,8 +1,10 @@
 ﻿from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
+import json
 import logging
 from pathlib import Path
 import time
+import traceback
 import uuid
 
 from alembic import command
@@ -96,7 +98,7 @@ def run_runtime_bootstrap_tasks() -> None:
 @asynccontextmanager
 async def app_lifespan(_: FastAPI):
     assert_production_secrets()
-    if not settings.is_prod:
+    if not settings.is_prod and settings.app_env != "test":
         run_runtime_bootstrap_tasks()
     logger.info("startup_completed", extra={"app_env": settings.app_env})
     yield
@@ -114,38 +116,72 @@ app.add_middleware(
 
 
 @app.exception_handler(BizError)
-async def biz_error_handler(_: Request, exc: BizError) -> JSONResponse:
-    return JSONResponse(status_code=exc.http_status, content=fail(exc.code, exc.message).model_dump())
+async def biz_error_handler(request: Request, exc: BizError) -> JSONResponse:
+    response = JSONResponse(status_code=exc.http_status, content=fail(exc.code, exc.message).model_dump())
+    request_id = str(getattr(getattr(request, "state", object()), "request_id", "") or "").strip()
+    if request_id:
+        response.headers["x-request-id"] = request_id
+    return response
 
 
 @app.exception_handler(RequestValidationError)
-async def validation_error_handler(_: Request, exc: RequestValidationError) -> JSONResponse:
-    return JSONResponse(
+async def validation_error_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
+    response = JSONResponse(
         status_code=422,
         content=fail(1001, "参数校验失败", data={"errors": exc.errors()}).model_dump(),
     )
+    request_id = str(getattr(getattr(request, "state", object()), "request_id", "") or "").strip()
+    if request_id:
+        response.headers["x-request-id"] = request_id
+    return response
 
 
 @app.exception_handler(HTTPException)
-async def http_error_handler(_: Request, exc: HTTPException) -> JSONResponse:
+async def http_error_handler(request: Request, exc: HTTPException) -> JSONResponse:
     code = exc.status_code
     msg = exc.detail if isinstance(exc.detail, str) else "请求失败"
-    return JSONResponse(status_code=exc.status_code, content=fail(code, msg).model_dump())
+    response = JSONResponse(status_code=exc.status_code, content=fail(code, msg).model_dump())
+    request_id = str(getattr(getattr(request, "state", object()), "request_id", "") or "").strip()
+    if request_id:
+        response.headers["x-request-id"] = request_id
+    return response
 
 
 @app.exception_handler(Exception)
 async def unknown_error_handler(request: Request, exc: Exception) -> JSONResponse:
+    request_id = (
+        str(getattr(getattr(request, "state", object()), "request_id", "") or "").strip()
+        or str(request.headers.get("x-request-id") or "").strip()
+        or uuid.uuid4().hex[:16]
+    )
     logger.exception(
         "unhandled_exception",
         extra={
+            "request_id": request_id,
             "method": request.method,
             "path": request.url.path,
         },
     )
-    return JSONResponse(
+    try:
+        exception_log_path = settings.log_dir / "exceptions.log"
+        payload = {
+            "ts": datetime.utcnow().isoformat() + "Z",
+            "request_id": request_id,
+            "method": request.method,
+            "path": request.url.path,
+            "error": repr(exc),
+            "traceback": traceback.format_exc(),
+        }
+        with exception_log_path.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(payload, ensure_ascii=False) + "\n")
+    except Exception:
+        logger.exception("unhandled_exception_persist_failed", extra={"request_id": request_id})
+    response = JSONResponse(
         status_code=500,
-        content=fail(5000, "服务器内部错误").model_dump(),
+        content=fail(5000, f"服务器内部错误（请求ID: {request_id}）").model_dump(),
     )
+    response.headers["x-request-id"] = request_id
+    return response
 
 
 @app.middleware("http")
@@ -164,6 +200,7 @@ async def access_log_middleware(request: Request, call_next):
         path=request.url.path,
     )
     try:
+        request.state.request_id = request_id
         response = await call_next(request)
         status_code = response.status_code
         return response

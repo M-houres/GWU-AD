@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from decimal import Decimal
 import secrets
+from urllib.parse import urlparse
 
 from sqlalchemy import desc, func
 from sqlalchemy.orm import Session
@@ -69,6 +70,38 @@ def _format_cny(amount: Decimal | int | float | str | None) -> str:
 
 def _share_benefit_code(platform: str, tier_key: str) -> str:
     return f"{str(platform or '').strip().lower()}:{str(tier_key or '').strip().lower()}"
+
+
+def _share_submission_status_text(
+    submission: PromoShareSubmission | None,
+    benefit: PromoBenefitRecord | None,
+) -> tuple[str, str, str]:
+    if submission is None:
+        return "ready", "none", "可提交"
+    if submission.status == PromoShareSubmissionStatus.SUBMITTED:
+        return "submitted", "pending", "审核中"
+    if submission.status == PromoShareSubmissionStatus.REJECTED:
+        return "rejected", "none", "未通过"
+    payout_status = benefit.payout_status if benefit is not None else "pending"
+    if payout_status == "paid":
+        return "paid", "paid", "已打款"
+    return "approved", "pending", "待打款"
+
+
+def _share_submission_submit_policy(
+    submission: PromoShareSubmission | None,
+    benefit: PromoBenefitRecord | None,
+) -> tuple[bool, str]:
+    if submission is None:
+        return True, "当前平台可提交"
+    if submission.status == PromoShareSubmissionStatus.REJECTED:
+        return True, "审核未通过，可修改后重新提交"
+    if submission.status == PromoShareSubmissionStatus.SUBMITTED:
+        return False, "该平台任务正在审核中，暂不可重复提交"
+    payout_status = benefit.payout_status if benefit is not None else "pending"
+    if payout_status == "paid":
+        return False, "该平台奖励已发放，每个平台仅支持一次领奖"
+    return False, "该平台任务已审核通过，等待人工打款中"
 
 
 def ensure_user_invite_code(db: Session, user: User) -> UserInviteCode:
@@ -303,6 +336,28 @@ def _refresh_classroom_stats(db: Session, classroom: PromoClassroom) -> PromoCla
     return classroom
 
 
+def _serialize_classroom_payload(classroom: PromoClassroom, *, role: str) -> dict:
+    return {
+        "id": classroom.id,
+        "name": classroom.name,
+        "invite_code": classroom.invite_code,
+        "level": classroom.level,
+        "member_count": classroom.member_count,
+        "activity_score": classroom.activity_score,
+        "role": str(role or "member"),
+    }
+
+
+def _find_user_active_classroom_membership(db: Session, *, user_id: int) -> tuple[PromoClassroomMember, PromoClassroom] | None:
+    return (
+        db.query(PromoClassroomMember, PromoClassroom)
+        .join(PromoClassroom, PromoClassroom.id == PromoClassroomMember.classroom_id)
+        .filter(PromoClassroomMember.user_id == user_id, PromoClassroom.status == "active")
+        .order_by(desc(PromoClassroomMember.created_at))
+        .first()
+    )
+
+
 def create_classroom(db: Session, *, user: User, name: str) -> PromoClassroom:
     existed = (
         db.query(PromoClassroom)
@@ -311,6 +366,13 @@ def create_classroom(db: Session, *, user: User, name: str) -> PromoClassroom:
     )
     if existed is not None:
         return _refresh_classroom_stats(db, existed)
+
+    joined_member = _find_user_active_classroom_membership(db, user_id=user.id)
+    if joined_member is not None:
+        member_row, joined_classroom = joined_member
+        if joined_classroom.owner_user_id == user.id or str(member_row.role or "").lower() == "owner":
+            return _refresh_classroom_stats(db, joined_classroom)
+        raise ValueError("already_joined_other_classroom")
 
     classroom = PromoClassroom(
         owner_user_id=user.id,
@@ -336,14 +398,25 @@ def join_classroom(db: Session, *, user: User, invite_code: str) -> PromoClassro
     if classroom is None:
         raise ValueError("classroom_not_found")
 
-    existed = (
-        db.query(PromoClassroomMember)
-        .filter(PromoClassroomMember.classroom_id == classroom.id, PromoClassroomMember.user_id == user.id)
+    owned_classroom = (
+        db.query(PromoClassroom)
+        .filter(PromoClassroom.owner_user_id == user.id, PromoClassroom.status == "active")
         .first()
     )
-    if existed is None:
-        db.add(PromoClassroomMember(classroom_id=classroom.id, user_id=user.id, role="member"))
-        db.flush()
+    if owned_classroom is not None:
+        if owned_classroom.id != classroom.id:
+            raise ValueError("already_joined_other_classroom")
+        return _refresh_classroom_stats(db, owned_classroom)
+
+    joined_member = _find_user_active_classroom_membership(db, user_id=user.id)
+    if joined_member is not None:
+        _, joined_classroom = joined_member
+        if joined_classroom.id != classroom.id:
+            raise ValueError("already_joined_other_classroom")
+        return _refresh_classroom_stats(db, joined_classroom)
+
+    db.add(PromoClassroomMember(classroom_id=classroom.id, user_id=user.id, role="member"))
+    db.flush()
     return _refresh_classroom_stats(db, classroom)
 
 
@@ -365,6 +438,23 @@ def submit_share_review(
     if tier is None:
         raise ValueError("invalid_tier")
 
+    share_link_text = str(share_link or "").strip()[:500]
+    if not share_link_text:
+        raise ValueError("share_link_required")
+    parsed_link = urlparse(share_link_text)
+    if parsed_link.scheme.lower() not in {"http", "https"} or not parsed_link.netloc:
+        raise ValueError("share_link_invalid")
+
+    payout_account_text = str(payout_account or "").strip()[:120]
+    if len(payout_account_text) < 3:
+        raise ValueError("payout_account_required")
+
+    payout_name_text = str(payout_name or "").strip()[:120]
+    if len(payout_name_text) < 2:
+        raise ValueError("payout_name_required")
+
+    note_text = str(note or "").strip()[:500]
+
     existed = (
         db.query(PromoShareSubmission)
         .filter(PromoShareSubmission.user_id == user.id, PromoShareSubmission.platform == platform_key)
@@ -375,10 +465,10 @@ def submit_share_review(
             user_id=user.id,
             platform=platform_key,
             tier_key=str(tier_key).strip().lower(),
-            share_link=str(share_link or "").strip()[:500],
-            payout_account=str(payout_account or "").strip()[:120],
-            payout_name=str(payout_name or "").strip()[:120],
-            note=str(note or "").strip()[:500],
+            share_link=share_link_text,
+            payout_account=payout_account_text,
+            payout_name=payout_name_text,
+            note=note_text,
             status=PromoShareSubmissionStatus.SUBMITTED,
             reward_credits=int(tier["reward_credits"]),
             reward_amount_cny=Decimal(str(tier["reward_amount_cny"])),
@@ -387,11 +477,28 @@ def submit_share_review(
         )
         db.add(existed)
     else:
+        benefit = (
+            db.query(PromoBenefitRecord)
+            .filter(
+                PromoBenefitRecord.user_id == user.id,
+                PromoBenefitRecord.scene == "share_center",
+                PromoBenefitRecord.benefit_code == _share_benefit_code(existed.platform, existed.tier_key),
+                PromoBenefitRecord.status == PromoBenefitStatus.GRANTED,
+            )
+            .first()
+        )
+        can_submit, _ = _share_submission_submit_policy(existed, benefit)
+        if not can_submit:
+            if existed.status == PromoShareSubmissionStatus.SUBMITTED:
+                raise ValueError("share_submission_pending_review")
+            if benefit is not None and benefit.payout_status == "paid":
+                raise ValueError("share_submission_paid_locked")
+            raise ValueError("share_submission_approved_locked")
         existed.tier_key = str(tier_key).strip().lower()
-        existed.share_link = str(share_link or "").strip()[:500]
-        existed.payout_account = str(payout_account or "").strip()[:120]
-        existed.payout_name = str(payout_name or "").strip()[:120]
-        existed.note = str(note or "").strip()[:500]
+        existed.share_link = share_link_text
+        existed.payout_account = payout_account_text
+        existed.payout_name = payout_name_text
+        existed.note = note_text
         existed.status = PromoShareSubmissionStatus.SUBMITTED
         existed.reward_credits = int(tier["reward_credits"])
         existed.reward_amount_cny = Decimal(str(tier["reward_amount_cny"]))
@@ -552,6 +659,15 @@ def build_promo_center_payload(db: Session, *, user: User, frontend_base_url: st
     if owned_classroom is not None:
         owned_classroom = _refresh_classroom_stats(db, owned_classroom)
 
+    joined_classroom = owned_classroom
+    joined_role = "owner" if owned_classroom is not None else None
+    if joined_classroom is None:
+        joined_member = _find_user_active_classroom_membership(db, user_id=user.id)
+        if joined_member is not None:
+            member_row, classroom_row = joined_member
+            joined_classroom = _refresh_classroom_stats(db, classroom_row)
+            joined_role = str(member_row.role or "member")
+
     leaderboard = (
         db.query(PromoClassroom)
         .filter(PromoClassroom.status == "active")
@@ -580,44 +696,58 @@ def build_promo_center_payload(db: Session, *, user: User, frontend_base_url: st
     share_platforms = []
     for key, preset in SHARE_PLATFORM_PRESETS.items():
         row = share_map.get(key)
+        benefit = (
+            share_benefit_map.get(_share_benefit_code(row.platform, row.tier_key), None)
+            if row is not None
+            else None
+        )
+        status_value, payout_status, status_label = _share_submission_status_text(row, benefit)
+        can_submit, submit_tip = _share_submission_submit_policy(row, benefit)
         share_platforms.append(
             {
                 "key": key,
                 "label": preset["label"],
                 "mark": preset["mark"],
                 "reward": preset["max_reward"],
-                "status": (row.status.value if row is not None else preset["default_status"]),
+                "status": status_value,
+                "status_label": status_label,
+                "payout_status": payout_status,
+                "can_submit": can_submit,
+                "submit_tip": submit_tip,
             }
         )
 
-    share_records = [
-        {
-            "id": row.id,
-            "platform": SHARE_PLATFORM_PRESETS.get(row.platform, {}).get("label", row.platform),
-            "note": (
-                "已提交审核，等待后台人工审核"
-                if row.status == PromoShareSubmissionStatus.SUBMITTED
-                else (
-                    row.review_note or "审核未通过，请按要求调整后重新提交"
-                    if row.status == PromoShareSubmissionStatus.REJECTED
-                    else (
-                        "审核通过，红包已人工发放"
-                        if share_benefit_map.get(_share_benefit_code(row.platform, row.tier_key), None) is not None
-                        and share_benefit_map[_share_benefit_code(row.platform, row.tier_key)].payout_status == "paid"
-                        else "审核通过，等待人工发放红包"
-                    )
-                )
-            ),
-            "status": row.status.value,
-            "payout_status": (
-                share_benefit_map[_share_benefit_code(row.platform, row.tier_key)].payout_status
-                if share_benefit_map.get(_share_benefit_code(row.platform, row.tier_key)) is not None
-                else "none"
-            ),
-            "reward": f"{_format_cny(row.reward_amount_cny)}元红包",
-        }
-        for row in share_rows[:10]
-    ]
+    share_records = []
+    for row in share_rows[:10]:
+        benefit = share_benefit_map.get(_share_benefit_code(row.platform, row.tier_key), None)
+        status_value, payout_status, status_label = _share_submission_status_text(row, benefit)
+        note_text = (
+            "已提交审核，等待后台人工审核"
+            if status_value == "submitted"
+            else (
+                row.review_note or "审核未通过，请按要求调整后重新提交"
+                if status_value == "rejected"
+                else ("审核通过，红包已人工发放" if status_value == "paid" else "审核通过，等待人工发放红包")
+            )
+        )
+        share_records.append(
+            {
+                "id": row.id,
+                "platform_key": row.platform,
+                "platform": SHARE_PLATFORM_PRESETS.get(row.platform, {}).get("label", row.platform),
+                "status": status_value,
+                "status_label": status_label,
+                "payout_status": payout_status,
+                "note": note_text,
+                "submit_note": row.note or "",
+                "reward": f"{_format_cny(row.reward_amount_cny)}元红包",
+                "tier_key": row.tier_key,
+                "share_link": row.share_link or "",
+                "payout_account": row.payout_account or "",
+                "payout_name": row.payout_name or "",
+                "created_at": row.created_at,
+            }
+        )
 
     benefit_rows = (
         db.query(PromoBenefitRecord)
@@ -672,18 +802,8 @@ def build_promo_center_payload(db: Session, *, user: User, frontend_base_url: st
             "ledger": subsidy_ledger,
         },
         "classroom": {
-            "owned": (
-                {
-                    "id": owned_classroom.id,
-                    "name": owned_classroom.name,
-                    "invite_code": owned_classroom.invite_code,
-                    "level": owned_classroom.level,
-                    "member_count": owned_classroom.member_count,
-                    "activity_score": owned_classroom.activity_score,
-                }
-                if owned_classroom is not None
-                else None
-            ),
+            "owned": (_serialize_classroom_payload(owned_classroom, role="owner") if owned_classroom is not None else None),
+            "joined": (_serialize_classroom_payload(joined_classroom, role=joined_role or "member") if joined_classroom is not None else None),
             "leaderboard": [
                 {
                     "rank": index + 1,

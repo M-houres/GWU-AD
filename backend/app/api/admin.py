@@ -2888,6 +2888,7 @@ def referral_share_tasks(
             "share_link": row.share_link,
             "payout_account": row.payout_account,
             "payout_name": row.payout_name,
+            "note": row.note,
             "status": row.status.value,
             "payout_status": (
                 benefit_map[(row.user_id, f"{row.platform}:{row.tier_key}")].payout_status

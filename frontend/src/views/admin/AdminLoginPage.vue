@@ -1,151 +1,44 @@
 <template>
-  <div class="scholar-auth scholar-auth--admin academic-shell-enter">
-    <div class="scholar-auth__frame scholar-auth__frame--editorial scholar-auth__frame--admin">
-      <section class="scholar-auth__poster">
-        <div class="scholar-auth__content scholar-auth__content--login">
-          <div class="scholar-auth__masthead">
-            <div>
-              <div class="scholar-auth__eyebrow">运营控制台</div>
-              <div class="scholar-login__meta">部署 / 计费 / 审计</div>
-            </div>
-            <span class="scholar-auth__signal">生产级后台治理</span>
-          </div>
+  <div class="admin-login">
+    <section class="admin-login__card">
+      <header class="admin-login__head">
+        <p class="admin-login__eyebrow">管理后台</p>
+        <h1 class="admin-login__title">管理员登录</h1>
+      </header>
 
-          <div class="scholar-auth__headline">
-            <h1 class="scholar-auth__title scholar-auth__title--login">格物学术运营后台</h1>
-            <p class="scholar-auth__lead scholar-auth__lead--login">
-              管理登录配置、支付配置、计费策略、算法包、任务审计和推广规则。生产环境下的关键设置应从后台统一维护。
-            </p>
-          </div>
+      <form class="admin-login__form" @submit.prevent="login">
+        <label class="admin-login__field">
+          <span>用户名</span>
+          <input
+            v-model.trim="username"
+            autocomplete="username"
+            placeholder="请输入管理员用户名"
+          />
+        </label>
 
-          <div class="scholar-auth__ledger">
-            <div class="scholar-auth__ledger-label">后台控制面</div>
-            <div class="scholar-auth__ledger-grid">
-              <article class="scholar-auth__ledger-card">
-                <div class="scholar-auth__ledger-index">登录</div>
-                <strong>登录与安全</strong>
-                <p>统一管理短信、微信登录、管理员账号和上线环境密钥。</p>
-              </article>
-              <article class="scholar-auth__ledger-card">
-                <div class="scholar-auth__ledger-index">计费</div>
-                <strong>支付与计费</strong>
-                <p>后台配置计费策略、支付回调与积分套餐，减少部署脚本改动。</p>
-              </article>
-              <article class="scholar-auth__ledger-card">
-                <div class="scholar-auth__ledger-index">审计</div>
-                <strong>审计与回溯</strong>
-                <p>任务、订单、推广和算法包都回到同一控制台中统一审计。</p>
-              </article>
-            </div>
-          </div>
+        <label class="admin-login__field">
+          <span>密码</span>
+          <input
+            v-model.trim="password"
+            type="password"
+            autocomplete="current-password"
+            placeholder="请输入密码"
+          />
+        </label>
 
-          <div class="scholar-auth__timeline">
-            <article class="scholar-auth__timeline-item">
-              <span class="scholar-auth__timeline-dot"></span>
-              <div>
-                <div class="scholar-auth__timeline-code">第一步</div>
-                <div class="scholar-auth__timeline-title">后台保存立即生效</div>
-                <p class="scholar-auth__timeline-copy">
-                  支付、短信、微信登录和模型参数尽量收拢到管理界面统一维护。
-                </p>
-              </div>
-            </article>
-            <article class="scholar-auth__timeline-item">
-              <span class="scholar-auth__timeline-dot"></span>
-              <div>
-                <div class="scholar-auth__timeline-code">第二步</div>
-                <div class="scholar-auth__timeline-title">就绪状态回读</div>
-                <p class="scholar-auth__timeline-copy">
-                  配置是否完整、是否可用都通过控制台状态回读，而不是只依赖部署猜测。
-                </p>
-              </div>
-            </article>
-            <article class="scholar-auth__timeline-item">
-              <span class="scholar-auth__timeline-dot"></span>
-              <div>
-                <div class="scholar-auth__timeline-code">第三步</div>
-                <div class="scholar-auth__timeline-title">日志与任务统一审计</div>
-                <p class="scholar-auth__timeline-copy">
-                  订单、推广、日志和任务结果在同一后台中回溯，更适合商业化运营。
-                </p>
-              </div>
-            </article>
-          </div>
-        </div>
-      </section>
+        <button class="admin-login__submit" :disabled="loading">
+          {{ loading ? "登录中..." : "登录后台" }}
+        </button>
+      </form>
 
-      <section class="scholar-auth__panel">
-        <div class="scholar-auth__form-shell scholar-stack">
-          <div class="scholar-auth__panel-head">
-            <span class="scholar-badge scholar-badge--warn">管理员入口</span>
-            <h2>后台登录</h2>
-            <p class="scholar-lead">
-              输入管理员账号和密码，进入运营控制台。
-            </p>
-          </div>
-
-          <div class="scholar-auth__quickline">
-            <article class="scholar-auth__quickitem">
-              <span>访问级别</span>
-              <strong>管理员鉴权</strong>
-            </article>
-            <article class="scholar-auth__quickitem">
-              <span>配置方式</span>
-              <strong>后台优先维护</strong>
-            </article>
-            <article class="scholar-auth__quickitem">
-              <span>运行目标</span>
-              <strong>上线运营可追踪</strong>
-            </article>
-          </div>
-
-          <p class="scholar-note scholar-note--warn">
-            生产环境请使用独立管理员密码，并避免继续保留默认初始化口令。
-          </p>
-
-          <form class="scholar-stack scholar-stack--compact" @submit.prevent="login">
-            <label class="scholar-field">
-              <span class="scholar-field__label">用户名</span>
-              <input
-                v-model.trim="username"
-                class="scholar-input"
-                autocomplete="username"
-                placeholder="请输入管理员用户名"
-              />
-            </label>
-
-            <label class="scholar-field">
-              <span class="scholar-field__label">密码</span>
-              <input
-                v-model.trim="password"
-                type="password"
-                class="scholar-input"
-                autocomplete="current-password"
-                placeholder="请输入密码"
-              />
-            </label>
-
-            <button class="scholar-button scholar-button--block" :disabled="loading">
-              {{ loading ? "登录中..." : "登录后台" }}
-            </button>
-          </form>
-
-          <p v-if="errorText" class="scholar-note scholar-note--danger">{{ errorText }}</p>
-
-          <div class="scholar-inline-actions scholar-inline-actions--spread">
-            <RouterLink class="scholar-button scholar-button--ghost" to="/login">
-              返回用户登录
-            </RouterLink>
-          </div>
-        </div>
-      </section>
-    </div>
+      <p v-if="errorText" class="admin-login__error">{{ errorText }}</p>
+    </section>
   </div>
 </template>
 
 <script setup>
 import { ref } from "vue"
-import { RouterLink, useRoute, useRouter } from "vue-router"
+import { useRoute, useRouter } from "vue-router"
 
 import { adminHttp } from "../../lib/http"
 import { resolveAdminRedirect } from "../../lib/redirect"
@@ -178,3 +71,112 @@ async function login() {
   }
 }
 </script>
+
+<style scoped>
+.admin-login {
+  min-height: 100vh;
+  min-height: 100svh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: #f3f6fb;
+}
+
+.admin-login__card {
+  width: min(100%, 420px);
+  border: 1px solid #dbe3ee;
+  border-radius: 14px;
+  background: #ffffff;
+  box-shadow: 0 16px 40px rgba(15, 23, 42, 0.08);
+  padding: 28px 24px;
+}
+
+.admin-login__head {
+  margin-bottom: 20px;
+}
+
+.admin-login__eyebrow {
+  margin: 0 0 8px;
+  font-size: 12px;
+  color: #475569;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.admin-login__title {
+  margin: 0;
+  font-size: 26px;
+  line-height: 1.2;
+  color: #0f172a;
+}
+
+.admin-login__form {
+  display: grid;
+  gap: 14px;
+}
+
+.admin-login__field {
+  display: grid;
+  gap: 8px;
+}
+
+.admin-login__field span {
+  font-size: 13px;
+  color: #334155;
+  font-weight: 600;
+}
+
+.admin-login__field input {
+  height: 42px;
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  padding: 0 12px;
+  font-size: 14px;
+  color: #0f172a;
+  background: #ffffff;
+  transition: border-color 0.16s ease, box-shadow 0.16s ease;
+}
+
+.admin-login__field input:focus {
+  outline: none;
+  border-color: #2563eb;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.14);
+}
+
+.admin-login__submit {
+  height: 42px;
+  border: 1px solid #1d4ed8;
+  border-radius: 10px;
+  background: #2563eb;
+  color: #ffffff;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.16s ease, border-color 0.16s ease;
+}
+
+.admin-login__submit:hover:not(:disabled) {
+  background: #1d4ed8;
+  border-color: #1e40af;
+}
+
+.admin-login__submit:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.admin-login__error {
+  margin: 12px 0 0;
+  color: #b91c1c;
+  font-size: 13px;
+}
+
+@media (max-width: 640px) {
+  .admin-login {
+    padding: 14px;
+  }
+
+  .admin-login__card {
+    padding: 22px 16px;
+  }
+}
+</style>

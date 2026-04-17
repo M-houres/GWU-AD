@@ -105,7 +105,7 @@ const statCards = computed(() => {
   const totalRevenue = typeof overview.total_revenue === "number" ? overview.total_revenue : 0
   return [
     { label: "累计用户", value: formatNumber(totalUsers), hint: "注册用户总量" },
-    { label: "累计任务", value: formatNumber(totalTasks), hint: "含检测、降重、学术润色" },
+    { label: "累计任务", value: formatNumber(totalTasks), hint: "含检测、降重、降AIGC率" },
     { label: "支付订单", value: formatNumber(totalOrders), hint: "已创建订单总数" },
     { label: "累计收入", value: `¥${formatNumber(totalRevenue)}`, hint: "订单支付后的累计金额" },
   ]

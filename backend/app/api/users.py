@@ -268,7 +268,12 @@ def claim_promo_subsidy(payload: dict, user: User = Depends(current_user), db: S
 
 @router.post("/me/promo-center/classrooms", response_model=APIResp)
 def create_promo_classroom(payload: dict, user: User = Depends(current_user), db: Session = Depends(db_dep)) -> APIResp:
-    classroom = create_classroom(db, user=user, name=str(payload.get("name", "")).strip())
+    try:
+        classroom = create_classroom(db, user=user, name=str(payload.get("name", "")).strip())
+    except ValueError as exc:
+        if str(exc) == "already_joined_other_classroom":
+            raise BizError(code=4413, message="你已加入其他班级，暂不支持同时创建或加入多个班级", http_status=409)
+        raise
     db.commit()
     return ok(
         data={
@@ -278,6 +283,7 @@ def create_promo_classroom(payload: dict, user: User = Depends(current_user), db
             "level": classroom.level,
             "member_count": classroom.member_count,
             "activity_score": classroom.activity_score,
+            "role": "owner",
         }
     )
 
@@ -285,10 +291,17 @@ def create_promo_classroom(payload: dict, user: User = Depends(current_user), db
 @router.post("/me/promo-center/classrooms/join", response_model=APIResp)
 def join_promo_classroom(payload: dict, user: User = Depends(current_user), db: Session = Depends(db_dep)) -> APIResp:
     invite_code = str(payload.get("invite_code", "")).strip().upper()
+    if not invite_code:
+        raise BizError(code=4414, message="请先填写班级口令", http_status=422)
     try:
         classroom = join_classroom(db, user=user, invite_code=invite_code)
-    except ValueError:
-        raise BizError(code=4411, message="班级口令不存在", http_status=404)
+    except ValueError as exc:
+        reason = str(exc)
+        if reason == "classroom_not_found":
+            raise BizError(code=4411, message="班级口令不存在", http_status=404)
+        if reason == "already_joined_other_classroom":
+            raise BizError(code=4413, message="你已加入其他班级，暂不支持同时创建或加入多个班级", http_status=409)
+        raise
     db.commit()
     return ok(
         data={
@@ -298,6 +311,7 @@ def join_promo_classroom(payload: dict, user: User = Depends(current_user), db: 
             "level": classroom.level,
             "member_count": classroom.member_count,
             "activity_score": classroom.activity_score,
+            "role": ("owner" if classroom.owner_user_id == user.id else "member"),
         }
     )
 
@@ -319,8 +333,23 @@ def submit_promo_share(
             payout_name=str(payload.get("real_name", "")).strip(),
             note=str(payload.get("note", "")).strip(),
         )
-    except ValueError:
-        raise BizError(code=4412, message="分享平台或奖励档位不支持", http_status=422)
+    except ValueError as exc:
+        reason = str(exc)
+        if reason in {"invalid_platform", "invalid_tier"}:
+            raise BizError(code=4412, message="分享平台或奖励档位不支持", http_status=422)
+        if reason in {"share_link_required", "share_link_invalid"}:
+            raise BizError(code=4415, message="请填写可访问的分享链接（http/https）", http_status=422)
+        if reason == "payout_account_required":
+            raise BizError(code=4416, message="请填写有效的支付宝账号", http_status=422)
+        if reason == "payout_name_required":
+            raise BizError(code=4417, message="请填写有效的支付宝实名", http_status=422)
+        if reason == "share_submission_pending_review":
+            raise BizError(code=4418, message="该平台任务正在审核中，请勿重复提交", http_status=409)
+        if reason == "share_submission_approved_locked":
+            raise BizError(code=4420, message="该平台任务已审核通过，等待人工打款中，暂不可修改", http_status=409)
+        if reason == "share_submission_paid_locked":
+            raise BizError(code=4421, message="该平台奖励已发放，每个平台仅支持一次领奖", http_status=409)
+        raise
     db.commit()
     return ok(
         data={

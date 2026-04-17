@@ -48,6 +48,15 @@
                         <strong>{{ nextClassroomTarget }}</strong>
                       </article>
                     </div>
+                    <div class="class-progress">
+                      <div class="class-progress__head">
+                        <span>整班福利进度</span>
+                        <strong>{{ classroom.created ? Math.min(classroom.memberCount, 40) : 0 }}/40</strong>
+                      </div>
+                      <div class="class-progress__track">
+                        <div class="class-progress__bar" :style="{ width: `${classroomProgressPercent}%` }" />
+                      </div>
+                    </div>
                   </div>
 
                   <div class="class-tiers">
@@ -57,27 +66,57 @@
                         <div class="class-tier-title">{{ item.title }}</div>
                         <div class="class-tier-cond">{{ item.desc }}</div>
                       </div>
-                      <span class="class-tier-tag">{{ item.tag }}</span>
+                      <span class="class-tier-tag" :class="{ 'is-unlocked': item.unlocked }">{{ item.tag }}</span>
                     </div>
                   </div>
 
-                  <button type="button" class="create-btn-big" @click="createClassroom">
-                    {{ classroom.created ? "继续邀请同学，全班免费查" : "立即创建班级，全班免费查" }}
-                  </button>
+                  <div v-if="!classroom.created || classroom.role === 'owner'" class="class-form-card">
+                    <label class="class-form-field">
+                      <span>班级名称</span>
+                      <input
+                        v-model.trim="classroomDraftName"
+                        type="text"
+                        maxlength="120"
+                        placeholder="例如：论文终稿冲刺班"
+                        :disabled="creatingClassroom"
+                      />
+                    </label>
+                    <button type="button" class="create-btn-big" :disabled="creatingClassroom" @click="createClassroom">
+                      {{ creatingClassroom ? "处理中..." : classroom.created ? "刷新我的班级状态" : "立即创建班级，全班免费查" }}
+                    </button>
+                  </div>
+
+                  <div v-if="!classroom.created" class="class-form-card">
+                    <label class="class-form-field">
+                      <span>已有班级口令？输入后直接加入</span>
+                      <input
+                        v-model.trim="joinInviteCode"
+                        type="text"
+                        maxlength="24"
+                        placeholder="例如：CLABC123"
+                        :disabled="joiningClassroom"
+                      />
+                    </label>
+                    <button type="button" class="create-btn-big create-btn-big--secondary" :disabled="joiningClassroom" @click="joinClassroomByCode">
+                      {{ joiningClassroom ? "加入中..." : "加入班级，领取整班福利" }}
+                    </button>
+                  </div>
 
                   <div v-if="classroom.created" class="class-room-box">
                     <article>
                       <strong>{{ classroom.name }}</strong>
-                      <p>{{ classroom.level }} · {{ classroom.memberCount }} 人 · 活跃度 {{ classroom.activityScore }}</p>
+                      <p>{{ classroomRoleLabel }} · {{ classroom.level }} · {{ classroom.memberCount }} 人 · 活跃度 {{ classroom.activityScore }}</p>
                     </article>
                     <article>
                       <strong>入班口令：{{ classroom.inviteCode }}</strong>
-                      <p>支持复制口令和二维码邀请两种拉人方式</p>
+                      <p>{{ classroom.role === "owner" ? "复制口令或邀请文案，继续拉同学进班。" : "把口令发给同学即可加入同一班级。" }}</p>
                     </article>
                     <div class="class-room-actions">
                       <button type="button" class="btn-ghost" @click="copyClassroomCode">复制口令</button>
-                      <button type="button" class="btn-ghost" @click="downloadPoster">下载海报</button>
+                      <button v-if="classroom.role === 'owner'" type="button" class="btn-ghost" @click="copyClassroomInviteText">复制邀请文案</button>
+                      <button v-if="classroom.role === 'owner'" type="button" class="btn-ghost" @click="downloadPoster">下载海报</button>
                     </div>
+                    <p v-if="classroom.role !== 'owner'" class="class-lock-tip">你已加入班级，当前版本暂不支持切换到其他班级。</p>
                   </div>
                 </div>
 
@@ -116,7 +155,7 @@
                   <div class="plat-tab__body">
                     <strong>{{ item.name }}-分享</strong>
                     <small>{{ item.rewardText }}</small>
-                    <em>{{ activePlatform === item.key ? "当前" : "立即领取" }}</em>
+                    <em>{{ resolveShareStatusMeta(item.status).label }}</em>
                   </div>
                   <div v-if="activePlatform === item.key" class="plat-tab__check">✓</div>
                 </button>
@@ -124,6 +163,15 @@
 
               <div class="share-layout">
                 <div class="share-layout__left">
+                  <div class="share-status-card">
+                    <div class="share-status-card__head">
+                      <strong>{{ currentPlatformName }}当前进度</strong>
+                      <span class="share-status-tag" :class="`is-${currentShareStatusMeta.tone}`">{{ currentShareStatusMeta.label }}</span>
+                    </div>
+                    <p>{{ currentShareStatusMeta.desc }}</p>
+                    <small v-if="currentPlatformSubmitTip">{{ currentPlatformSubmitTip }}</small>
+                  </div>
+
                   <div class="reward-card">
                     <h4>任务详情</h4>
                     <div class="task-table">
@@ -145,23 +193,23 @@
                     <div class="submit-grid">
                       <label class="form-group">
                         <span>输入{{ currentPlatformName }}分享链接</span>
-                        <input v-model.trim="shareForm.link" type="text" placeholder="填写分享后的链接（链接必须为可访问地址）" />
+                        <input v-model.trim="shareForm.link" type="text" placeholder="填写分享后的链接（链接必须为可访问地址）" :disabled="shareFormDisabled" />
                       </label>
                       <label class="form-group">
                         <span>输入平台昵称</span>
-                        <input v-model.trim="shareForm.nickname" type="text" placeholder="请输入账号昵称（提交后不可修改哦，请谨慎填写）" />
+                        <input v-model.trim="shareForm.nickname" type="text" placeholder="请输入账号昵称（提交后不可修改哦，请谨慎填写）" :disabled="shareFormDisabled" />
                       </label>
                       <label class="form-group">
                         <span>输入领取奖励的支付宝号</span>
-                        <input v-model.trim="shareForm.account" type="text" placeholder="请输入支付宝号（提交后不可修改哦，请谨慎填写）" />
+                        <input v-model.trim="shareForm.account" type="text" placeholder="请输入支付宝号（提交后不可修改哦，请谨慎填写）" :disabled="shareFormDisabled" />
                       </label>
                       <label class="form-group">
                         <span>输入支付宝认证姓名</span>
-                        <input v-model.trim="shareForm.realName" type="text" placeholder="请输入支付宝认证姓名（用于打款时的身份验证）" />
+                        <input v-model.trim="shareForm.realName" type="text" placeholder="请输入支付宝认证姓名（用于打款时的身份验证）" :disabled="shareFormDisabled" />
                       </label>
                       <label class="form-group form-group--full">
                         <span>选择符合条件的奖励</span>
-                        <select v-model="shareForm.tier">
+                        <select v-model="shareForm.tier" :disabled="shareFormDisabled">
                           <option v-for="item in shareTiers" :key="item.key" :value="item.key">
                             {{ item.reward }}（{{ item.desc }}）
                           </option>
@@ -169,11 +217,31 @@
                       </label>
                       <label class="form-group form-group--full">
                         <span>补充说明</span>
-                        <textarea v-model.trim="shareForm.note" rows="1" placeholder="可补充点赞数、发布时间或作品说明"></textarea>
+                        <textarea v-model.trim="shareForm.note" rows="1" placeholder="可补充点赞数、发布时间或作品说明" :disabled="shareFormDisabled"></textarea>
                       </label>
                     </div>
-                    <button type="button" class="btn-primary" :disabled="!canSubmitShare" @click="submitShare">提交审核</button>
+                    <button type="button" class="btn-primary" :disabled="!canSubmitShare" @click="submitShare">{{ shareSubmitButtonText }}</button>
                     <p class="risk-tip">⚠️ 提交后不可修改，请谨慎填写（若发现任何形式的弄虚作假骗取奖励的行为，将拒绝审核，并取消所有活动资格。）</p>
+                  </div>
+                </div>
+
+                <div class="share-layout__right">
+                  <div class="detail-card">
+                    <div class="detail-card__head">
+                      <h3>我的提交记录</h3>
+                      <small>{{ normalizedShareRecords.length }} 条</small>
+                    </div>
+                    <div v-if="normalizedShareRecords.length" class="share-record-list">
+                      <article v-for="item in normalizedShareRecords" :key="item.id" class="share-record-item">
+                        <div class="share-record-item__main">
+                          <strong>{{ item.platform }} · {{ item.reward }}</strong>
+                          <p>{{ item.note }}</p>
+                          <small v-if="item.submitNote">提交备注：{{ item.submitNote }}</small>
+                        </div>
+                        <span class="share-status-tag" :class="`is-${item.statusTone}`">{{ item.statusLabel }}</span>
+                      </article>
+                    </div>
+                    <p v-else class="share-empty">还没有提交记录，先选一个平台提交审核。</p>
                   </div>
                 </div>
               </div>
@@ -215,21 +283,22 @@ const shareTasks = ref([
   { key: "qq", label: "分享QQ空间", desc: "将平台海报分享到 QQ 空间", reward: 3000, status: "claimed" },
   { key: "weibo", label: "分享微博", desc: "发布微博并推荐论文服务", reward: 2000, status: "claimed" },
 ])
-const classroomNotice = reactive({
-  name: "大吉大利毕业群",
-  level: "钻石班",
-  reward: "2 张至尊版查重券",
-})
 
 const classroom = reactive({
   created: false,
   id: null,
   name: "",
   inviteCode: "",
+  role: "member",
   level: "待创建",
   memberCount: 0,
   activityScore: 0,
 })
+const classroomDraftName = ref("")
+const joinInviteCode = ref("")
+const creatingClassroom = ref(false)
+const joiningClassroom = ref(false)
+const submittingShare = ref(false)
 
 const classroomLeaderboard = ref([
   { rank: 1, name: "大吉大利毕业群", members: 46, activity: 98, level: "钻石班" },
@@ -260,11 +329,47 @@ const shareForm = reactive({
   note: "",
 })
 
-const classroomTiers = computed(() => [
-  { icon: "免", title: "10 张免费版查重券", desc: classroom.created ? `班级成员达 10 人 · 当前 ${classroom.memberCount}/10` : "班级成员达 10 人，每人可领取 10 张", tag: "待解锁" },
-  { icon: "尊", title: "2 张至尊版查重券", desc: classroom.created ? `班级成员达 20 人 · 当前 ${classroom.memberCount}/20` : "班级成员达 20 人，每人可领取 2 张", tag: "待解锁" },
-  { icon: "降", title: "1 张学术论文降重券", desc: classroom.created ? `班级成员达 40 人 · 当前 ${classroom.memberCount}/40` : "班级成员达 40 人，每人可领取 1 张", tag: "待解锁" },
-])
+const classroomTierRules = [
+  { icon: "免", threshold: 10, title: "10 张免费版查重券" },
+  { icon: "尊", threshold: 20, title: "2 张至尊版查重券" },
+  { icon: "降", threshold: 40, title: "1 张学术论文降重券" },
+]
+
+const classroomTiers = computed(() => {
+  const current = classroom.created ? Number(classroom.memberCount || 0) : 0
+  return classroomTierRules.map((item) => {
+    const unlocked = current >= item.threshold
+    const left = Math.max(item.threshold - current, 0)
+    return {
+      ...item,
+      unlocked,
+      desc: classroom.created
+        ? (unlocked ? `已达 ${item.threshold} 人，整班可领取` : `班级成员达 ${item.threshold} 人 · 还差 ${left} 人`)
+        : `班级成员达 ${item.threshold} 人，每人可领取`,
+      tag: unlocked ? "已解锁" : `差 ${left} 人`,
+    }
+  })
+})
+
+const nextClassroomTarget = computed(() => {
+  if (!classroom.created) {
+    return "10 人起解锁"
+  }
+  const current = Number(classroom.memberCount || 0)
+  const next = classroomTierRules.find((item) => current < item.threshold)
+  if (!next) {
+    return "已达最高档"
+  }
+  return `还差 ${next.threshold - current} 人`
+})
+
+const classroomProgressPercent = computed(() => {
+  const current = classroom.created ? Number(classroom.memberCount || 0) : 0
+  const progressBase = Math.min(Math.max(current, 0), 40)
+  return Math.round((progressBase / 40) * 100)
+})
+
+const classroomRoleLabel = computed(() => (classroom.role === "owner" ? "班级创建者" : "班级成员"))
 
 const currentPlatformName = computed(() => {
   const current = sharePlatforms.value.find((item) => item.key === activePlatform.value)
@@ -350,6 +455,8 @@ const shareTiers = computed(() => [
 const canSubmitShare = computed(
   () =>
     Boolean(
+      !submittingShare.value &&
+      currentPlatformCanSubmit.value &&
       shareForm.link.trim() &&
       shareForm.nickname.trim() &&
       shareForm.account.trim() &&
@@ -366,6 +473,60 @@ const sharePlatformVisuals = {
   wechat: { mark: "微", tone: "wechat" },
 }
 
+const shareStatusVisuals = {
+  ready: { label: "可提交", tone: "ready", desc: "当前平台还未提交，完成内容发布后可立即提交审核。" },
+  submitted: { label: "审核中", tone: "submitted", desc: "资料已提交，运营正在审核中。审核通过后会进入打款队列。" },
+  approved: { label: "待打款", tone: "approved", desc: "审核已通过，等待人工发放红包。" },
+  paid: { label: "已打款", tone: "paid", desc: "红包已发放，到账后可在账户余额查看。" },
+  rejected: { label: "未通过", tone: "rejected", desc: "审核未通过，请修改内容后重新提交。" },
+}
+
+function resolveShareStatusMeta(status) {
+  return shareStatusVisuals[String(status || "").trim().toLowerCase()] || shareStatusVisuals.ready
+}
+
+const currentPlatformItem = computed(() => {
+  return sharePlatforms.value.find((item) => item.key === activePlatform.value) || null
+})
+
+const currentPlatformCanSubmit = computed(() => currentPlatformItem.value?.canSubmit !== false)
+const currentPlatformSubmitTip = computed(() => {
+  if (!currentPlatformItem.value) return ""
+  const backendTip = String(currentPlatformItem.value.submitTip || "").trim()
+  if (backendTip) return backendTip
+  return currentPlatformCanSubmit.value ? "当前平台可提交" : "当前平台暂不可提交"
+})
+const shareFormDisabled = computed(() => submittingShare.value || !currentPlatformCanSubmit.value)
+
+const currentShareStatusMeta = computed(() => resolveShareStatusMeta(currentPlatformItem.value?.status))
+
+const normalizedShareRecords = computed(() => {
+  return shareRecords.value.map((item) => {
+    const statusMeta = resolveShareStatusMeta(item.status)
+    return {
+      ...item,
+      statusLabel: item.status_label || statusMeta.label,
+      statusTone: statusMeta.tone,
+      submitNote: String(item.submit_note || "").trim(),
+    }
+  })
+})
+
+const currentPlatformRecord = computed(() => {
+  return normalizedShareRecords.value.find((item) => item.platformKey === activePlatform.value) || null
+})
+
+const shareSubmitButtonText = computed(() => {
+  if (submittingShare.value) return "提交中..."
+  if (!currentPlatformCanSubmit.value) {
+    return currentShareStatusMeta.value.label
+  }
+  if (currentPlatformItem.value && String(currentPlatformItem.value.status || "") === "rejected") {
+    return "更新本平台提交信息"
+  }
+  return "提交审核"
+})
+
 watch(
   () => route.query.benefit,
   (value) => {
@@ -377,6 +538,19 @@ watch(
   { immediate: true },
 )
 
+watch(
+  () => route.query.class_code,
+  (value) => {
+    const inviteCode = String(value || "").trim().toUpperCase()
+    if (!inviteCode) {
+      return
+    }
+    joinInviteCode.value = inviteCode
+    activePage.value = "classroom"
+  },
+  { immediate: true },
+)
+
 watch(activePage, async (value) => {
   const current = String(route.query.benefit || "")
   if (value === current || (value === "classroom" && !current)) return
@@ -384,10 +558,18 @@ watch(activePage, async (value) => {
   await router.replace({ path: route.path, query })
 })
 
+watch(
+  [activePlatform, currentPlatformRecord],
+  () => {
+    hydrateShareFormFromCurrentPlatform()
+  },
+  { immediate: true },
+)
+
 onMounted(async () => {
   if (!getUserToken()) return
   await refreshUser()
-  await loadPromoCenter()
+  await loadPromoCenter(false)
 })
 
 function setFeedback(text, tone = "info") {
@@ -410,14 +592,40 @@ async function copyText(value, message) {
 }
 
 function refreshProgress() {
-  loadPromoCenter()
+  loadPromoCenter(true)
 }
 
-async function loadPromoCenter() {
+function applyClassroomPayload(payload) {
+  if (!payload) {
+    classroom.created = false
+    classroom.id = null
+    classroom.name = ""
+    classroom.inviteCode = ""
+    classroom.role = "member"
+    classroom.level = "待创建"
+    classroom.memberCount = 0
+    classroom.activityScore = 0
+    classroomDraftName.value = ""
+    return
+  }
+  classroom.created = true
+  classroom.id = payload.id
+  classroom.name = payload.name || ""
+  classroom.inviteCode = String(payload.invite_code || "").toUpperCase()
+  classroom.role = payload.role === "owner" ? "owner" : "member"
+  classroom.level = payload.level || "青铜班"
+  classroom.memberCount = Number(payload.member_count || 0)
+  classroom.activityScore = Number(payload.activity_score || 0)
+  if (classroom.role === "owner") {
+    classroomDraftName.value = classroom.name || ""
+  }
+}
+
+async function loadPromoCenter(showSuccess = false) {
   try {
     const data = await userHttp.get("/users/me/promo-center")
     const subsidy = data?.subsidy || {}
-    if (Array.isArray(subsidy.share_tasks) && subsidy.share_tasks.length) {
+    if (Array.isArray(subsidy.share_tasks)) {
       shareTasks.value = subsidy.share_tasks.map((item) => ({
         key: item.key,
         label: item.label,
@@ -426,7 +634,7 @@ async function loadPromoCenter() {
         status: item.status,
       }))
     }
-    if (Array.isArray(data?.classroom?.leaderboard) && data.classroom.leaderboard.length) {
+    if (Array.isArray(data?.classroom?.leaderboard)) {
       classroomLeaderboard.value = data.classroom.leaderboard.map((item) => ({
         rank: item.rank,
         name: item.name,
@@ -435,29 +643,38 @@ async function loadPromoCenter() {
         level: item.level,
       }))
     }
-    if (data?.classroom?.owned) {
-      classroom.created = true
-      classroom.id = data.classroom.owned.id
-      classroom.name = data.classroom.owned.name
-      classroom.inviteCode = data.classroom.owned.invite_code
-      classroom.level = data.classroom.owned.level
-      classroom.memberCount = Number(data.classroom.owned.member_count || 0)
-      classroom.activityScore = Number(data.classroom.owned.activity_score || 0)
-    }
-    if (Array.isArray(data?.share_center?.platforms) && data.share_center.platforms.length) {
+    applyClassroomPayload(data?.classroom?.joined || data?.classroom?.owned || null)
+    if (Array.isArray(data?.share_center?.platforms)) {
       sharePlatforms.value = data.share_center.platforms.map((item) => ({
         key: item.key,
         name: item.label,
         mark: sharePlatformVisuals[item.key]?.mark || "享",
         tone: sharePlatformVisuals[item.key]?.tone || "wechat",
         rewardText: item.reward,
-        status: item.status,
+        status: item.status || "ready",
+        canSubmit: item.can_submit !== false,
+        submitTip: item.submit_tip || "",
       }))
     }
-    if (Array.isArray(data?.share_center?.records) && data.share_center.records.length) {
-      shareRecords.value = data.share_center.records
+    if (Array.isArray(data?.share_center?.records)) {
+      shareRecords.value = data.share_center.records.map((item) => ({
+        id: item.id,
+        platformKey: item.platform_key,
+        platform: item.platform,
+        status: item.status || "ready",
+        status_label: item.status_label || "",
+        note: item.note || "",
+        reward: item.reward || "-",
+        submit_note: item.submit_note || "",
+        tier_key: item.tier_key || "top",
+        share_link: item.share_link || "",
+        payout_account: item.payout_account || "",
+        payout_name: item.payout_name || "",
+      }))
     }
-    setFeedback("活动进度已同步", "ok")
+    if (showSuccess) {
+      setFeedback("活动进度已同步", "ok")
+    }
   } catch (error) {
     setFeedback(String(error?.message || "活动数据加载失败"), "error")
   }
@@ -471,7 +688,7 @@ async function claimSubsidy(taskKey) {
   if (isGuest.value) return goLogin()
   try {
     await userHttp.post("/users/me/promo-center/subsidy/claim", { task_key: taskKey })
-    await loadPromoCenter()
+    await loadPromoCenter(false)
     setFeedback("分享得积分任务已领取", "ok")
   } catch (error) {
     setFeedback(String(error?.message || "领取失败"), "error")
@@ -479,7 +696,8 @@ async function claimSubsidy(taskKey) {
 }
 
 function buildPosterSvg() {
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="900" height="1200" viewBox="0 0 900 1200"><rect width="900" height="1200" rx="36" fill="#2563eb"/><text x="72" y="140" fill="#ffffff" font-size="48" font-weight="800">格物学术</text><text x="72" y="230" fill="#dbeafe" font-size="32">推荐格物学术，领取积分和卡券奖励</text><rect x="72" y="330" width="756" height="420" rx="28" fill="rgba(255,255,255,0.92)"/><text x="120" y="450" fill="#111827" font-size="44" font-weight="800">毕业论文相关服务推荐海报</text><text x="120" y="530" fill="#4b5563" font-size="24">检测 / 降AIGC率 / 降重复率</text><text x="120" y="600" fill="#4b5563" font-size="24">扫码或复制链接参与活动</text></svg>`
+  const inviteCode = classroom.inviteCode || "创建班级后查看"
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="900" height="1200" viewBox="0 0 900 1200"><rect width="900" height="1200" rx="36" fill="#2563eb"/><text x="72" y="140" fill="#ffffff" font-size="48" font-weight="800">格物学术</text><text x="72" y="230" fill="#dbeafe" font-size="32">推荐格物学术，领取积分和卡券奖励</text><rect x="72" y="330" width="756" height="420" rx="28" fill="rgba(255,255,255,0.92)"/><text x="120" y="430" fill="#111827" font-size="44" font-weight="800">毕业论文相关服务推荐海报</text><text x="120" y="510" fill="#4b5563" font-size="24">检测 / 降AIGC率 / 降重复率</text><text x="120" y="580" fill="#4b5563" font-size="24">入班口令：${inviteCode}</text><text x="120" y="650" fill="#4b5563" font-size="24">扫码或复制链接参与活动</text></svg>`
 }
 
 function downloadPoster() {
@@ -495,12 +713,40 @@ function downloadPoster() {
 
 async function createClassroom() {
   if (isGuest.value) return goLogin()
+  if (creatingClassroom.value) return
+  creatingClassroom.value = true
   try {
-    await userHttp.post("/users/me/promo-center/classrooms", { name: classroom.name || "格物毕业互助班" })
-    await loadPromoCenter()
+    const name = classroomDraftName.value.trim() || "格物毕业互助班"
+    const data = await userHttp.post("/users/me/promo-center/classrooms", { name })
+    applyClassroomPayload(data || null)
+    await loadPromoCenter(false)
     setFeedback("班级已创建，可复制口令邀请同学", "ok")
   } catch (error) {
     setFeedback(String(error?.message || "创建班级失败"), "error")
+  } finally {
+    creatingClassroom.value = false
+  }
+}
+
+async function joinClassroomByCode() {
+  if (isGuest.value) return goLogin()
+  if (joiningClassroom.value) return
+  const inviteCode = joinInviteCode.value.trim().toUpperCase()
+  if (!inviteCode) {
+    setFeedback("请先输入班级口令", "error")
+    return
+  }
+  joiningClassroom.value = true
+  try {
+    const data = await userHttp.post("/users/me/promo-center/classrooms/join", { invite_code: inviteCode })
+    applyClassroomPayload(data || null)
+    joinInviteCode.value = ""
+    await loadPromoCenter(false)
+    setFeedback(`已加入班级：${data?.name || ""}`, "ok")
+  } catch (error) {
+    setFeedback(String(error?.message || "加入班级失败"), "error")
+  } finally {
+    joiningClassroom.value = false
   }
 }
 
@@ -509,30 +755,109 @@ function copyClassroomCode() {
   copyText(classroom.inviteCode, "班级口令已复制")
 }
 
+function copyClassroomInviteText() {
+  if (!classroom.inviteCode) return setFeedback("请先创建班级", "info")
+  const origin = typeof window !== "undefined" ? window.location.origin : ""
+  const inviteLink = `${origin}/app/referral?benefit=classroom&class_code=${classroom.inviteCode}`
+  const text = `我创建了【${classroom.name || "格物毕业互助班"}】\n入班口令：${classroom.inviteCode}\n活动页：${inviteLink}`
+  copyText(text, "邀请文案已复制")
+}
+
 async function submitShare() {
   if (isGuest.value) return goLogin()
+  if (submittingShare.value) return
+  if (!currentPlatformCanSubmit.value) return setFeedback(currentPlatformSubmitTip.value || "当前平台暂不可提交", "info")
   if (!shareForm.link.trim()) return setFeedback("请先填写分享链接", "error")
+  if (!isValidHttpUrl(shareForm.link)) return setFeedback("请填写可访问的链接，必须以 http:// 或 https:// 开头", "error")
   if (!shareForm.nickname.trim()) return setFeedback("请先填写平台昵称", "error")
   if (!shareForm.account.trim()) return setFeedback("请先填写领取奖励的支付宝号", "error")
   if (!shareForm.realName.trim()) return setFeedback("请先填写支付宝认证姓名", "error")
+  if (shareForm.account.trim().length < 3) return setFeedback("支付宝账号格式不正确", "error")
+  if (shareForm.realName.trim().length < 2) return setFeedback("支付宝实名格式不正确", "error")
   try {
+    submittingShare.value = true
     await userHttp.post("/users/me/promo-center/shares", {
       platform: activePlatform.value,
       tier_key: shareForm.tier,
       share_link: shareForm.link,
       account_name: shareForm.account,
       real_name: shareForm.realName,
-      note: shareForm.note,
+      note: buildShareSubmitNote(),
     })
     shareForm.link = ""
     shareForm.nickname = ""
     shareForm.account = ""
     shareForm.realName = ""
     shareForm.note = ""
-    await loadPromoCenter()
+    await loadPromoCenter(false)
     setFeedback("分享任务已提交，等待后台人工审核与打款", "ok")
   } catch (error) {
     setFeedback(String(error?.message || "提交审核失败"), "error")
+  } finally {
+    submittingShare.value = false
+  }
+}
+
+function isValidHttpUrl(value) {
+  try {
+    const parsed = new URL(String(value || "").trim())
+    return parsed.protocol === "http:" || parsed.protocol === "https:"
+  } catch {
+    return false
+  }
+}
+
+function buildShareSubmitNote() {
+  const nickname = shareForm.nickname.trim()
+  const note = shareForm.note.trim()
+  if (nickname && note) {
+    return `平台昵称：${nickname}\n补充说明：${note}`
+  }
+  if (nickname) {
+    return `平台昵称：${nickname}`
+  }
+  return note
+}
+
+function parseShareSubmitNote(value) {
+  const text = String(value || "").trim()
+  if (!text) {
+    return { nickname: "", note: "" }
+  }
+  const nicknameMatch = text.match(/(?:^|\n)平台昵称[:：]\s*([^\n]+)/)
+  const noteMatch = text.match(/(?:^|\n)补充说明[:：]\s*([\s\S]+)/)
+  const nickname = String(nicknameMatch?.[1] || "").trim()
+  const note = String(noteMatch?.[1] || "").trim()
+  return {
+    nickname,
+    note: note || (nickname ? "" : text),
+  }
+}
+
+function hydrateShareFormFromCurrentPlatform() {
+  const record = currentPlatformRecord.value
+  if (!record) {
+    return
+  }
+  const parsed = parseShareSubmitNote(record.submitNote)
+  if (!shareForm.link.trim() && record.share_link) {
+    shareForm.link = record.share_link
+  }
+  if (!shareForm.account.trim() && record.payout_account) {
+    shareForm.account = record.payout_account
+  }
+  if (!shareForm.realName.trim() && record.payout_name) {
+    shareForm.realName = record.payout_name
+  }
+  if (!shareForm.nickname.trim() && parsed.nickname) {
+    shareForm.nickname = parsed.nickname
+  }
+  if (!shareForm.note.trim() && parsed.note) {
+    shareForm.note = parsed.note
+  }
+  const tierKey = String(record.tier_key || "").trim().toLowerCase()
+  if (tierKey && shareTiers.value.some((item) => item.key === tierKey)) {
+    shareForm.tier = tierKey
   }
 }
 </script>
@@ -640,8 +965,26 @@ async function submitShare() {
 .detail-table__head{font-weight:700;color:#374151}
 .detail-table__row{color:#6b7280}
 .class-show-wrap{display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:14px;justify-content:center;align-items:start}
-.share-layout{display:grid;grid-template-columns:minmax(0,1fr);gap:8px;align-items:start;max-width:none;width:100%;margin:0 auto}
+.share-layout{display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:8px;align-items:start;max-width:none;width:100%;margin:0 auto}
 .share-layout__left,.share-layout__right{display:grid;gap:12px}
+.share-status-card{border:1px solid #dbeafe;border-radius:14px;background:#f8fbff;padding:12px 14px;display:grid;gap:6px}
+.share-status-card__head{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.share-status-card__head strong{font-size:13px;color:#1e3a8a}
+.share-status-card p{margin:0;font-size:12px;color:#52627d;line-height:1.6}
+.share-status-card small{font-size:11px;color:#64748b;line-height:1.5}
+.share-status-tag{display:inline-flex;align-items:center;justify-content:center;min-height:24px;padding:0 10px;border-radius:999px;font-size:11px;font-weight:700;border:1px solid #dbeafe;color:#1d4ed8;background:#fff}
+.share-status-tag.is-ready{border-color:#dbeafe;color:#2563eb;background:#eff6ff}
+.share-status-tag.is-submitted{border-color:#fde68a;color:#92400e;background:#fef3c7}
+.share-status-tag.is-approved{border-color:#fed7aa;color:#9a3412;background:#ffedd5}
+.share-status-tag.is-paid{border-color:#bbf7d0;color:#166534;background:#ecfdf3}
+.share-status-tag.is-rejected{border-color:#fecaca;color:#b91c1c;background:#fef2f2}
+.share-record-list{display:grid;gap:10px}
+.share-record-item{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;padding:11px 12px;border:1px solid #e5e7eb;border-radius:12px;background:#fff}
+.share-record-item__main{display:grid;gap:4px;min-width:0}
+.share-record-item__main strong{font-size:12px;color:#0f172a;line-height:1.4}
+.share-record-item__main p{margin:0;font-size:12px;color:#475569;line-height:1.5}
+.share-record-item__main small{font-size:11px;color:#64748b;line-height:1.4}
+.share-empty{margin:0;font-size:12px;color:#64748b;line-height:1.6}
 .class-hero{background:#fff;border:1px solid #e5e7eb;border-radius:20px;padding:22px 22px;color:#10294b;margin-bottom:12px;box-shadow:none}
 .class-hero__eyebrow{display:inline-flex;align-items:center;min-height:26px;padding:0 12px;border-radius:999px;background:#fff;font-size:11px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;border:1px solid #dbeafe;color:#1d4ed8}
 .class-hero h1{max-width:520px;font-size:13px;font-weight:400;line-height:1.8;margin:8px 0 4px;color:#355070;white-space:normal}
@@ -650,16 +993,30 @@ async function submitShare() {
 .class-hero__stats article{padding:9px 11px;border-radius:16px;background:#fff;border:1px solid #e5e7eb}
 .class-hero__stats span{display:block;font-size:11px;opacity:1;margin-bottom:6px;color:#64748b}
 .class-hero__stats strong{display:block;font-size:18px;font-weight:800;line-height:1.2;color:#10294b}
+.class-progress{margin-top:10px;padding:10px 12px;border-radius:14px;border:1px solid #e5e7eb;background:#fff}
+.class-progress__head{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:12px;color:#64748b}
+.class-progress__head strong{font-size:12px;color:#1e3a8a}
+.class-progress__track{margin-top:8px;height:8px;border-radius:999px;background:#e6edf6;overflow:hidden}
+.class-progress__bar{height:100%;border-radius:999px;background:linear-gradient(90deg,#1d4ed8,#60a5fa);transition:width .3s ease}
 .class-tiers{display:flex;flex-direction:column;gap:7px}
 .class-tier{display:flex;align-items:center;gap:12px;background:#fff;border-radius:16px;padding:12px 15px;border:1px solid #e5e7eb}
 .class-tier-icon{width:42px;height:42px;border-radius:14px;display:grid;place-items:center;background:#fff;color:#1d4ed8;font-weight:900;border:1px solid #dbeafe}
 .class-tier-title{font-size:14px;font-weight:700;color:#111827;margin-bottom:3px}
 .class-tier-cond{font-size:12px;color:#6b7280;line-height:1.6}
 .class-tier-tag{margin-left:auto;font-size:11px;padding:5px 10px;border-radius:999px;font-weight:800;background:#fff;color:#5d7393;border:1px solid #e5e7eb}
+.class-tier-tag.is-unlocked{background:#e8f4ef;color:#0f6c53;border-color:#b8e0cf}
+.class-form-card{display:grid;gap:8px;margin-top:10px}
+.class-form-field{display:grid;gap:6px}
+.class-form-field span{font-size:12px;font-weight:600;color:#334155}
+.class-form-field input{width:100%;padding:10px 12px;border:1px solid #d7deea;border-radius:10px;font-size:13px;outline:none}
+.class-form-field input:focus{border-color:#60a5fa;box-shadow:0 0 0 4px rgba(191,219,254,.5)}
 .create-btn-big{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;padding:12px;background:#2563eb;color:#fff;border:none;border-radius:10px;font-size:15px;font-weight:700;cursor:pointer;margin-top:10px;box-shadow:none}
+.create-btn-big--secondary{background:#1e40af}
+.create-btn-big:disabled{opacity:.65;cursor:not-allowed}
 .class-room-box{background:#fff;border:1px solid #e5e7eb;border-radius:18px;padding:13px;margin-top:10px;display:grid;gap:8px}
 .class-room-box strong{font-size:14px;color:#1e3a8a}
 .class-room-box p{font-size:12px;color:#4b5563;line-height:1.6}
+.class-lock-tip{margin:0;color:#64748b;font-size:12px}
 .class-room-actions{display:flex;gap:10px}
 .lb-card h3,.reward-card h4,.steps-card h4,.submit-card h4{font-size:14px;font-weight:800;margin-bottom:10px;color:#14345f}
 .lb-row{display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid #f3f4f6;font-size:13px}

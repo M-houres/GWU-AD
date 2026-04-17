@@ -253,7 +253,7 @@ async function sendCode() {
 
   sending.value = true
   try {
-    await userHttp.post("/auth/send-code", { phone: phone.value })
+    const data = await userHttp.post("/auth/send-code", { phone: phone.value })
     countdown.value = 60
     stopSmsCountdown()
     smsCountdownTimer = setInterval(() => {
@@ -263,7 +263,8 @@ async function sendCode() {
         stopSmsCountdown()
       }
     }, 1000)
-    hintText.value = "验证码已发送"
+    const debugCode = String(data?.debug_code || "").trim()
+    hintText.value = debugCode ? `短信通道未命中，调试验证码：${debugCode}` : "验证码已发送"
   } catch (error) {
     errorText.value = error.message || "验证码发送失败"
   } finally {

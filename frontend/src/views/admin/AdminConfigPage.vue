@@ -124,7 +124,7 @@
               <div class="mt-3 grid gap-3 md:grid-cols-3">
                 <label class="space-y-1 text-sm"><span>AIGC 单价</span><input v-model.number="forms.billing.aigc_rate" type="number" min="1" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" /></label>
                 <label class="space-y-1 text-sm"><span>降重单价</span><input v-model.number="forms.billing.dedup_rate" type="number" min="1" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" /></label>
-                <label class="space-y-1 text-sm"><span>学术润色单价</span><input v-model.number="forms.billing.rewrite_rate" type="number" min="1" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" /></label>
+                <label class="space-y-1 text-sm"><span>降AIGC率单价</span><input v-model.number="forms.billing.rewrite_rate" type="number" min="1" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" /></label>
               </div>
             </section>
 

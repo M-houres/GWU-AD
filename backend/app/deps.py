@@ -84,6 +84,17 @@ class MemoryRedisCompat:
         self._values[key] = str(value)
         return value
 
+    def decr(self, key: str) -> int:
+        self._purge_if_expired(key)
+        current = self._values.get(key, "0")
+        try:
+            value = int(current)
+        except Exception:
+            value = 0
+        value -= 1
+        self._values[key] = str(value)
+        return value
+
     def expire(self, key: str, seconds: int) -> bool:
         self._purge_if_expired(key)
         if key not in self._values:
@@ -174,7 +185,11 @@ def current_user(
     token_type = str(payload.get("typ") or "access").strip().lower()
     if token_type != "access":
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid scope")
-    user = db.get(User, int(payload["sub"]))
+    try:
+        user_id = int(payload["sub"])
+    except Exception as exc:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid token") from exc
+    user = db.get(User, user_id)
     if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="user not found")
     if getattr(user, "is_banned", False):
@@ -207,7 +222,11 @@ def current_admin(
     token_type = str(payload.get("typ") or "access").strip().lower()
     if token_type != "access":
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid scope")
-    admin = db.get(AdminUser, int(payload["sub"]))
+    try:
+        admin_id = int(payload["sub"])
+    except Exception as exc:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid token") from exc
+    admin = db.get(AdminUser, admin_id)
     if not admin:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="admin not found")
     if not getattr(admin, "is_active", True):
