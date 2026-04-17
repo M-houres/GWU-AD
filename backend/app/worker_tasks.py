@@ -57,6 +57,9 @@ _local_task_queue: Queue[tuple[object, tuple, dict, str]] = Queue()
 _local_worker_lock = threading.Lock()
 _local_task_queues: dict[str, Queue[tuple[object, tuple, dict, str]]] = {"default": _local_task_queue}
 _local_worker_threads: dict[str, list[threading.Thread]] = {}
+_worker_probe_lock = threading.Lock()
+_worker_probe_state: dict[str, float | bool] = {"checked_at": 0.0, "ok": False}
+_WORKER_PROBE_TTL_SECONDS = 2.0
 
 _TASK_RESULT_META_KEYS = ("paper_title", "authors")
 
@@ -83,6 +86,28 @@ def _celery_broker_available() -> bool:
         return True
     except redis.RedisError:
         return False
+
+
+def _celery_worker_available() -> bool:
+    now = time.monotonic()
+    with _worker_probe_lock:
+        checked_at = float(_worker_probe_state.get("checked_at", 0.0) or 0.0)
+        cached_ok = bool(_worker_probe_state.get("ok", False))
+        if now - checked_at <= _WORKER_PROBE_TTL_SECONDS:
+            return cached_ok
+
+    available = False
+    try:
+        inspector = celery_app.control.inspect(timeout=0.4)
+        replies = inspector.ping() or {}
+        available = bool(replies)
+    except Exception:
+        available = False
+
+    with _worker_probe_lock:
+        _worker_probe_state["checked_at"] = now
+        _worker_probe_state["ok"] = available
+    return available
 
 
 def _run_task_locally(task, args: tuple, kwargs: dict, task_name: str) -> None:
@@ -171,15 +196,21 @@ def dispatch_background_task(task, *args, queue: str | None = None, **kwargs) ->
     task_name = getattr(task, "name", getattr(task, "__name__", "unknown_task"))
     normalized_queue = _normalize_local_queue_name(queue)
     if _celery_broker_available():
-        try:
-            task.apply_async(args=args, kwargs=kwargs, queue=normalized_queue)
-            return "celery"
-        except Exception:
-            logger.warning(
-                "celery_dispatch_failed_fallback_local",
-                exc_info=True,
-                extra={"task_name": task_name},
-            )
+        can_dispatch_celery = True
+        if not settings.is_prod and settings.celery_local_fallback_enabled and not _celery_worker_available():
+            can_dispatch_celery = False
+            logger.warning("celery_worker_unavailable_fallback_local", extra={"task_name": task_name})
+
+        if can_dispatch_celery:
+            try:
+                task.apply_async(args=args, kwargs=kwargs, queue=normalized_queue)
+                return "celery"
+            except Exception:
+                logger.warning(
+                    "celery_dispatch_failed_fallback_local",
+                    exc_info=True,
+                    extra={"task_name": task_name},
+                )
     else:
         logger.warning("celery_broker_unavailable_fallback_local", extra={"task_name": task_name})
 
@@ -388,11 +419,26 @@ def preprocess_submission_async(task_id: int) -> dict:
             _decrement_submission_counters(task)
             return {"ok": False, "task_id": task.id, "error": str(exc)}
 
-    dispatch_background_task(process_task_async, task_id, queue="processing")
+    dispatch_error: Exception | None = None
+    try:
+        dispatch_background_task(process_task_async, task_id, queue="processing")
+    except Exception as exc:
+        dispatch_error = exc
+        logger.exception("task_process_dispatch_failed", extra={"task_id": task_id})
+
     with db_session() as db:
-        task = db.query(Task).filter(Task.id == task_id).first()
+        task = db.query(Task).filter(Task.id == task_id).with_for_update().first()
         if task:
             _decrement_submission_counters(task)
+            if dispatch_error is not None:
+                task.status = TaskStatus.FAILED
+                task.error_message = f"任务处理派发失败: {str(dispatch_error)[:180]}"
+                task.updated_at = datetime.utcnow()
+                _refund_task(db, task)
+                db.flush()
+
+    if dispatch_error is not None:
+        return {"ok": False, "task_id": task_id, "error": str(dispatch_error)}
     return {"ok": True, "task_id": task_id, "status": TaskStatus.QUEUED.value}
 
 

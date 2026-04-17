@@ -69,9 +69,7 @@
       >
         <div class="aigc-record-item__left">
           <div class="aigc-record-item__title-row">
-            <button class="aigc-record-item__title" type="button" @click="openDetails(item)">
-              {{ taskLabel(item) }}
-            </button>
+            <div class="aigc-record-item__title">{{ taskLabel(item) }}</div>
             <span v-if="item.status === 'completed'" class="aigc-record-item__origin-tag">原始文档可追溯</span>
           </div>
 
@@ -112,7 +110,6 @@
           </button>
 
           <template v-if="item.status === 'completed'">
-            <button class="aigc-record-item__detail" type="button" @click="openDetails(item)">检测详情</button>
             <button class="scholar-button scholar-button--secondary" type="button" @click="downloadReport(item.id)">
               下载报告
             </button>
@@ -139,53 +136,6 @@
       <button type="button" :disabled="page >= totalPages" @click="page += 1">下一页</button>
     </nav>
 
-    <div v-if="selectedTask" class="scholar-modal" @click.self="selectedTask = null">
-      <div class="scholar-modal__dialog">
-        <div class="scholar-panel__header">
-          <div class="flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <div class="scholar-kicker">Task Result</div>
-              <h3 class="scholar-subtitle">AIGC检测结果详情</h3>
-              <p class="scholar-lead">{{ taskResultSummary(selectedTask) }}</p>
-            </div>
-            <button class="scholar-button scholar-button--secondary" type="button" @click="selectedTask = null">
-              关闭
-            </button>
-          </div>
-        </div>
-        <div class="scholar-panel__body">
-          <div class="scholar-grid scholar-grid--stats">
-            <article v-for="metric in taskResultMetrics(selectedTask)" :key="metric.label" class="scholar-stat">
-              <div class="scholar-stat__label">{{ metric.label }}</div>
-              <div class="scholar-stat__value" style="font-size: 24px">{{ metric.value }}</div>
-            </article>
-          </div>
-          <section v-if="taskResultRiskParagraphs(selectedTask).length" class="scholar-panel scholar-panel--soft" style="margin-top: 18px">
-            <div class="scholar-panel__body">
-              <div class="scholar-kicker">High Risk Paragraphs</div>
-              <h4 class="scholar-subtitle">高风险段落</h4>
-              <div class="scholar-list" style="margin-top: 14px">
-                <div
-                  v-for="item in taskResultRiskParagraphs(selectedTask)"
-                  :key="`${item.index}-${item.score}`"
-                  class="scholar-list-item"
-                >
-                  <div class="text-xs text-[var(--ink-faint)]">段落 {{ item.index }} / 风险 {{ item.score }}%</div>
-                  <div class="mt-2 text-sm leading-7 text-[var(--ink-soft)]">{{ item.excerpt }}</div>
-                </div>
-              </div>
-            </div>
-          </section>
-          <div class="scholar-inline-actions" style="margin-top: 18px">
-            <button class="scholar-button" type="button" @click="downloadReport(selectedTask.id)">下载报告</button>
-            <button class="scholar-button scholar-button--secondary" type="button" @click="selectedTask = null">
-              返回列表
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-
     <BuyCreditsPanel v-if="showBuy" @paid="afterPaid" />
   </UserShell>
 </template>
@@ -203,7 +153,6 @@ import { fetchAllUserTasks } from "../../lib/userRecords"
 import { getUserToken } from "../../lib/session"
 import { mapTaskPlatform } from "../../lib/taskPlatform"
 import { isTaskProcessingStatus } from "../../lib/taskStatus"
-import { taskResultMetrics, taskResultRiskParagraphs, taskResultSummary } from "../../lib/taskResult"
 
 const router = useRouter()
 const route = useRoute()
@@ -214,7 +163,6 @@ const keyword = ref("")
 const statusFilter = ref("all")
 const page = ref(1)
 const pageSize = 8
-const selectedTask = ref(null)
 const tasks = ref([])
 const pollTimer = ref(null)
 
@@ -424,19 +372,6 @@ async function removeTask(item) {
 async function downloadReport(taskId) {
   const resp = await userHttp.get(`/tasks/${taskId}/download`, { responseType: "blob" })
   downloadAxiosBlobResponse(resp, `aigc_report_${taskId}`)
-}
-
-async function openDetails(item) {
-  if (item.status !== "completed") {
-    selectedTask.value = item
-    return
-  }
-  try {
-    const detail = await userHttp.get(`/tasks/${item.id}`)
-    selectedTask.value = { ...item, ...detail }
-  } catch {
-    selectedTask.value = item
-  }
 }
 
 async function afterPaid() {

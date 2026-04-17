@@ -312,6 +312,68 @@ def test_process_task_preserves_submission_metadata(
     assert task.result_json["authors"] == "王五"
 
 
+def test_preprocess_marks_failed_and_refunds_when_process_dispatch_fails(
+    db_session: Session,
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    source_path = tmp_path / "dispatch_fail_source.docx"
+    source_path.write_bytes(_make_docx_bytes("这是一段用于二段派发失败兜底测试的文本。").getvalue())
+
+    user = User(phone="13800007775", nickname="preprocess-dispatch-user", credits=10000)
+    db_session.add(user)
+    db_session.flush()
+
+    task = Task(
+        user_id=user.id,
+        task_type=TaskType.DEDUP,
+        platform="cnki",
+        status=TaskStatus.PREPROCESSING,
+        source_filename="dispatch_fail_source.docx",
+        source_path=str(source_path),
+        char_count=0,
+        cost_credits=0,
+        result_json={"paper_title": "派发失败回滚测试", "authors": "测试作者"},
+    )
+    db_session.add(task)
+    db_session.commit()
+
+    starting_credits = int(user.credits)
+
+    monkeypatch.setattr(worker_tasks, "extract_text_from_file", lambda *_args, **_kwargs: "有效正文内容")
+    monkeypatch.setattr(worker_tasks, "count_billable_chars", lambda *_args, **_kwargs: 100)
+    monkeypatch.setattr(worker_tasks, "_resolve_task_rate", lambda *_args, **_kwargs: 2)
+    monkeypatch.setattr(worker_tasks, "_decrement_submission_counters", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        worker_tasks,
+        "dispatch_background_task",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("processing queue down")),
+    )
+
+    @contextmanager
+    def _db_session_override():
+        try:
+            yield db_session
+            db_session.commit()
+        except Exception:
+            db_session.rollback()
+            raise
+
+    monkeypatch.setattr(worker_tasks, "db_session", _db_session_override)
+
+    result = worker_tasks.preprocess_submission_async(task.id)
+
+    assert result["ok"] is False
+    assert "processing queue down" in str(result.get("error"))
+    db_session.refresh(task)
+    db_session.refresh(user)
+    assert task.status == TaskStatus.FAILED
+    assert "任务处理派发失败" in str(task.error_message or "")
+    assert task.cost_credits == 200
+    assert task.refund_done is True
+    assert int(user.credits) == starting_credits
+
+
 def test_dispatch_background_task_rejects_local_fallback_in_prod(monkeypatch) -> None:
     settings = get_settings()
     old_env = settings.app_env
@@ -339,6 +401,45 @@ def test_dispatch_background_task_rejects_local_fallback_in_prod(monkeypatch) ->
         with pytest.raises(RuntimeError) as exc_info:
             worker_tasks.dispatch_background_task(_DummyTask(), 1, foo="bar")
         assert "celery broker unavailable" in str(exc_info.value)
+    finally:
+        settings.app_env = old_env
+        settings.celery_local_fallback_enabled = old_local_fallback
+
+
+def test_dispatch_background_task_falls_back_local_when_worker_unavailable_in_dev(monkeypatch) -> None:
+    settings = get_settings()
+    old_env = settings.app_env
+    old_local_fallback = settings.celery_local_fallback_enabled
+
+    class _DummyQueue:
+        def __init__(self) -> None:
+            self.items = []
+
+        def put(self, value) -> None:
+            self.items.append(value)
+
+    class _DummyTask:
+        name = "dummy-task"
+
+        @staticmethod
+        def apply_async(*_args, **_kwargs):
+            raise AssertionError("apply_async should not be called when worker is unavailable in dev fallback mode")
+
+    queue = _DummyQueue()
+    settings.app_env = "dev"
+    settings.celery_local_fallback_enabled = True
+    monkeypatch.setattr(worker_tasks, "_celery_broker_available", lambda: True)
+    monkeypatch.setattr(worker_tasks, "_celery_worker_available", lambda: False)
+    monkeypatch.setattr(worker_tasks, "_get_local_task_queue", lambda *_args, **_kwargs: queue)
+    monkeypatch.setattr(worker_tasks, "_ensure_local_workers", lambda *_args, **_kwargs: None)
+    try:
+        mode = worker_tasks.dispatch_background_task(_DummyTask(), 1, queue="processing", foo="bar")
+        assert mode == "local-queue"
+        assert len(queue.items) == 1
+        _, args, kwargs, task_name = queue.items[0]
+        assert args == (1,)
+        assert kwargs["foo"] == "bar"
+        assert task_name == "dummy-task"
     finally:
         settings.app_env = old_env
         settings.celery_local_fallback_enabled = old_local_fallback

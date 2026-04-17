@@ -52,6 +52,7 @@ const userGuestBrowsablePaths = new Set([
   '/app/review',
   '/app/defense',
   '/app/buy',
+  '/app/referral',
 ])
 
 function firstAccessibleAdminRoute() {
@@ -66,8 +67,8 @@ function firstAccessibleAdminRoute() {
 const router = createRouter({
   history: createWebHistory(),
   routes: [
-    { path: '/', redirect: '/login' },
-    { path: '/home', redirect: '/login' },
+    { path: '/', redirect: '/app/detect' },
+    { path: '/home', redirect: '/app/detect' },
     { path: '/login', component: LoginPage },
     // Keep invite links like /register?ref=... working, but render login page.
     { path: '/register', component: LoginPage },

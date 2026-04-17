@@ -96,6 +96,11 @@ class Settings(BaseSettings):
     task_processing_global_concurrency: int = 8
     task_processing_user_concurrency: int = 3
     task_processing_retry_countdown_seconds: int = 5
+    task_chain_guard_enabled: bool = True
+    task_chain_guard_preprocessing_timeout_seconds: int = 900
+    task_chain_guard_pending_timeout_seconds: int = 900
+    task_chain_guard_queued_timeout_seconds: int = 1200
+    task_chain_guard_running_timeout_seconds: int = 3600
     celery_local_fallback_enabled: bool = True
     local_submission_worker_concurrency: int = 4
     local_processing_worker_concurrency: int = 4

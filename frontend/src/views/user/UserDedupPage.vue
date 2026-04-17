@@ -395,6 +395,22 @@ async function submitTask() {
     })
     if (!isActiveSubmit(token)) return
 
+    const status = String(data?.status || "").trim().toLowerCase()
+    if (status === "failed") {
+      const reason = String(data?.error_message || "").trim()
+      errorText.value = reason
+        ? `任务 #${data.id} 处理失败：${reason}`
+        : `任务 #${data.id} 排队失败，请到降重记录页查看失败原因后重试`
+      try {
+        await refreshUser()
+      } catch (refreshError) {
+        console.warn("task_submit_refresh_user_failed", refreshError)
+      }
+      if (!isActiveSubmit(token)) return
+      router.push({ path: "/app/dedup/records", query: { focus: String(data.id) } })
+      return
+    }
+
     successText.value = `提交成功，任务 #${data.id} 已进入处理队列`
     try {
       await refreshUser()

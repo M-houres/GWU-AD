@@ -25,7 +25,7 @@
               <div class="page-title-bar page-title-bar--center">
                 <div>
                   <h2>全班免费查</h2>
-                  <div class="subtitle">创建班级后持续邀请同学，人数越高，整班解锁的卡券档位越高</div>
+                  <div class="subtitle">创建班级后邀请同学加入，按人数提升班级等级，分享任务奖励请以“分享得积分”为准</div>
                 </div>
               </div>
 
@@ -33,7 +33,7 @@
                 <div>
                   <div class="class-hero">
                   <div class="class-hero__eyebrow">班级裂变福利</div>
-                    <h1>创建班级后邀请同学加入，按人数逐步解锁查重券与降重券，人数越多，整班可领取的免费权益越高。</h1>
+                    <h1>创建班级后邀请同学加入，按人数逐步提升班级等级与成长进度。当前版本不发放班级卡券，活动奖励以实际到账记录为准。</h1>
                     <div class="class-hero__stats">
                       <article>
                         <span>当前人数</span>
@@ -50,7 +50,7 @@
                     </div>
                     <div class="class-progress">
                       <div class="class-progress__head">
-                        <span>整班福利进度</span>
+                        <span>班级成长进度</span>
                         <strong>{{ classroom.created ? Math.min(classroom.memberCount, 40) : 0 }}/40</strong>
                       </div>
                       <div class="class-progress__track">
@@ -65,6 +65,7 @@
                       <div>
                         <div class="class-tier-title">{{ item.title }}</div>
                         <div class="class-tier-cond">{{ item.desc }}</div>
+                        <div class="class-tier-reward">{{ item.reward }}</div>
                       </div>
                       <span class="class-tier-tag" :class="{ 'is-unlocked': item.unlocked }">{{ item.tag }}</span>
                     </div>
@@ -98,7 +99,7 @@
                       />
                     </label>
                     <button type="button" class="create-btn-big create-btn-big--secondary" :disabled="joiningClassroom" @click="joinClassroomByCode">
-                      {{ joiningClassroom ? "加入中..." : "加入班级，领取整班福利" }}
+                      {{ joiningClassroom ? "加入中..." : "加入班级，参与组队成长" }}
                     </button>
                   </div>
 
@@ -114,23 +115,104 @@
                     <div class="class-room-actions">
                       <button type="button" class="btn-ghost" @click="copyClassroomCode">复制口令</button>
                       <button v-if="classroom.role === 'owner'" type="button" class="btn-ghost" @click="copyClassroomInviteText">复制邀请文案</button>
-                      <button v-if="classroom.role === 'owner'" type="button" class="btn-ghost" @click="downloadPoster">下载海报</button>
                     </div>
                     <p v-if="classroom.role !== 'owner'" class="class-lock-tip">你已加入班级，当前版本暂不支持切换到其他班级。</p>
                   </div>
                 </div>
+              </div>
+            </section>
 
-                <div class="lb-card">
-                  <h3>上周班级活跃榜</h3>
-                  <div v-for="item in classroomLeaderboard" :key="item.rank" class="lb-row">
-                    <div class="lb-rank">{{ item.rank }}</div>
-                    <div class="lb-info">
-                      <div class="lb-name">{{ item.name }}</div>
-                      <div class="lb-meta">活跃度: {{ item.activity }} · {{ item.members }}人</div>
+            <section v-else-if="activePage === 'fission'" class="activity-page activity-page--fission">
+              <div class="page-title-bar page-title-bar--center">
+                <div>
+                  <h2>分享得积分</h2>
+                  <div class="subtitle">分享专属网站链接邀请新用户使用，按登录与转化解锁奖励</div>
+                </div>
+              </div>
+
+              <div class="fission-metrics">
+                <article class="fission-metric">
+                  <span>累计邀请登录</span>
+                  <strong>{{ fissionStats.inviteLoginCount }}</strong>
+                  <small>每邀请 1 位新用户登录奖励 2000 积分</small>
+                </article>
+                <article class="fission-metric">
+                  <span>邀请首单转化</span>
+                  <strong>{{ fissionStats.firstOrderCount }}</strong>
+                  <small>完成首单可解锁券包奖励</small>
+                </article>
+                <article class="fission-metric">
+                  <span>已获积分估算</span>
+                  <strong>{{ fissionStats.estimatedCredits }}</strong>
+                  <small>按当前登录转化自动估算</small>
+                </article>
+              </div>
+
+              <div class="fission-progress">
+                <div class="fission-progress__head">
+                  <span>分享进度</span>
+                  <strong>{{ fissionCompletedCount }}/{{ fissionStages.length }} 已达成 · 下一目标：{{ fissionNextMilestone }}</strong>
+                </div>
+                <div class="fission-progress__track">
+                  <div class="fission-progress__bar" :style="{ width: `${fissionProgressPercent}%` }" />
+                </div>
+                <div class="fission-stage-list">
+                  <article v-for="stage in fissionStages" :key="stage.key" class="fission-stage" :class="{ 'is-done': stage.done }">
+                    <div class="fission-stage__title">
+                      <strong>{{ stage.title }}</strong>
+                      <span>{{ stage.done ? "已达成" : "进行中" }}</span>
                     </div>
-                    <span class="lb-level">{{ item.level }}</span>
+                    <p>{{ stage.desc }}</p>
+                    <small>{{ stage.reward }}</small>
+                  </article>
+                </div>
+              </div>
+
+              <div class="fission-layout">
+                <div class="fission-card">
+                  <h4>我的专属邀请</h4>
+                  <div class="fission-code-grid">
+                    <article>
+                      <span>邀请码</span>
+                      <strong>{{ fissionInvite.code || "登录后生成" }}</strong>
+                    </article>
+                    <article>
+                      <span>邀请链接</span>
+                      <strong class="fission-link">{{ fissionInvite.link || "登录后生成专属链接" }}</strong>
+                    </article>
+                  </div>
+                  <div class="fission-actions">
+                    <button type="button" class="btn-primary" @click="copyFissionInviteLink">复制邀请链接</button>
+                    <button type="button" class="btn-ghost" @click="copyFissionInviteText">复制邀请文案</button>
+                    <button type="button" class="btn-ghost" @click="copyFissionInviteCode">复制邀请码</button>
+                  </div>
+                  <p v-if="isGuest" class="fission-guest-tip">当前为游客模式，登录后可生成你的专属邀请链接和二维码。</p>
+                </div>
+
+                <div class="fission-card fission-card--qrcode">
+                  <h4>邀请二维码</h4>
+                  <div class="fission-qrcode">
+                    <img v-if="fissionInvite.qrcodeDataUrl" :src="fissionInvite.qrcodeDataUrl" alt="邀请二维码" />
+                    <span v-else>登录后生成二维码</span>
                   </div>
                 </div>
+              </div>
+
+              <div class="fission-card">
+                <div class="detail-card__head">
+                  <h4>最新奖励动态</h4>
+                  <small>{{ fissionRewardRecords.length }} 条</small>
+                </div>
+                <div v-if="fissionRewardRecords.length" class="fission-reward-list">
+                  <article v-for="(item, index) in fissionRewardRecords" :key="`${item.title}-${index}`" class="fission-reward-item">
+                    <div>
+                      <strong>{{ item.title }}</strong>
+                      <p>{{ item.note }}</p>
+                    </div>
+                    <span>{{ item.reward }}</span>
+                  </article>
+                </div>
+                <p v-else class="share-empty">暂无奖励动态，邀请新用户登录后会自动记录在这里。</p>
               </div>
             </section>
 
@@ -275,8 +357,23 @@ const feedback = reactive({ text: "", tone: "info" })
 
 const tabs = [
   { key: "classroom", label: "全班免费查" },
+  { key: "fission", label: "分享得积分" },
   { key: "share", label: "分享领红包" },
 ]
+
+const fissionInvite = reactive({
+  code: "",
+  link: "",
+  qrcodeDataUrl: "",
+})
+
+const fissionStats = reactive({
+  inviteLoginCount: 0,
+  firstOrderCount: 0,
+  estimatedCredits: 0,
+})
+
+const fissionRewardRecords = ref([])
 
 const shareTasks = ref([
   { key: "wechat", label: "分享朋友圈", desc: "将平台海报和检测体验分享到朋友圈", reward: 5000, status: "ready" },
@@ -299,12 +396,6 @@ const joinInviteCode = ref("")
 const creatingClassroom = ref(false)
 const joiningClassroom = ref(false)
 const submittingShare = ref(false)
-
-const classroomLeaderboard = ref([
-  { rank: 1, name: "大吉大利毕业群", members: 46, activity: 98, level: "钻石班" },
-  { rank: 2, name: "论文终稿冲刺班", members: 34, activity: 92, level: "钻石班" },
-  { rank: 3, name: "教育硕士定稿小组", members: 22, activity: 87, level: "黄金班" },
-])
 
 const sharePlatforms = ref([
   { key: "weibo", name: "微博", mark: "博", tone: "weibo", rewardText: "得20元红包", status: "ready" },
@@ -330,9 +421,24 @@ const shareForm = reactive({
 })
 
 const classroomTierRules = [
-  { icon: "免", threshold: 10, title: "10 张免费版查重券" },
-  { icon: "尊", threshold: 20, title: "2 张至尊版查重券" },
-  { icon: "降", threshold: 40, title: "1 张学术论文降重券" },
+  {
+    icon: "Ⅰ",
+    threshold: 5,
+    title: "5人成团（白银班）",
+    reward: "已上线激励：成员去“分享得积分”，每邀请1位新用户登录可得 +2000 积分（个人到账）。",
+  },
+  {
+    icon: "Ⅱ",
+    threshold: 20,
+    title: "20人进阶（黄金班）",
+    reward: "已上线激励：20人班级更易形成裂变，积分奖励按成员个人邀请效果实时累计。",
+  },
+  {
+    icon: "Ⅲ",
+    threshold: 40,
+    title: "40人满阶（钻石班）",
+    reward: "已上线激励：冲刺邀请登录与首单转化，奖励以系统到账记录和审核结果为准。",
+  },
 ]
 
 const classroomTiers = computed(() => {
@@ -344,8 +450,8 @@ const classroomTiers = computed(() => {
       ...item,
       unlocked,
       desc: classroom.created
-        ? (unlocked ? `已达 ${item.threshold} 人，整班可领取` : `班级成员达 ${item.threshold} 人 · 还差 ${left} 人`)
-        : `班级成员达 ${item.threshold} 人，每人可领取`,
+        ? (unlocked ? `已达 ${item.threshold} 人，班级等级已解锁` : `班级成员达 ${item.threshold} 人 · 还差 ${left} 人`)
+        : `班级成员达 ${item.threshold} 人，解锁下一等级`,
       tag: unlocked ? "已解锁" : `差 ${left} 人`,
     }
   })
@@ -353,7 +459,7 @@ const classroomTiers = computed(() => {
 
 const nextClassroomTarget = computed(() => {
   if (!classroom.created) {
-    return "10 人起解锁"
+    return "5 人起解锁"
   }
   const current = Number(classroom.memberCount || 0)
   const next = classroomTierRules.find((item) => current < item.threshold)
@@ -370,6 +476,56 @@ const classroomProgressPercent = computed(() => {
 })
 
 const classroomRoleLabel = computed(() => (classroom.role === "owner" ? "班级创建者" : "班级成员"))
+
+const fissionStages = computed(() => {
+  const inviteCount = Number(fissionStats.inviteLoginCount || 0)
+  const firstOrderCount = Number(fissionStats.firstOrderCount || 0)
+  const hasInviteBase = Boolean(String(fissionInvite.code || "").trim())
+  return [
+    {
+      key: "seed",
+      title: "发布专属邀请链接",
+      desc: "复制你的专属邀请链接并分享给同学或社群。",
+      reward: "完成分享起点",
+      done: hasInviteBase,
+    },
+    {
+      key: "login_1",
+      title: "邀请 1 位新用户登录",
+      desc: "任意新用户通过你的链接完成登录。",
+      reward: "+2000 积分",
+      done: inviteCount >= 1,
+    },
+    {
+      key: "login_3",
+      title: "邀请 3 位新用户登录",
+      desc: "累计邀请 3 位新用户成功登录。",
+      reward: "+6000 积分（累计）",
+      done: inviteCount >= 3,
+    },
+    {
+      key: "first_order",
+      title: "促成 1 位首单转化",
+      desc: "被邀请用户完成首笔下单支付。",
+      reward: "至尊查重券 / AIGC 检测券 / 降重券",
+      done: firstOrderCount >= 1,
+    },
+    {
+      key: "login_10",
+      title: "邀请 10 位新用户登录",
+      desc: "持续扩散，累计邀请 10 位新用户登录。",
+      reward: "+20000 积分（累计）",
+      done: inviteCount >= 10,
+    },
+  ]
+})
+
+const fissionCompletedCount = computed(() => fissionStages.value.filter((item) => item.done).length)
+const fissionProgressPercent = computed(() => Math.round((fissionCompletedCount.value / Math.max(fissionStages.value.length, 1)) * 100))
+const fissionNextMilestone = computed(() => {
+  const next = fissionStages.value.find((item) => !item.done)
+  return next ? next.title : "全部达成"
+})
 
 const currentPlatformName = computed(() => {
   const current = sharePlatforms.value.find((item) => item.key === activePlatform.value)
@@ -624,7 +780,26 @@ function applyClassroomPayload(payload) {
 async function loadPromoCenter(showSuccess = false) {
   try {
     const data = await userHttp.get("/users/me/promo-center")
+    const invitePayload = data?.invite || {}
+    fissionInvite.code = String(invitePayload.invite_code || "").toUpperCase()
+    fissionInvite.link = String(invitePayload.invite_link || "")
+    fissionInvite.qrcodeDataUrl = String(invitePayload.qrcode_data_url || "")
+
     const subsidy = data?.subsidy || {}
+    fissionStats.inviteLoginCount = Number(subsidy.invite_login_count || 0)
+    fissionStats.firstOrderCount = Number(subsidy.first_order_count || 0)
+    fissionStats.estimatedCredits = Math.max(0, fissionStats.inviteLoginCount * 2000)
+
+    if (Array.isArray(subsidy.ledger)) {
+      fissionRewardRecords.value = subsidy.ledger.map((item) => ({
+        title: String(item.title || "奖励记录"),
+        note: String(item.note || ""),
+        reward: String(item.reward || "-"),
+      }))
+    } else {
+      fissionRewardRecords.value = []
+    }
+
     if (Array.isArray(subsidy.share_tasks)) {
       shareTasks.value = subsidy.share_tasks.map((item) => ({
         key: item.key,
@@ -632,15 +807,6 @@ async function loadPromoCenter(showSuccess = false) {
         desc: item.note,
         reward: Number(item.reward_credits || 0),
         status: item.status,
-      }))
-    }
-    if (Array.isArray(data?.classroom?.leaderboard)) {
-      classroomLeaderboard.value = data.classroom.leaderboard.map((item) => ({
-        rank: item.rank,
-        name: item.name,
-        members: item.members,
-        activity: item.activity,
-        level: item.level,
       }))
     }
     applyClassroomPayload(data?.classroom?.joined || data?.classroom?.owned || null)
@@ -684,6 +850,47 @@ function goBuy() {
   router.push("/app/buy")
 }
 
+function ensureFissionAuth() {
+  if (!isGuest.value) {
+    return true
+  }
+  goLogin()
+  return false
+}
+
+async function copyFissionInviteCode() {
+  if (!ensureFissionAuth()) return
+  if (!fissionInvite.code) {
+    setFeedback("邀请码生成中，请稍后重试", "info")
+    return
+  }
+  await copyText(fissionInvite.code, "邀请码已复制")
+}
+
+async function copyFissionInviteLink() {
+  if (!ensureFissionAuth()) return
+  if (!fissionInvite.link) {
+    setFeedback("邀请链接生成中，请稍后重试", "info")
+    return
+  }
+  await copyText(fissionInvite.link, "邀请链接已复制")
+}
+
+async function copyFissionInviteText() {
+  if (!ensureFissionAuth()) return
+  if (!fissionInvite.link) {
+    setFeedback("邀请链接生成中，请稍后重试", "info")
+    return
+  }
+  const text = [
+    "我在用格物学术做论文检测和降重，体验不错。",
+    `专属邀请链接：${fissionInvite.link}`,
+    `邀请码：${fissionInvite.code || "-"}`,
+    "通过链接注册并登录后，你我都能解锁活动福利。",
+  ].join("\n")
+  await copyText(text, "邀请文案已复制")
+}
+
 async function claimSubsidy(taskKey) {
   if (isGuest.value) return goLogin()
   try {
@@ -693,22 +900,6 @@ async function claimSubsidy(taskKey) {
   } catch (error) {
     setFeedback(String(error?.message || "领取失败"), "error")
   }
-}
-
-function buildPosterSvg() {
-  const inviteCode = classroom.inviteCode || "创建班级后查看"
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="900" height="1200" viewBox="0 0 900 1200"><rect width="900" height="1200" rx="36" fill="#2563eb"/><text x="72" y="140" fill="#ffffff" font-size="48" font-weight="800">格物学术</text><text x="72" y="230" fill="#dbeafe" font-size="32">推荐格物学术，领取积分和卡券奖励</text><rect x="72" y="330" width="756" height="420" rx="28" fill="rgba(255,255,255,0.92)"/><text x="120" y="430" fill="#111827" font-size="44" font-weight="800">毕业论文相关服务推荐海报</text><text x="120" y="510" fill="#4b5563" font-size="24">检测 / 降AIGC率 / 降重复率</text><text x="120" y="580" fill="#4b5563" font-size="24">入班口令：${inviteCode}</text><text x="120" y="650" fill="#4b5563" font-size="24">扫码或复制链接参与活动</text></svg>`
-}
-
-function downloadPoster() {
-  const blob = new Blob([buildPosterSvg()], { type: "image/svg+xml;charset=utf-8" })
-  const url = URL.createObjectURL(blob)
-  const link = document.createElement("a")
-  link.href = url
-  link.download = `promo-${activePage.value}.svg`
-  link.click()
-  URL.revokeObjectURL(url)
-  setFeedback("海报已生成并开始下载", "ok")
 }
 
 async function createClassroom() {
@@ -865,27 +1056,66 @@ function hydrateShareFormFromCurrentPlatform() {
 <style scoped>
 .promo-page{display:grid;padding:8px 0;background:#fff}
 .activity-wrap{display:block;background:#fff;border-radius:20px;overflow:hidden;border:1px solid #e5e7eb;box-shadow:none;backdrop-filter:none}
-.activity-wrap--center{width:100%;max-width:1380px;margin:0 auto}
+.activity-wrap--center{width:100%;max-width:1680px;margin:0 auto}
 .activity-content{padding:16px 18px;background:#fff}
-.activity-layout{display:grid;grid-template-columns:180px minmax(0,1fr);gap:16px;align-items:start}
+.activity-layout{display:grid;grid-template-columns:220px minmax(0,1fr);gap:22px;align-items:start}
 .activity-sidebar{position:sticky;top:16px;align-self:start;padding:6px;border-radius:18px;border:1px solid #e5e7eb;background:linear-gradient(180deg,#fff 0%,#f8fbff 100%)}
-.activity-main{display:grid;gap:10px;min-width:0}
+.activity-main{display:grid;gap:12px;min-width:0}
 .activity-topbar__nav{list-style:none;display:grid;grid-template-columns:1fr;gap:8px}
 .activity-topbar__nav li{min-width:0}
-.activity-topbar__nav button{width:100%;display:flex;align-items:center;justify-content:flex-start;min-height:44px;padding:11px 14px;border-radius:14px;font-size:13px;font-weight:600;letter-spacing:.02em;color:#52627d;text-decoration:none;transition:all .18s ease;cursor:pointer;border:1px solid transparent;background:transparent;text-align:left}
+.activity-topbar__nav button{width:100%;display:flex;align-items:center;justify-content:flex-start;min-height:46px;padding:12px 15px;border-radius:14px;font-size:14px;font-weight:600;letter-spacing:.02em;color:#52627d;text-decoration:none;transition:all .18s ease;cursor:pointer;border:1px solid transparent;background:transparent;text-align:left}
 .activity-topbar__nav button:hover{background:#f8fafc;color:#10294b;border-color:#e2e8f0}
 .activity-topbar__nav button.is-active{background:#fff;color:#1d4ed8;font-weight:700;box-shadow:none;border-color:#dbeafe}
-.activity-feedback{width:min(100%,1260px);margin:0 auto 10px;padding:10px 14px;border-radius:14px;border:1px solid #dbeafe;background:#fff;color:#1d4ed8;font-size:13px;box-shadow:none}
+.activity-feedback{width:min(100%,1320px);margin:0 auto 10px;padding:11px 15px;border-radius:14px;border:1px solid #dbeafe;background:#fff;color:#1d4ed8;font-size:14px;box-shadow:none}
 .activity-feedback.is-error{color:#1d4ed8;border-color:#dbeafe;background:#fff}
 .activity-feedback.is-ok{color:#1d4ed8;border-color:#dbeafe;background:#fff}
-.activity-page{display:grid;gap:12px;max-width:1165px;width:100%;aspect-ratio:auto;margin:0 auto;padding:16px 18px;border-radius:20px;border:1px solid #e5e7eb;background:#fff;box-sizing:border-box;box-shadow:none}
+.activity-page{display:grid;gap:14px;max-width:1380px;width:100%;min-height:860px;aspect-ratio:auto;margin:0 auto;padding:22px 26px;border-radius:20px;border:1px solid #e5e7eb;background:#fff;box-sizing:border-box;box-shadow:none}
 .page-title-bar{display:flex;align-items:center;justify-content:space-between;margin-bottom:2px}
 .page-title-bar--center{justify-content:center;text-align:center}
-.page-title-bar h2{font-size:24px;font-weight:800;color:#10294b;letter-spacing:-.02em}
-.page-title-bar .subtitle{font-size:13px;color:#5d7393;margin-top:5px;line-height:1.6}
-.activity-page--share{gap:10px;padding:14px 16px}
-.activity-page--share .page-title-bar h2{font-size:22px}
-.activity-page--share .page-title-bar .subtitle{font-size:12px;margin-top:2px;line-height:1.45}
+.page-title-bar h2{font-size:28px;font-weight:800;color:#10294b;letter-spacing:-.02em}
+.page-title-bar .subtitle{font-size:15px;color:#5d7393;margin-top:5px;line-height:1.6}
+.activity-page--share{gap:12px;padding:20px 22px}
+.activity-page--share .page-title-bar h2{font-size:26px}
+.activity-page--share .page-title-bar .subtitle{font-size:14px;margin-top:2px;line-height:1.5}
+.activity-page--fission{gap:12px}
+.fission-metrics{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.fission-metric{border:1px solid #dbeafe;border-radius:14px;background:#f8fbff;padding:12px 14px;display:grid;gap:4px}
+.fission-metric span{font-size:13px;color:#5d7393}
+.fission-metric strong{font-size:26px;line-height:1;color:#1d4ed8;font-weight:800}
+.fission-metric small{font-size:12px;color:#64748b;line-height:1.5}
+.fission-progress{border:1px solid #e5e7eb;border-radius:16px;padding:12px 14px;background:#fff;display:grid;gap:10px}
+.fission-progress__head{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.fission-progress__head span{font-size:13px;color:#64748b}
+.fission-progress__head strong{font-size:13px;color:#1e3a8a}
+.fission-progress__track{height:8px;border-radius:999px;background:#e6edf6;overflow:hidden}
+.fission-progress__bar{height:100%;border-radius:999px;background:linear-gradient(90deg,#1d4ed8,#60a5fa);transition:width .3s ease}
+.fission-stage-list{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px}
+.fission-stage{border:1px solid #e5e7eb;border-radius:12px;padding:10px 11px;display:grid;gap:5px;background:#fff}
+.fission-stage.is-done{border-color:#bfdbfe;background:#eff6ff}
+.fission-stage__title{display:flex;align-items:center;justify-content:space-between;gap:6px}
+.fission-stage__title strong{font-size:13px;color:#1f2937;line-height:1.4}
+.fission-stage__title span{font-size:11px;color:#64748b}
+.fission-stage p{margin:0;font-size:12px;color:#52627d;line-height:1.5}
+.fission-stage small{font-size:12px;color:#1d4ed8;font-weight:700}
+.fission-layout{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(260px,.8fr);gap:10px}
+.fission-card{border:1px solid #e5e7eb;border-radius:16px;background:#fff;padding:14px 15px;display:grid;gap:10px}
+.fission-card h4{margin:0;font-size:15px;color:#14345f}
+.fission-code-grid{display:grid;gap:8px}
+.fission-code-grid article{border:1px solid #e5e7eb;border-radius:12px;padding:10px 12px;display:grid;gap:4px;background:#f8fafc}
+.fission-code-grid span{font-size:12px;color:#64748b}
+.fission-code-grid strong{font-size:15px;color:#111827;line-height:1.5}
+.fission-link{font-size:12px !important;color:#1e3a8a !important;word-break:break-all}
+.fission-actions{display:flex;gap:8px;flex-wrap:wrap}
+.fission-guest-tip{margin:0;font-size:12px;color:#64748b;line-height:1.6}
+.fission-card--qrcode{align-content:start}
+.fission-qrcode{border:1px dashed #c7d2fe;border-radius:12px;background:#f8fbff;min-height:160px;display:flex;align-items:center;justify-content:center;padding:12px}
+.fission-qrcode img{width:160px;height:160px;object-fit:contain}
+.fission-qrcode span{font-size:13px;color:#64748b}
+.fission-reward-list{display:grid;gap:8px}
+.fission-reward-item{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;border:1px solid #e5e7eb;border-radius:12px;padding:10px 11px}
+.fission-reward-item strong{font-size:13px;color:#111827}
+.fission-reward-item p{margin:2px 0 0;font-size:12px;color:#64748b;line-height:1.5}
+.fission-reward-item span{font-size:13px;color:#1d4ed8;font-weight:700;white-space:nowrap}
 .subsidy-simple{display:grid;grid-template-columns:minmax(0,1.45fr) minmax(220px,.85fr);gap:12px}
 .subsidy-simple__hero{background:linear-gradient(135deg,#1d4ed8 0%,#2563eb 55%,#60a5fa 100%);border-radius:14px;padding:18px 20px;color:#fff}
 .subsidy-simple__eyebrow{display:inline-flex;align-items:center;min-height:24px;padding:0 10px;border-radius:999px;background:rgba(255,255,255,.18);font-size:11px;font-weight:700;letter-spacing:.08em}
@@ -964,14 +1194,14 @@ function hydrateShareFormFromCurrentPlatform() {
 .detail-table__head,.detail-table__row{display:grid;grid-template-columns:1.4fr .8fr .8fr;gap:12px;padding:12px 0;border-bottom:1px solid #f3f4f6;font-size:13px}
 .detail-table__head{font-weight:700;color:#374151}
 .detail-table__row{color:#6b7280}
-.class-show-wrap{display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:14px;justify-content:center;align-items:start}
+.class-show-wrap{display:grid;grid-template-columns:minmax(0,1fr);gap:14px;justify-content:center;align-items:start}
 .share-layout{display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:8px;align-items:start;max-width:none;width:100%;margin:0 auto}
 .share-layout__left,.share-layout__right{display:grid;gap:12px}
 .share-status-card{border:1px solid #dbeafe;border-radius:14px;background:#f8fbff;padding:12px 14px;display:grid;gap:6px}
 .share-status-card__head{display:flex;align-items:center;justify-content:space-between;gap:8px}
-.share-status-card__head strong{font-size:13px;color:#1e3a8a}
-.share-status-card p{margin:0;font-size:12px;color:#52627d;line-height:1.6}
-.share-status-card small{font-size:11px;color:#64748b;line-height:1.5}
+.share-status-card__head strong{font-size:14px;color:#1e3a8a}
+.share-status-card p{margin:0;font-size:13px;color:#52627d;line-height:1.6}
+.share-status-card small{font-size:12px;color:#64748b;line-height:1.5}
 .share-status-tag{display:inline-flex;align-items:center;justify-content:center;min-height:24px;padding:0 10px;border-radius:999px;font-size:11px;font-weight:700;border:1px solid #dbeafe;color:#1d4ed8;background:#fff}
 .share-status-tag.is-ready{border-color:#dbeafe;color:#2563eb;background:#eff6ff}
 .share-status-tag.is-submitted{border-color:#fde68a;color:#92400e;background:#fef3c7}
@@ -981,14 +1211,14 @@ function hydrateShareFormFromCurrentPlatform() {
 .share-record-list{display:grid;gap:10px}
 .share-record-item{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;padding:11px 12px;border:1px solid #e5e7eb;border-radius:12px;background:#fff}
 .share-record-item__main{display:grid;gap:4px;min-width:0}
-.share-record-item__main strong{font-size:12px;color:#0f172a;line-height:1.4}
-.share-record-item__main p{margin:0;font-size:12px;color:#475569;line-height:1.5}
-.share-record-item__main small{font-size:11px;color:#64748b;line-height:1.4}
-.share-empty{margin:0;font-size:12px;color:#64748b;line-height:1.6}
+.share-record-item__main strong{font-size:13px;color:#0f172a;line-height:1.4}
+.share-record-item__main p{margin:0;font-size:13px;color:#475569;line-height:1.5}
+.share-record-item__main small{font-size:12px;color:#64748b;line-height:1.4}
+.share-empty{margin:0;font-size:13px;color:#64748b;line-height:1.6}
 .class-hero{background:#fff;border:1px solid #e5e7eb;border-radius:20px;padding:22px 22px;color:#10294b;margin-bottom:12px;box-shadow:none}
 .class-hero__eyebrow{display:inline-flex;align-items:center;min-height:26px;padding:0 12px;border-radius:999px;background:#fff;font-size:11px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;border:1px solid #dbeafe;color:#1d4ed8}
-.class-hero h1{max-width:520px;font-size:13px;font-weight:400;line-height:1.8;margin:8px 0 4px;color:#355070;white-space:normal}
-.class-hero p{font-size:10px;opacity:1;max-width:520px;line-height:1.6;color:#6b7f99}
+.class-hero h1{max-width:520px;font-size:15px;font-weight:500;line-height:1.8;margin:8px 0 4px;color:#355070;white-space:normal}
+.class-hero p{font-size:12px;opacity:1;max-width:520px;line-height:1.6;color:#6b7f99}
 .class-hero__stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:12px}
 .class-hero__stats article{padding:9px 11px;border-radius:16px;background:#fff;border:1px solid #e5e7eb}
 .class-hero__stats span{display:block;font-size:11px;opacity:1;margin-bottom:6px;color:#64748b}
@@ -1001,24 +1231,25 @@ function hydrateShareFormFromCurrentPlatform() {
 .class-tiers{display:flex;flex-direction:column;gap:7px}
 .class-tier{display:flex;align-items:center;gap:12px;background:#fff;border-radius:16px;padding:12px 15px;border:1px solid #e5e7eb}
 .class-tier-icon{width:42px;height:42px;border-radius:14px;display:grid;place-items:center;background:#fff;color:#1d4ed8;font-weight:900;border:1px solid #dbeafe}
-.class-tier-title{font-size:14px;font-weight:700;color:#111827;margin-bottom:3px}
-.class-tier-cond{font-size:12px;color:#6b7280;line-height:1.6}
+.class-tier-title{font-size:15px;font-weight:700;color:#111827;margin-bottom:3px}
+.class-tier-cond{font-size:13px;color:#6b7280;line-height:1.6}
+.class-tier-reward{margin-top:4px;font-size:12px;line-height:1.6;color:#1e3a8a;background:#eff6ff;border:1px solid #dbeafe;border-radius:10px;padding:6px 8px}
 .class-tier-tag{margin-left:auto;font-size:11px;padding:5px 10px;border-radius:999px;font-weight:800;background:#fff;color:#5d7393;border:1px solid #e5e7eb}
 .class-tier-tag.is-unlocked{background:#e8f4ef;color:#0f6c53;border-color:#b8e0cf}
 .class-form-card{display:grid;gap:8px;margin-top:10px}
 .class-form-field{display:grid;gap:6px}
-.class-form-field span{font-size:12px;font-weight:600;color:#334155}
-.class-form-field input{width:100%;padding:10px 12px;border:1px solid #d7deea;border-radius:10px;font-size:13px;outline:none}
+.class-form-field span{font-size:13px;font-weight:600;color:#334155}
+.class-form-field input{width:100%;padding:10px 12px;border:1px solid #d7deea;border-radius:10px;font-size:14px;outline:none}
 .class-form-field input:focus{border-color:#60a5fa;box-shadow:0 0 0 4px rgba(191,219,254,.5)}
-.create-btn-big{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;padding:12px;background:#2563eb;color:#fff;border:none;border-radius:10px;font-size:15px;font-weight:700;cursor:pointer;margin-top:10px;box-shadow:none}
+.create-btn-big{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;padding:12px;background:#2563eb;color:#fff;border:none;border-radius:10px;font-size:16px;font-weight:700;cursor:pointer;margin-top:10px;box-shadow:none}
 .create-btn-big--secondary{background:#1e40af}
 .create-btn-big:disabled{opacity:.65;cursor:not-allowed}
 .class-room-box{background:#fff;border:1px solid #e5e7eb;border-radius:18px;padding:13px;margin-top:10px;display:grid;gap:8px}
 .class-room-box strong{font-size:14px;color:#1e3a8a}
-.class-room-box p{font-size:12px;color:#4b5563;line-height:1.6}
-.class-lock-tip{margin:0;color:#64748b;font-size:12px}
+.class-room-box p{font-size:13px;color:#4b5563;line-height:1.6}
+.class-lock-tip{margin:0;color:#64748b;font-size:13px}
 .class-room-actions{display:flex;gap:10px}
-.lb-card h3,.reward-card h4,.steps-card h4,.submit-card h4{font-size:14px;font-weight:800;margin-bottom:10px;color:#14345f}
+.lb-card h3,.reward-card h4,.steps-card h4,.submit-card h4{font-size:15px;font-weight:800;margin-bottom:10px;color:#14345f}
 .lb-row{display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid #f3f4f6;font-size:13px}
 .lb-row:last-child{border-bottom:none}
 .lb-rank{width:24px;text-align:center;font-weight:700;font-size:14px}
@@ -1057,15 +1288,15 @@ function hydrateShareFormFromCurrentPlatform() {
 .task-table{display:grid}
 .task-table__row{display:grid;grid-template-columns:108px 1fr;gap:12px;padding:7px 0;border-bottom:1px solid #eef3f9}
 .task-table__row:last-child{border-bottom:none}
-.task-table__row span{font-size:12px;color:#6b7280}
-.task-table__row strong{font-size:12px;color:#374151;line-height:1.5;font-weight:500}
+.task-table__row span{font-size:13px;color:#6b7280}
+.task-table__row strong{font-size:13px;color:#374151;line-height:1.5;font-weight:500}
 .task-table__reward-list{display:flex;flex-direction:column;gap:2px}
 .task-table__row--compact{align-items:center}
 .reward-inline-text{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .activity-page--share .task-table__row{grid-template-columns:96px 1fr;gap:10px;padding:5px 0}
 .activity-page--share .task-table__row span,
-.activity-page--share .task-table__row strong{font-size:11px;line-height:1.35}
-.activity-page--share .reward-inline-text{font-size:10px;letter-spacing:-.01em}
+.activity-page--share .task-table__row strong{font-size:12px;line-height:1.4}
+.activity-page--share .reward-inline-text{font-size:11px;letter-spacing:-.01em}
 .tier-row{display:flex;align-items:center;gap:12px;padding:8px 0;border-bottom:1px solid #f3f4f6}
 .tier-row:last-child{border-bottom:none}
 .step-row{display:flex;gap:10px;margin-bottom:12px}
@@ -1079,22 +1310,22 @@ function hydrateShareFormFromCurrentPlatform() {
 .submit-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
 .form-group--full{grid-column:1 / -1}
 .form-group{display:grid;gap:4px;margin-bottom:4px}
-.form-group span{font-size:12px;font-weight:600;color:#374151}
-.form-group input,.form-group select,.form-group textarea{width:100%;padding:9px 12px;border:1px solid #e5e7eb;border-radius:12px;font-size:12px;font-family:inherit;outline:none;background:#fff}
+.form-group span{font-size:13px;font-weight:600;color:#374151}
+.form-group input,.form-group select,.form-group textarea{width:100%;padding:9px 12px;border:1px solid #e5e7eb;border-radius:12px;font-size:13px;font-family:inherit;outline:none;background:#fff}
 .form-group input:focus,.form-group select:focus,.form-group textarea:focus{border-color:#60a5fa;box-shadow:0 0 0 4px rgba(191,219,254,.5)}
 .activity-page--share .submit-grid{gap:6px}
 .activity-page--share .form-group{gap:3px;margin-bottom:2px}
-.activity-page--share .form-group span{font-size:11px}
+.activity-page--share .form-group span{font-size:12px}
 .activity-page--share .form-group input,
 .activity-page--share .form-group select,
-.activity-page--share .form-group textarea{padding:7px 10px;border-radius:10px;font-size:11px}
+.activity-page--share .form-group textarea{padding:7px 10px;border-radius:10px;font-size:12px}
 .activity-page--share .form-group textarea{min-height:38px;resize:none}
 .radio-list{display:grid;gap:6px}
 .radio-item{display:flex;align-items:center;gap:8px;font-size:11px;color:#4b5563}
 .submit-card .btn-primary{display:flex;min-width:148px;margin:4px auto 0}
-.risk-tip{font-size:10px;color:#6b7280;display:flex;gap:5px;margin-top:6px;line-height:1.4}
+.risk-tip{font-size:11px;color:#6b7280;display:flex;gap:5px;margin-top:6px;line-height:1.4}
 .activity-page--share .submit-card .btn-primary{min-width:132px;margin-top:2px;padding:8px 18px}
-.activity-page--share .risk-tip{font-size:9px;margin-top:4px;line-height:1.3}
-@media (max-width:1100px){.promo-page{height:auto;min-height:unset;max-height:none}.activity-layout{grid-template-columns:1fr}.activity-sidebar{position:static;top:auto}.activity-topbar__nav{grid-template-columns:repeat(2,minmax(0,1fr))}.activity-page{max-width:980px;height:auto;min-height:auto;aspect-ratio:auto;padding:14px 16px;overflow:visible}.class-show-wrap,.share-layout,.steps-grid,.submit-grid,.subsidy-simple,.subsidy-guide{grid-template-columns:1fr}.activity-content{padding:18px;overflow:visible}}
-@media (max-width:720px){.jf-header,.page-title-bar,.invite-stats,.class-room-actions,.promo-actions,.subsidy-actions{flex-direction:column;align-items:stretch}.jf-pipeline,.subsidy-code-row{display:grid;grid-template-columns:1fr}.stage-rail,.detail-table__head,.detail-table__row,.task-table__row,.steps-grid,.submit-grid,.activity-topbar__nav{grid-template-columns:1fr}.share-plat-tabs{display:grid;grid-template-columns:1fr}.plat-tab{min-width:0}.activity-content{padding:16px}.activity-sidebar{padding:5px}.activity-topbar__nav{gap:6px}.activity-topbar__nav button{min-height:36px;padding:8px 10px;font-size:11px}}
+.activity-page--share .risk-tip{font-size:10px;margin-top:4px;line-height:1.3}
+@media (max-width:1100px){.promo-page{height:auto;min-height:unset;max-height:none}.activity-layout{grid-template-columns:1fr}.activity-sidebar{position:static;top:auto}.activity-topbar__nav{grid-template-columns:repeat(2,minmax(0,1fr))}.activity-page{max-width:1140px;height:auto;min-height:auto;aspect-ratio:auto;padding:16px 18px;overflow:visible}.class-show-wrap,.share-layout,.steps-grid,.submit-grid,.subsidy-simple,.subsidy-guide,.fission-layout{grid-template-columns:1fr}.fission-metrics{grid-template-columns:1fr}.fission-stage-list{grid-template-columns:repeat(2,minmax(0,1fr))}.activity-content{padding:18px;overflow:visible}}
+@media (max-width:720px){.jf-header,.page-title-bar,.invite-stats,.class-room-actions,.promo-actions,.subsidy-actions,.fission-actions{flex-direction:column;align-items:stretch}.jf-pipeline,.subsidy-code-row{display:grid;grid-template-columns:1fr}.stage-rail,.detail-table__head,.detail-table__row,.task-table__row,.steps-grid,.submit-grid,.activity-topbar__nav,.fission-stage-list{grid-template-columns:1fr}.share-plat-tabs{display:grid;grid-template-columns:1fr}.plat-tab{min-width:0}.activity-content{padding:16px}.activity-sidebar{padding:5px}.activity-topbar__nav{gap:6px}.activity-topbar__nav button{min-height:38px;padding:9px 11px;font-size:12px}}
 </style>

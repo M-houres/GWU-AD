@@ -32,6 +32,7 @@ logger = logging.getLogger("app.api.tasks")
 IDEMPOTENCY_KEY_MAX_LEN = 128
 IDEMPOTENCY_HEADER_MAX_LEN = 96
 IDEMPOTENCY_HASH_HEX_LEN = 40
+TASK_CHAIN_GUARD_TIMEOUT_MESSAGE = "任务链路保护触发：处理超时未完成，请重试（算法包升级除外）"
 
 TASK_PAPER_EXTENSIONS: dict[TaskType, set[str]] = {
     TaskType.AIGC_DETECT: {".docx", ".pdf", ".txt"},
@@ -72,6 +73,12 @@ TASK_REPORT_MIME_TYPES: dict[TaskType, set[str]] = {
         "application/octet-stream",
     },
 }
+TASK_CHAIN_GUARD_STATUSES = (
+    TaskStatus.PREPROCESSING,
+    TaskStatus.PENDING,
+    TaskStatus.QUEUED,
+    TaskStatus.RUNNING,
+)
 
 
 def _parse_task_type(raw: str) -> TaskType:
@@ -79,6 +86,88 @@ def _parse_task_type(raw: str) -> TaskType:
         return TaskType(raw)
     except Exception as exc:
         raise BizError(code=4101, message="任务类型不支持") from exc
+
+
+def _task_chain_guard_timeout_seconds(status: TaskStatus) -> int:
+    mapping = {
+        TaskStatus.PREPROCESSING: settings.task_chain_guard_preprocessing_timeout_seconds,
+        TaskStatus.PENDING: settings.task_chain_guard_pending_timeout_seconds,
+        TaskStatus.QUEUED: settings.task_chain_guard_queued_timeout_seconds,
+        TaskStatus.RUNNING: settings.task_chain_guard_running_timeout_seconds,
+    }
+    return max(int(mapping.get(status, 0) or 0), 0)
+
+
+def _guard_stale_tasks_for_user(db: Session, *, user_id: int) -> int:
+    if not settings.task_chain_guard_enabled:
+        return 0
+    now = datetime.utcnow()
+    rows = (
+        db.query(Task)
+        .filter(Task.user_id == user_id, Task.status.in_(TASK_CHAIN_GUARD_STATUSES))
+        .with_for_update()
+        .all()
+    )
+    if not rows:
+        return 0
+
+    stale_rows: list[Task] = []
+    user: User | None = None
+    refund_count = 0
+    for row in rows:
+        timeout_seconds = _task_chain_guard_timeout_seconds(row.status)
+        if timeout_seconds <= 0:
+            continue
+        anchor = row.updated_at or row.created_at
+        if not anchor:
+            continue
+        age_seconds = max((now - anchor).total_seconds(), 0)
+        if age_seconds < timeout_seconds:
+            continue
+        stale_rows.append(row)
+
+    if not stale_rows:
+        return 0
+
+    for row in stale_rows:
+        prev_status = row.status.value
+        row.status = TaskStatus.FAILED
+        row.error_message = TASK_CHAIN_GUARD_TIMEOUT_MESSAGE
+        row.updated_at = now
+
+        if row.cost_credits > 0 and not row.refund_done:
+            if user is None:
+                user = db.query(User).filter(User.id == user_id).with_for_update().first()
+            if user is not None:
+                try:
+                    change_credits(
+                        db,
+                        user,
+                        tx_type=CreditType.TASK_REFUND,
+                        delta=row.cost_credits,
+                        reason=f"任务链路保护退款(task_id={row.id})",
+                        related_id=f"task_refund:{row.id}",
+                        source=row.source,
+                    )
+                    row.refund_done = True
+                    refund_count += 1
+                except Exception:
+                    logger.exception("task_chain_guard_refund_failed", extra={"task_id": row.id, "user_id": user_id})
+        logger.warning(
+            "task_chain_guard_mark_stale",
+            extra={
+                "task_id": row.id,
+                "user_id": user_id,
+                "prev_status": prev_status,
+                "cost_credits": row.cost_credits,
+            },
+        )
+    db.commit()
+    logger.info(
+        "task_chain_guard_applied",
+        extra={"user_id": user_id, "task_count": len(stale_rows), "refund_count": refund_count},
+    )
+    return len(stale_rows)
 
 
 def _save_upload_to(path: Path, upload: UploadFile, max_bytes: int) -> None:
@@ -272,11 +361,10 @@ def _build_idempotency_key(request: Request, *, user_id: int, task_type: TaskTyp
     if not raw:
         return None
     normalized = raw[:IDEMPOTENCY_HEADER_MAX_LEN]
-    legacy_key = f"{user_id}:{task_type.value}:{platform}:{filename}:{normalized}"
-    if len(legacy_key) <= IDEMPOTENCY_KEY_MAX_LEN:
-        return legacy_key
-    digest = hashlib.sha256(legacy_key.encode("utf-8")).hexdigest()[:IDEMPOTENCY_HASH_HEX_LEN]
-    # Keep a stable fallback key that always fits the DB column while preserving dedup semantics.
+    # Always persist a short stable hash key to avoid schema drift issues
+    # across environments where historical column width may be narrower.
+    seed = f"{user_id}:{task_type.value}:{platform}:{filename}:{normalized}"
+    digest = hashlib.sha256(seed.encode("utf-8")).hexdigest()[:IDEMPOTENCY_HASH_HEX_LEN]
     hashed_key = f"{user_id}:{task_type.value}:{platform}:sha256:{digest}"
     return hashed_key[:IDEMPOTENCY_KEY_MAX_LEN]
 
@@ -532,15 +620,17 @@ def submit_task(
                 failed_task.updated_at = datetime.utcnow()
                 db.commit()
             dispatch_mode = "failed"
+    final_task = db.get(Task, task.id) or task
     return ok(
         data={
             "id": task.id,
-            "status": (db.get(Task, task.id) or task).status.value,
+            "status": final_task.status.value,
             "cost_credits": task.cost_credits,
             "estimated_time": int(strategy.get("timeout_sec", 300)),
             "billing": billing_payload,
             "idempotent": False,
             "dispatch_mode": dispatch_mode,
+            "error_message": final_task.error_message,
         }
     )
 
@@ -600,6 +690,7 @@ def my_tasks(
     user: User = Depends(current_user),
     db: Session = Depends(db_dep),
 ) -> APIResp:
+    _guard_stale_tasks_for_user(db, user_id=user.id)
     base_query = db.query(Task).filter(Task.user_id == user.id)
     if task_type:
         try:
@@ -657,6 +748,7 @@ def my_tasks(
 
 @router.get("/{task_id}", response_model=APIResp)
 def task_detail(task_id: int, user: User = Depends(current_user), db: Session = Depends(db_dep)) -> APIResp:
+    _guard_stale_tasks_for_user(db, user_id=user.id)
     row = db.get(Task, task_id)
     if not row or row.user_id != user.id:
         raise BizError(code=4041, message="任务不存在", http_status=404)

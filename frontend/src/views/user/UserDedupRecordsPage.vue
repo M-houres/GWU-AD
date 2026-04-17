@@ -69,9 +69,7 @@
       >
         <div class="aigc-record-item__left">
           <div class="aigc-record-item__title-row">
-            <button class="aigc-record-item__title" type="button" @click="openDetails(item)">
-              {{ taskLabel(item) }}
-            </button>
+            <div class="aigc-record-item__title">{{ taskLabel(item) }}</div>
           </div>
 
           <div class="aigc-record-item__meta">
@@ -87,8 +85,6 @@
         <div class="aigc-record-item__mid">
           <template v-if="item.status === 'completed'">
             <span class="service-status-tag service-status-tag--success">已完成</span>
-            <div class="aigc-record-item__score">{{ changeRate(item) }}</div>
-            <div class="aigc-record-item__score-note">降重幅度</div>
           </template>
           <template v-else-if="isTaskProcessingStatus(item.status)">
             <span class="service-status-tag service-status-tag--processing">处理中</span>
@@ -97,6 +93,7 @@
           </template>
           <template v-else>
             <span class="service-status-tag service-status-tag--failed">处理异常</span>
+            <div class="aigc-record-item__score-note">{{ taskFailureHint(item) }}</div>
           </template>
         </div>
 
@@ -111,14 +108,15 @@
           </button>
 
           <template v-if="item.status === 'completed'">
-            <button class="aigc-record-item__detail" type="button" @click="openDetails(item)">查看详情</button>
             <button class="scholar-button scholar-button--secondary" type="button" @click="downloadResult(item.id)">
               下载改写文档
             </button>
             <p class="aigc-record-item__deadline">有效期至：{{ reportDeadline(item.created_at) }}</p>
           </template>
           <template v-else>
-            <p class="aigc-record-item__waiting">处理完成后可下载</p>
+            <p class="aigc-record-item__waiting">
+              {{ item.status === "failed" ? taskFailureHint(item) : "处理完成后可下载" }}
+            </p>
           </template>
         </div>
       </article>
@@ -138,37 +136,6 @@
       <button type="button" :disabled="page >= totalPages" @click="page += 1">下一页</button>
     </nav>
 
-    <div v-if="selectedTask" class="scholar-modal" @click.self="selectedTask = null">
-      <div class="scholar-modal__dialog">
-        <div class="scholar-panel__header">
-          <div class="flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <div class="scholar-kicker">Task Result</div>
-              <h3 class="scholar-subtitle">降重复率结果详情</h3>
-              <p class="scholar-lead">{{ taskResultSummary(selectedTask) }}</p>
-            </div>
-            <button class="scholar-button scholar-button--secondary" type="button" @click="selectedTask = null">
-              关闭
-            </button>
-          </div>
-        </div>
-        <div class="scholar-panel__body">
-          <div class="scholar-grid scholar-grid--stats">
-            <article v-for="metric in taskResultMetrics(selectedTask)" :key="metric.label" class="scholar-stat">
-              <div class="scholar-stat__label">{{ metric.label }}</div>
-              <div class="scholar-stat__value" style="font-size: 24px">{{ metric.value }}</div>
-            </article>
-          </div>
-          <div class="scholar-inline-actions" style="margin-top: 18px">
-            <button class="scholar-button" type="button" @click="downloadResult(selectedTask.id)">下载改写文档</button>
-            <button class="scholar-button scholar-button--secondary" type="button" @click="selectedTask = null">
-              返回列表
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-
     <BuyCreditsPanel v-if="showBuy" @paid="afterPaid" />
   </UserShell>
 </template>
@@ -186,7 +153,6 @@ import { fetchAllUserTasks } from "../../lib/userRecords"
 import { getUserToken } from "../../lib/session"
 import { mapTaskPlatform } from "../../lib/taskPlatform"
 import { isTaskProcessingStatus } from "../../lib/taskStatus"
-import { taskResultMetrics, taskResultSummary } from "../../lib/taskResult"
 
 const router = useRouter()
 const route = useRoute()
@@ -197,7 +163,6 @@ const keyword = ref("")
 const statusFilter = ref("all")
 const page = ref(1)
 const pageSize = 8
-const selectedTask = ref(null)
 const tasks = ref([])
 const pollTimer = ref(null)
 
@@ -361,12 +326,14 @@ function reportDeadline(value) {
   return iso.slice(0, 19).replace("T", " ")
 }
 
-function changeRate(item) {
-  const raw = Number(item.result_json?.change_ratio)
-  if (!Number.isFinite(raw)) {
-    return "--"
-  }
-  return `${Math.round(raw)}%`
+function taskFailureMessage(item) {
+  const message = String(item?.error_message || "").trim()
+  return message || "任务处理失败，请稍后重试"
+}
+
+function taskFailureHint(item) {
+  const message = taskFailureMessage(item)
+  return message.length > 22 ? `${message.slice(0, 22)}...` : message
 }
 
 function goUpload() {
@@ -393,19 +360,6 @@ async function removeTask(item) {
 async function downloadResult(taskId) {
   const resp = await userHttp.get(`/tasks/${taskId}/download`, { responseType: "blob" })
   downloadAxiosBlobResponse(resp, `dedup_result_${taskId}`)
-}
-
-async function openDetails(item) {
-  if (item.status !== "completed") {
-    selectedTask.value = item
-    return
-  }
-  try {
-    const detail = await userHttp.get(`/tasks/${item.id}`)
-    selectedTask.value = { ...item, ...detail }
-  } catch {
-    selectedTask.value = item
-  }
 }
 
 async function afterPaid() {
