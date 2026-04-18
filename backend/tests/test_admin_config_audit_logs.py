@@ -14,7 +14,7 @@ def test_config_audit_logs_include_changed_fields(
 
     resp = client.post(
         "/api/v1/admin/configs/billing",
-        json={"aigc_rate": 1, "dedup_rate": 6, "rewrite_rate": 2},
+        json={"aigc_points_per_char": 2, "dedup_points_per_char": 6, "rewrite_points_per_char": 2},
     )
     assert resp.status_code == 200
 
@@ -28,9 +28,9 @@ def test_config_audit_logs_include_changed_fields(
     assert first["admin_username"] == "admin"
     assert first["target_type"] == "billing"
     assert first["target_type_label"] == "计费规则"
-    assert first["changed_fields"] == ["dedup_rate"]
-    assert first["changed_field_labels"] == ["降重单价"]
-    assert first["changed_count"] == 1
+    assert set(first["changed_fields"]) == {"aigc_points_per_char", "dedup_points_per_char", "rewrite_points_per_char"}
+    assert first["changed_count"] == 3
+    assert any("降重单价" in label for label in first["changed_field_labels"])
     assert "计费规则" in first["summary"]
 
     readiness = client.get("/api/v1/admin/configs/readiness")

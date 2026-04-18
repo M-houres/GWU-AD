@@ -4,9 +4,9 @@
 
 ## 1. 支持的槽位
 
-当前固定支持 3 个平台 x 3 个功能类型：
+当前固定支持 2 个平台 x 3 个功能类型：
 
-- 平台：`cnki`、`vip`、`paperpass`
+- 平台：`cnki`、`vip`
 - 功能：`aigc_detect`、`dedup`、`rewrite`
 
 上传时你选择的槽位，必须和 `manifest.json` 里的 `platform`、`function_type` 完全一致。
@@ -46,9 +46,9 @@ dict/
 
 ```json
 {
-  "name": "paperpass_rewrite_v1",
+  "name": "vip_rewrite_v1",
   "version": "1.0.0",
-  "platform": "paperpass",
+  "platform": "vip",
   "function_type": "rewrite",
   "entry": "main.py"
 }
@@ -68,7 +68,7 @@ dict/
   - 当前正则：`^[0-9]+(?:\.[0-9]+){2}(?:[-+._A-Za-z0-9]*)?$`
 - `platform`
   - 必填
-  - 只能是：`cnki`、`vip`、`paperpass`
+  - 只能是：`cnki`、`vip`
   - 必须与上传槽位一致
 - `function_type`
   - 必填
@@ -173,7 +173,7 @@ def process(payload):
 {
     "ai_score": 0.42,
     "label": "medium",
-    "algorithm": "paperpass_aigc_v1"
+    "algorithm": "vip_aigc_v1"
 }
 ```
 
@@ -222,9 +222,9 @@ def process(payload):
 
 ```json
 {
-  "name": "paperpass_rewrite_v1",
+  "name": "vip_rewrite_v1",
   "version": "1.0.0",
-  "platform": "paperpass",
+  "platform": "vip",
   "function_type": "rewrite",
   "entry": "main.py"
 }
@@ -246,7 +246,7 @@ def process(payload):
     if not source:
         return {
             "text": "",
-            "algorithm": "paperpass_rewrite_v1"
+            "algorithm": "vip_rewrite_v1"
         }
 
     output = source.replace("首先", "首先需要说明的是")
@@ -256,7 +256,7 @@ def process(payload):
         "text": output,
         "original_aigc_score": 58.0,
         "rewritten_aigc_score": 36.0,
-        "algorithm": "paperpass_rewrite_v1"
+        "algorithm": "vip_rewrite_v1"
     }
 ```
 

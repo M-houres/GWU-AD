@@ -80,7 +80,7 @@ def test_user_can_submit_and_finish_all_three_task_flows(
         SystemConfig(
             category="system",
             config_key="billing",
-            config_value={"aigc_rate": 1, "dedup_rate": 2, "rewrite_rate": 2},
+            config_value={"aigc_points_per_char": 1, "dedup_points_per_char": 2, "rewrite_points_per_char": 2},
         )
     )
     db_session.commit()

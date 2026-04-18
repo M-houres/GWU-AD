@@ -1,6 +1,8 @@
 <template>
-  <UserShell title="" subtitle="" :credits="userCredits" :hide-topbar="true" :hide-header-title="true" @buy="noop">
-    <BuyCreditsPanel @paid="afterPaid" />
+  <UserShell title="" subtitle="" :credits="userBalanceFen" :hide-topbar="true" :hide-header-title="true" :hide-account-entry="true" @buy="noop">
+    <section class="buy-page-shell">
+      <BuyCreditsPanel @paid="afterPaid" />
+    </section>
   </UserShell>
 </template>
 
@@ -13,8 +15,8 @@ import { useUserProfile } from "../../composables/useUserProfile"
 import { getUserToken } from "../../lib/session"
 
 const { user, refreshUser } = useUserProfile()
-const userCredits = computed(() => {
-  const value = user.value && user.value.credits
+const userBalanceFen = computed(() => {
+  const value = user.value && (user.value.balance_fen ?? user.value.credits)
   return typeof value === "number" ? value : null
 })
 
@@ -31,3 +33,11 @@ async function afterPaid() {
 
 function noop() {}
 </script>
+
+<style scoped>
+.buy-page-shell{
+  width:min(1560px,100%);
+  margin:0 auto;
+  padding:8px 0 18px;
+}
+</style>

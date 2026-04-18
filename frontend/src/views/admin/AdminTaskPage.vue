@@ -70,7 +70,7 @@
               <th class="px-2 py-2">来源</th>
               <th class="px-2 py-2">状态</th>
               <th class="px-2 py-2">字符数</th>
-              <th class="px-2 py-2">积分</th>
+              <th class="px-2 py-2">通用点数</th>
               <th class="px-2 py-2">创建时间</th>
               <th class="px-2 py-2">操作</th>
             </tr>
@@ -86,7 +86,7 @@
                 <span :class="statusClass(row.status)" class="inline-flex items-center rounded-full border px-2 py-1 text-xs">{{ mapStatus(row.status) }}</span>
               </td>
               <td class="px-2 py-2">{{ row.char_count }}</td>
-              <td class="px-2 py-2">{{ row.cost_credits }}</td>
+              <td class="px-2 py-2">{{ formatCredits(rowCostFen(row)) }}</td>
               <td class="px-2 py-2">{{ formatTime(row.created_at) }}</td>
               <td class="px-2 py-2">
                 <button class="scholar-button scholar-button--compact" @click="openDetail(row.id)">查看详情</button>
@@ -121,11 +121,11 @@
         <div>来源：{{ mapSource(taskDetail.source) }}</div>
         <div>状态：{{ mapStatus(taskDetail.status) }}</div>
         <div>字符数：{{ taskDetail.char_count }}</div>
-        <div>积分：{{ taskDetail.cost_credits }}</div>
+        <div>通用点数：{{ formatCredits(rowCostFen(taskDetail)) }}</div>
+        <div>退款状态：{{ taskDetail.refund_done ? '已退回' : '未退款' }}</div>
         <div>原文件：{{ taskDetail.source_filename || '-' }}</div>
         <div>创建时间：{{ formatTime(taskDetail.created_at) }}</div>
         <div>更新时间：{{ formatTime(taskDetail.updated_at) }}</div>
-        <div class="xl:col-span-3">辅助报告：{{ taskDetail.report_path || '-' }}</div>
         <div class="xl:col-span-3">结果文件：{{ taskDetail.output_path || '-' }}</div>
         <div class="xl:col-span-3">错误信息：{{ taskDetail.error_message || '-' }}</div>
       </div>
@@ -136,15 +136,6 @@
           <div class="mt-2 text-lg font-semibold text-[#16222a]">{{ metric.value }}</div>
         </article>
       </div>
-
-      <section v-if="resultReportMetrics(taskDetail).length" class="mt-5 rounded-2xl border border-[#dce3e9] bg-white p-4">
-        <h4 class="text-sm font-semibold text-[#1c2831]">辅助报告指标</h4>
-        <div class="mt-3 grid gap-3 md:grid-cols-2">
-          <div v-for="metric in resultReportMetrics(taskDetail)" :key="metric.label" class="rounded-xl border border-[#e4eaf0] bg-white px-3 py-2 text-sm text-[#44525d]">
-            {{ metric.label }}：{{ metric.value }}{{ metric.unit || '' }}
-          </div>
-        </div>
-      </section>
 
       <section v-if="resultRiskParagraphs(taskDetail).length" class="mt-5 rounded-2xl border border-[#dce3e9] bg-white p-4">
         <h4 class="text-sm font-semibold text-[#1c2831]">高风险段落</h4>
@@ -192,7 +183,6 @@ import { TASK_PLATFORM_OPTIONS, mapTaskPlatform } from "../../lib/taskPlatform"
 import {
   taskResultMetrics,
   taskResultOutputPreview,
-  taskResultReportMetrics,
   taskResultReviewPoints,
   taskResultRiskParagraphs,
   taskResultSummary,
@@ -226,6 +216,8 @@ const platformOptions = [
 ]
 const statusOptions = [
   { value: "", label: "全部" },
+  { value: "preprocessing", label: "预处理中" },
+  { value: "queued", label: "排队中" },
   { value: "pending", label: "等待中" },
   { value: "running", label: "处理中" },
   { value: "completed", label: "已完成" },
@@ -342,6 +334,8 @@ function mapSource(source) {
 
 function mapStatus(status) {
   const mapping = {
+    preprocessing: "预处理中",
+    queued: "排队中",
     pending: "等待中",
     running: "处理中",
     completed: "已完成",
@@ -368,16 +362,22 @@ function formatTime(value) {
   return value ? String(value).slice(0, 19).replace("T", " ") : "-"
 }
 
+function rowCostFen(row) {
+  if (typeof row?.cost_fen === "number") return row.cost_fen
+  if (typeof row?.cost_credits === "number") return row.cost_credits
+  return 0
+}
+
+function formatCredits(value) {
+  return `${Number(value || 0).toLocaleString()} 通用点数`
+}
+
 function resultSummary(task) {
   return taskResultSummary(task)
 }
 
 function resultMetrics(task) {
   return taskResultMetrics(task)
-}
-
-function resultReportMetrics(task) {
-  return taskResultReportMetrics(task)
 }
 
 function resultRiskParagraphs(task) {

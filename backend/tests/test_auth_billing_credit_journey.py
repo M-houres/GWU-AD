@@ -1,6 +1,7 @@
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
+from app.constants import DEFAULT_BILLING_PACKAGES
 from app.main import app
 from app.models import CreditTransaction, User
 
@@ -20,8 +21,6 @@ def test_new_user_payment_journey_keeps_credit_ledger_consistent(
     db_session: Session,
     monkeypatch,
 ) -> None:
-    monkeypatch.setattr("app.worker_tasks.grant_order_referral_rewards_async.delay", lambda *_args, **_kwargs: None)
-
     phone = "13800006300"
     code = _send_code_and_get_debug_code(client, phone)
     login_resp = client.post(
@@ -41,9 +40,10 @@ def test_new_user_payment_journey_keeps_credit_ledger_consistent(
 
     app.dependency_overrides[current_user] = lambda: user
     try:
+        package_name = DEFAULT_BILLING_PACKAGES[0]["name"]
         create_resp = client.post(
             "/api/v1/billing/create-order",
-            json={"package_name": "入门包", "provider": "mock"},
+            json={"package_name": package_name, "provider": "mock"},
         )
         assert create_resp.status_code == 200
         order_no = create_resp.json()["data"]["order_no"]

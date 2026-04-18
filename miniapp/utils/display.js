@@ -11,7 +11,6 @@ const TASK_TYPE_LABELS = {
 const PLATFORM_LABELS = {
   cnki: "知网",
   vip: "维普",
-  paperpass: "PaperPass",
 }
 
 function getTaskTypeLabel(value) {

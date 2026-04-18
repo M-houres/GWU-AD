@@ -62,7 +62,7 @@ def test_submit_task_uses_billing_config_rate(
         SystemConfig(
             category="system",
             config_key="billing",
-            config_value={"aigc_rate": 1, "dedup_rate": 5, "rewrite_rate": 2},
+            config_value={"aigc_points_per_char": 1, "dedup_points_per_char": 5, "rewrite_points_per_char": 2},
         )
     )
     db_session.commit()

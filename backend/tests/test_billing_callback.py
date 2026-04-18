@@ -4,6 +4,7 @@ from decimal import Decimal
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
+from app.constants import DEFAULT_BILLING_PACKAGES
 from app.models import CreditTransaction, Order, SystemConfig, User
 from app.services.payment_service import sign_payload
 
@@ -14,8 +15,7 @@ def test_payment_callback_signature_and_idempotency(
     settings_override,
     monkeypatch,
 ) -> None:
-    monkeypatch.setattr("app.worker_tasks.grant_order_referral_rewards_async.delay", lambda *_args, **_kwargs: None)
-
+    package_name = DEFAULT_BILLING_PACKAGES[0]["name"]
     user = User(phone="13800000001", nickname="测试用户", credits=0)
     db_session.add(user)
     db_session.commit()
@@ -38,7 +38,7 @@ def test_payment_callback_signature_and_idempotency(
     payload = {
         "order_no": "ODCALLBACK0001",
         "user_id": user.id,
-        "package_name": "入门包",
+        "package_name": package_name,
         "amount_cny": 9.9,
         "paid_at": int(datetime.now(timezone.utc).timestamp()),
         "status": "paid",
@@ -78,6 +78,7 @@ def test_payment_callback_rejects_invalid_signature(
     db_session: Session,
     settings_override,
 ) -> None:
+    package_name = DEFAULT_BILLING_PACKAGES[0]["name"]
     user = User(phone="13800000002", nickname="测试用户2", credits=0)
     db_session.add(user)
     db_session.commit()
@@ -86,7 +87,7 @@ def test_payment_callback_rejects_invalid_signature(
     payload = {
         "order_no": "ODCALLBACK0002",
         "user_id": user.id,
-        "package_name": "入门包",
+        "package_name": package_name,
         "amount_cny": 9.9,
         "paid_at": int(datetime.now(timezone.utc).timestamp()),
         "status": "paid",
@@ -106,8 +107,7 @@ def test_payment_callback_uses_payment_config_secret(
     settings_override,
     monkeypatch,
 ) -> None:
-    monkeypatch.setattr("app.worker_tasks.grant_order_referral_rewards_async.delay", lambda *_args, **_kwargs: None)
-
+    package_name = DEFAULT_BILLING_PACKAGES[0]["name"]
     db_session.add(
         SystemConfig(
             category="system",
@@ -143,7 +143,7 @@ def test_payment_callback_uses_payment_config_secret(
     payload = {
         "order_no": "ODCALLBACK0003",
         "user_id": user.id,
-        "package_name": "入门包",
+        "package_name": package_name,
         "amount_cny": 9.9,
         "paid_at": int(datetime.now(timezone.utc).timestamp()),
         "status": "paid",
@@ -158,10 +158,11 @@ def test_payment_callback_uses_payment_config_secret(
 def test_payment_callback_signature_is_stable_between_float_and_decimal_amounts(
     settings_override,
 ) -> None:
+    package_name = DEFAULT_BILLING_PACKAGES[0]["name"]
     payload_float = {
         "order_no": "ODCALLBACK_DECIMAL_001",
         "user_id": 1,
-        "package_name": "入门包",
+        "package_name": package_name,
         "amount_cny": 9.9,
         "paid_at": int(datetime.now(timezone.utc).timestamp()),
         "status": "paid",
@@ -178,6 +179,7 @@ def test_payment_callback_requires_existing_order(
     db_session: Session,
     settings_override,
 ) -> None:
+    package_name = DEFAULT_BILLING_PACKAGES[0]["name"]
     user = User(phone="13800000004", nickname="测试用户4", credits=0)
     db_session.add(user)
     db_session.commit()
@@ -186,7 +188,7 @@ def test_payment_callback_requires_existing_order(
     payload = {
         "order_no": "ODCALLBACK_MISSING_001",
         "user_id": user.id,
-        "package_name": "入门包",
+        "package_name": package_name,
         "amount_cny": 9.9,
         "paid_at": int(datetime.now(timezone.utc).timestamp()),
         "status": "paid",
@@ -205,6 +207,7 @@ def test_payment_callback_rejects_replayed_nonce(
     db_session: Session,
     settings_override,
 ) -> None:
+    package_name = DEFAULT_BILLING_PACKAGES[0]["name"]
     user = User(phone="13800000005", nickname="测试用户5", credits=0)
     db_session.add(user)
     db_session.commit()
@@ -226,7 +229,7 @@ def test_payment_callback_rejects_replayed_nonce(
     payload = {
         "order_no": order.order_no,
         "user_id": user.id,
-        "package_name": "入门包",
+        "package_name": package_name,
         "amount_cny": 9.9,
         "paid_at": int(datetime.now(timezone.utc).timestamp()),
         "status": "paid",

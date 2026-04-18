@@ -595,15 +595,6 @@ class ProcessingEngine:
                 "high": 0.62,
                 "medium": 0.33,
             },
-            "paperpass": {
-                "name": "paperpass_like",
-                "baseline_weight": 0.66,
-                "style_weight": 0.16,
-                "repeat_weight": 0.18,
-                "offset": 0.03,
-                "high": 0.6,
-                "medium": 0.32,
-            },
         }
         return profiles.get(key, profiles["cnki"])
 
@@ -872,22 +863,6 @@ class ProcessingEngine:
                 "overall_peak_weight": 0.24,
                 "overall_segment_weight": 0.22,
             },
-            "paperpass": {
-                "name": "paperpass_like",
-                "provider_label": "PaperPass AIGC检测仿真",
-                "score_label": "AIGC风险值",
-                "baseline_weight": 0.48,
-                "style_weight": 0.14,
-                "repeat_weight": 0.14,
-                "template_weight": 0.10,
-                "context_weight": 0.14,
-                "offset": 0.03,
-                "high": 0.60,
-                "medium": 0.38,
-                "overall_paragraph_weight": 0.50,
-                "overall_peak_weight": 0.22,
-                "overall_segment_weight": 0.28,
-            },
         }
         return profiles.get(key, profiles["cnki"])
 
@@ -946,33 +921,6 @@ class ProcessingEngine:
                 "english_abstract_weight": 0.03,
                 "abstract_section_weight": 0.03,
                 "intro_section_weight": 0.02,
-                "fragment_display_thresholds": {"mild": 0.70, "moderate": 0.80, "severe": 0.90},
-            },
-            "paperpass": {
-                "name": "paperpass_like",
-                "provider_label": "PaperPass AIGC检测仿真",
-                "score_label": "AIGC总体疑似度",
-                "baseline_weight": 0.48,
-                "style_weight": 0.14,
-                "repeat_weight": 0.14,
-                "template_weight": 0.10,
-                "context_weight": 0.14,
-                "opening_weight": 0.05,
-                "offset": 0.03,
-                "high": 0.60,
-                "medium": 0.38,
-                "clean": 0.16,
-                "coverage_weight": 0.05,
-                "section_weight": 0.04,
-                "streak_weight": 0.05,
-                "opening_similarity_weight": 0.03,
-                "evidence_relief_weight": 0.04,
-                "colloquial_relief_weight": 0.16,
-                "specificity_relief_weight": 0.12,
-                "artifact_weight": 0.04,
-                "english_abstract_weight": 0.02,
-                "abstract_section_weight": 0.02,
-                "intro_section_weight": 0.01,
                 "fragment_display_thresholds": {"mild": 0.70, "moderate": 0.80, "severe": 0.90},
             },
         }
@@ -2235,30 +2183,12 @@ class ProcessingEngine:
                 calibrated_pct -= 2.0
             if calibrated_pct < 3.0:
                 calibrated_pct = 0.0
-        elif key == "paperpass":
-            calibrated_pct = (
-                raw_pct * 0.72
-                + high_middle_text_pct * 0.22
-                + weighted_fragment_pct * 0.16
-                + template_pct * 0.42
-                + high_ratio_pct * 0.18
-                - citation_pct * 0.18
-                - evidence_pct * 0.45
-                - colloquial_pct * 0.65
-                - specificity_pct * 0.35
-                + 4.00
-            )
-            if high_middle_text_pct < 70.0 and template_pct < 8.0:
-                calibrated_pct -= 6.0
         else:
             calibrated_pct = raw_pct
 
         return round(self._clamp_score(max(0.0, calibrated_pct) / 100.0), 4)
 
     def _should_expand_detect_details(self, platform: str, score_pct: float) -> bool:
-        key = (platform or "").strip().lower()
-        if key == "paperpass":
-            return score_pct >= 18.0
         return score_pct >= 8.0
 
     def _normalized_opening_key(self, paragraph: str) -> str:
@@ -4717,28 +4647,6 @@ class ProcessingEngine:
                 "evidence_relief_weight": 0.05,
                 "colloquial_relief_weight": 0.48,
                 "specificity_relief_weight": 0.34,
-                "fragment_display_thresholds": {"mild": 0.70, "moderate": 0.80, "severe": 0.90},
-            },
-            "paperpass": {
-                "name": "paperpass_like",
-                "provider_label": "仿PaperPass",
-                "score_label": "AIGC总体疑似度",
-                "baseline_weight": 0.48,
-                "style_weight": 0.14,
-                "repeat_weight": 0.14,
-                "template_weight": 0.10,
-                "context_weight": 0.14,
-                "opening_weight": 0.05,
-                "offset": 0.03,
-                "high": 0.60,
-                "medium": 0.38,
-                "coverage_weight": 0.05,
-                "section_weight": 0.04,
-                "streak_weight": 0.05,
-                "opening_similarity_weight": 0.03,
-                "evidence_relief_weight": 0.04,
-                "colloquial_relief_weight": 0.16,
-                "specificity_relief_weight": 0.12,
                 "fragment_display_thresholds": {"mild": 0.70, "moderate": 0.80, "severe": 0.90},
             },
         }

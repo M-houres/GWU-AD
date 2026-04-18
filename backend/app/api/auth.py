@@ -17,6 +17,7 @@ from app.client_source import DEFAULT_CLIENT_SOURCE, get_client_source
 from app.config import get_settings
 from app.deps import current_user, db_dep, get_redis
 from app.exceptions import BizError
+from app.money import cny_to_api, fen_to_cny
 from app.models import CreditType, RegistrationRiskLog, SystemConfig, User
 from app.responses import ok
 from app.schemas import APIResp, LoginReq, MiniProgramLoginReq, MiniProgramPhoneLoginReq, SendCodeReq
@@ -29,7 +30,6 @@ from app.security import (
     new_session_version,
 )
 from app.services.credit_service import change_credits
-from app.services.promo_center_service import bind_promo_referral_relation, ensure_user_invite_code
 from app.services.user_navigation_service import default_user_navigation_config, normalize_user_navigation_config
 from app.utils import gen_code, is_phone_valid
 from app.utils_qrcode import build_qrcode_data_url
@@ -187,10 +187,14 @@ def _enforce_ip_limit(
 def _user_payload(user: User) -> dict:
     phone = str(user.phone or "").strip()
     masked_phone = f"{phone[:3]}****{phone[-4:]}" if len(phone) == 11 else phone
+    balance_fen = int(user.credits or 0)
+    balance_cny = cny_to_api(fen_to_cny(balance_fen) or 0)
     return {
         "id": user.id,
         "phone": masked_phone,
         "nickname": user.nickname,
+        "balance_fen": balance_fen,
+        "balance_cny": balance_cny,
         "credits": user.credits,
         "source": user.source,
         "created_at": user.created_at,
@@ -727,11 +731,10 @@ def _upsert_wechat_user(
             user,
             tx_type=CreditType.INIT,
             delta=settings.initial_credits if initial_credits is None else int(initial_credits),
-            reason="微信新用户初始积分",
+            reason="微信新用户初始通用点数",
             related_id=f"wx_user_init:{user.id}",
             source=source,
         )
-        ensure_user_invite_code(db, user)
         return user, is_new_user
 
     setattr(user, openid_attr, openid)
@@ -789,11 +792,10 @@ def _upsert_miniprogram_phone_user(
             user,
             tx_type=CreditType.INIT,
             delta=settings.initial_credits if initial_credits is None else int(initial_credits),
-            reason="微信新用户初始积分",
+            reason="微信新用户初始通用点数",
             related_id=f"wx_user_init:{user.id}",
             source=source,
         )
-        ensure_user_invite_code(db, user)
         return user, is_new_user
 
     user.phone = phone
@@ -985,18 +987,10 @@ def login(
                 user,
                 tx_type=CreditType.INIT,
                 delta=initial_credits,
-                reason="新用户初始积分",
+                reason="新用户初始通用点数",
                 related_id=f"user_init:{user.id}",
                 source=client_source,
             )
-            ensure_user_invite_code(db, user)
-            if req.referrer_code:
-                bind_promo_referral_relation(
-                    db,
-                    invitee=user,
-                    referrer_code=str(req.referrer_code).strip().upper(),
-                    source=client_source,
-                )
         elif not user.source:
             user.source = client_source
 
@@ -1110,13 +1104,6 @@ def wx_mini_login(
                 max_value=1_000_000,
             ),
         )
-        if is_new_user and req.referrer_code:
-            bind_promo_referral_relation(
-                db,
-                invitee=user,
-                referrer_code=str(req.referrer_code).strip().upper(),
-                source=client_source,
-            )
         redis_client.setex(f"user:fp:{user.id}", 30 * 24 * 3600, fp)
         db.commit()
     except Exception:
@@ -1184,13 +1171,6 @@ def wx_mini_phone_login(
                 max_value=1_000_000,
             ),
         )
-        if is_new_user and req.referrer_code:
-            bind_promo_referral_relation(
-                db,
-                invitee=user,
-                referrer_code=str(req.referrer_code).strip().upper(),
-                source=client_source,
-            )
         redis_client.setex(f"user:fp:{user.id}", 30 * 24 * 3600, fp)
         db.commit()
     except Exception:
@@ -1300,7 +1280,6 @@ def wx_callback(
                 max_value=1_000_000,
             ),
         )
-        ensure_user_invite_code(db, user)
         db.commit()
     except Exception:
         db.rollback()

@@ -167,9 +167,9 @@ def test_save_billing_with_packages_affects_public_package_list(
     resp = client.post(
         "/api/v1/admin/configs/billing",
         json={
-            "aigc_rate": 1,
-            "dedup_rate": 3,
-            "rewrite_rate": 4,
+            "aigc_points_per_char": 1,
+            "dedup_points_per_char": 3,
+            "rewrite_points_per_char": 4,
             "packages": [
                 {
                     "name": "校园体验包",
@@ -190,7 +190,7 @@ def test_save_billing_with_packages_affects_public_package_list(
     )
     assert resp.status_code == 200
     value = resp.json()["data"]["value"]
-    assert value["dedup_rate"] == 3
+    assert value["dedup_points_per_char"] == 3
     assert len(value["packages"]) == 2
 
     pkg_resp = client.get("/api/v1/billing/packages")
@@ -198,6 +198,7 @@ def test_save_billing_with_packages_affects_public_package_list(
     items = pkg_resp.json()["data"]["items"]
     assert len(items) == 1
     assert items[0]["name"] == "校园体验包"
+    assert items[0]["amount_cny"] == 29.9
     assert items[0]["credits"] == 42000
 
 
@@ -421,7 +422,7 @@ def test_miniapp_readiness_errors_when_login_enabled_but_credentials_missing(
 
     readiness = _readiness_item(client, "miniapp")
     assert readiness["status"] == "error"
-    assert "AppID/AppSecret 未填写完整" in readiness["message"]
+    assert "基础配置缺少 AppID / AppSecret" in readiness["message"]
     resp = client.post(
         "/api/v1/admin/configs/notice",
         json={
@@ -471,3 +472,50 @@ def test_save_miniapp_config_in_separate_category_affects_auth_options(
     assert options.status_code == 200
     data = options.json()["data"]
     assert data["wechat_miniprogram_login_enabled"] is True
+
+
+def test_save_miniapp_config_persists_payment_and_domain_fields(
+    client: TestClient,
+    admin_override,
+) -> None:
+    resp = client.post(
+        "/api/v1/admin/configs/miniapp",
+        json={
+            "enabled": True,
+            "app_id": "wx-mini-prod-001",
+            "app_secret": "mini-prod-secret-001",
+            "wechat_miniprogram_login_enabled": True,
+            "wechat_miniprogram_app_id": "wx-mini-login-001",
+            "wechat_miniprogram_app_secret": "mini-login-secret-001",
+            "wechat_miniprogram_payment_enabled": True,
+            "payment_notify_url": "https://pay.example.com/api/v1/billing/notify/wechatpay",
+            "api_base_url": "https://api.example.com/api/v1",
+            "request_domain": "https://api.example.com",
+            "upload_domain": "https://upload.example.com",
+            "download_domain": "https://download.example.com",
+            "ws_domain": "wss://ws.example.com",
+            "business_domain": "https://www.example.com",
+        },
+    )
+    assert resp.status_code == 200
+    value = resp.json()["data"]["value"]
+    assert value["wechat_miniprogram_payment_enabled"] is True
+    assert value["payment_notify_url"] == "https://pay.example.com/api/v1/billing/notify/wechatpay"
+    assert value["api_base_url"] == "https://api.example.com/api/v1"
+    assert value["request_domain"] == "https://api.example.com"
+    assert value["upload_domain"] == "https://upload.example.com"
+    assert value["download_domain"] == "https://download.example.com"
+    assert value["ws_domain"] == "wss://ws.example.com"
+    assert value["business_domain"] == "https://www.example.com"
+
+    read_resp = client.get("/api/v1/admin/configs/miniapp")
+    assert read_resp.status_code == 200
+    read_value = read_resp.json()["data"]["value"]
+    assert read_value["wechat_miniprogram_payment_enabled"] is True
+    assert read_value["payment_notify_url"] == "https://pay.example.com/api/v1/billing/notify/wechatpay"
+    assert read_value["api_base_url"] == "https://api.example.com/api/v1"
+
+    readiness = _readiness_item(client, "miniapp")
+    assert readiness["status"] == "ready"
+    assert "登录已启用" in readiness["message"]
+    assert "支付已启用" in readiness["message"]

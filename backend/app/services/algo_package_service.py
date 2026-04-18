@@ -17,11 +17,12 @@ from sqlalchemy.orm import Session
 from app.config import get_settings
 from app.exceptions import BizError
 from app.models import SystemConfig, TaskType
+from app.services.platform_registry import supported_platform_keys
 
 settings = get_settings()
 logger = logging.getLogger('app.services.algo_package')
 
-SUPPORTED_PLATFORMS = ("cnki", "vip", "paperpass")
+SUPPORTED_PLATFORMS = supported_platform_keys()
 SUPPORTED_FUNCTION_TYPES = tuple(t.value for t in TaskType)
 ACTIVE_CATEGORY = "algo_package_slot_active"
 
@@ -41,10 +42,10 @@ def _normalize_zip_path(raw_path: str) -> str:
     return str(path)
 
 
-def _validate_slot(platform: str, function_type: str) -> tuple[str, str]:
+def _validate_slot(platform: str, function_type: str, *, db: Session | None = None) -> tuple[str, str]:
     normalized_platform = platform.strip().lower()
     normalized_function_type = function_type.strip().lower()
-    if normalized_platform not in SUPPORTED_PLATFORMS:
+    if normalized_platform not in supported_platform_keys(db, enabled_only=False):
         raise BizError(code=4522, message=f"不支持的平台:{normalized_platform}")
     if normalized_function_type not in SUPPORTED_FUNCTION_TYPES:
         raise BizError(code=4523, message=f"不支持的功能类型:{normalized_function_type}")
@@ -465,6 +466,7 @@ def deactivate_algorithm_package(
 
 def list_algorithm_packages(db: Session) -> dict:
     root = settings.algorithm_package_dir
+    supported_platforms = set(supported_platform_keys(db, enabled_only=False))
     active_rows = (
         db.query(SystemConfig)
         .filter(SystemConfig.category == ACTIVE_CATEGORY)
@@ -480,8 +482,12 @@ def list_algorithm_packages(db: Session) -> dict:
     if root.exists():
         for platform_dir in sorted([p for p in root.iterdir() if p.is_dir()], key=lambda x: x.name):
             platform = platform_dir.name
+            if platform not in supported_platforms:
+                continue
             for fn_dir in sorted([p for p in platform_dir.iterdir() if p.is_dir()], key=lambda x: x.name):
                 function_type = fn_dir.name
+                if function_type not in SUPPORTED_FUNCTION_TYPES:
+                    continue
                 for version_dir in sorted([p for p in fn_dir.iterdir() if p.is_dir()], key=lambda x: x.name):
                     manifest_path = version_dir / "manifest.json"
                     meta_path = version_dir / "meta.json"
@@ -522,7 +528,7 @@ def list_algorithm_packages(db: Session) -> dict:
                     )
 
     slots = []
-    for platform in SUPPORTED_PLATFORMS:
+    for platform in supported_platform_keys(db, enabled_only=False):
         for function_type in SUPPORTED_FUNCTION_TYPES:
             slot_key = make_slot_key(platform, function_type)
             active = active_mapping.get(slot_key, {})
@@ -546,8 +552,9 @@ def get_algorithm_package_archive_path(
     platform: str,
     function_type: str,
     version: str,
+    db: Session | None = None,
 ) -> Path:
-    normalized_platform, normalized_function_type = _validate_slot(platform, function_type)
+    normalized_platform, normalized_function_type = _validate_slot(platform, function_type, db=db)
     normalized_version = str(version).strip()
     if not _VERSION_PATTERN.fullmatch(normalized_version):
         raise BizError(code=4505, message="version 不合法")
@@ -559,7 +566,7 @@ def get_algorithm_package_archive_path(
 
 
 def get_active_slot_config(db: Session, *, platform: str, function_type: str) -> dict | None:
-    normalized_platform, normalized_function_type = _validate_slot(platform, function_type)
+    normalized_platform, normalized_function_type = _validate_slot(platform, function_type, db=db)
     row = (
         db.query(SystemConfig)
         .filter(

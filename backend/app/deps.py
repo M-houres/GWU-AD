@@ -123,7 +123,6 @@ LEGACY_OPERATOR_DEFAULT_PERMISSIONS = {
     "tasks:view",
     "orders:view",
     "orders:refund",
-    "referrals:view",
     "logs:view",
     "credits:view",
     "algo:view",
@@ -172,6 +171,7 @@ def current_user(
     cred: HTTPAuthorizationCredentials = Depends(auth_scheme),
     user_access_cookie: str | None = Cookie(default=None, alias="gw_user_access"),
     db: Session = Depends(db_dep),
+    auth_store=Depends(get_redis),
 ) -> User:
     token = cred.credentials if cred is not None and cred.credentials else str(user_access_cookie or "").strip()
     if not token:
@@ -196,7 +196,6 @@ def current_user(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="user banned")
     session_version = str(payload.get("sv") or "").strip()
     if session_version:
-        auth_store = _get_auth_store()
         current_version = str(auth_store.get(auth_session_key("user", str(user.id))) or "").strip()
         if not current_version or current_version != session_version:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="token revoked")
@@ -209,6 +208,7 @@ def current_admin(
     cred: HTTPAuthorizationCredentials = Depends(auth_scheme),
     admin_access_cookie: str | None = Cookie(default=None, alias="gw_admin_access"),
     db: Session = Depends(db_dep),
+    auth_store=Depends(get_redis),
 ) -> AdminUser:
     token = cred.credentials if cred is not None and cred.credentials else str(admin_access_cookie or "").strip()
     if not token:
@@ -233,7 +233,6 @@ def current_admin(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="admin disabled")
     session_version = str(payload.get("sv") or "").strip()
     if session_version:
-        auth_store = _get_auth_store()
         current_version = str(auth_store.get(auth_session_key("admin", str(admin.id))) or "").strip()
         if not current_version or current_version != session_version:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="token revoked")

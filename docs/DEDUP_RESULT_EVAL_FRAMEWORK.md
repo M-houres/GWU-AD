@@ -32,13 +32,11 @@
 
 1. `知网降重复率`
 2. `维普降重复率`
-3. `PaperPass降重复率`
 
 对应内部算法包槽位：
 
 1. `cnki_dedup_v*.zip`
 2. `vip_dedup_v*.zip`
-3. `pp_dedup_v*.zip`
 
 ## 3. 北极星定义
 
@@ -347,7 +345,6 @@ weighted_fragment = score_fragment * 100 * 0.20
 
 1. 知网单独训练
 2. 维普单独训练
-3. PaperPass 单独训练
 
 同样一句话，在不同平台的查重表现可能不同，所以：
 

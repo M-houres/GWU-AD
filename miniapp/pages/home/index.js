@@ -60,13 +60,6 @@ const BASE_PLATFORM_OPTIONS = [
     desc: "适合交叉校验另一套平台视角，流程直观，结果清晰。",
     detectDesc: "按模拟维普的展示方式输出 AIGC 全文检测结果。",
   },
-  {
-    value: "paperpass",
-    label: "PaperPass",
-    detectLabel: "模拟PaperPass",
-    desc: "适合补充检测与结果对照，入口直接，便于快速比较。",
-    detectDesc: "按模拟 PaperPass 的展示方式输出 AIGC 全文检测结果。",
-  },
 ]
 
 function getPlatformOptions(taskType = "") {

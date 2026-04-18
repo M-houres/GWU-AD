@@ -51,6 +51,7 @@ def test_my_tasks_guard_marks_stale_queued_failed_and_refunds(client, db_session
         items = resp.json()["data"]["items"]
         row = next(item for item in items if int(item["id"]) == task.id)
         assert row["status"] == "failed"
+        assert row["refund_done"] is True
         assert TASK_CHAIN_GUARD_TIMEOUT_MESSAGE in str(row.get("error_message", ""))
     finally:
         app.dependency_overrides.pop(current_user, None)
@@ -102,6 +103,7 @@ def test_task_detail_guard_keeps_fresh_processing_task_unchanged(client, db_sess
         resp = client.get(f"/api/v1/tasks/{task.id}")
         assert resp.status_code == 200
         assert resp.json()["data"]["status"] == "running"
+        assert resp.json()["data"]["refund_done"] is False
     finally:
         app.dependency_overrides.pop(current_user, None)
 

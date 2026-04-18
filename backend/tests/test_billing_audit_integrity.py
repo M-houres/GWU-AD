@@ -3,11 +3,13 @@ from datetime import datetime, timedelta, timezone
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
+from app.constants import DEFAULT_BILLING_PACKAGES
 from app.models import AdminAuditLog, AdminUser, CreditTransaction, CreditType, Order, User
 from app.services.payment_service import sign_payload
 
 
 def test_payment_callback_amount_mismatch_rejected(client: TestClient, db_session: Session, settings_override) -> None:
+    package_name = DEFAULT_BILLING_PACKAGES[0]["name"]
     user = User(phone="13800006200", nickname="pay-user", credits=0)
     db_session.add(user)
     db_session.add(
@@ -27,7 +29,7 @@ def test_payment_callback_amount_mismatch_rejected(client: TestClient, db_sessio
     payload = {
         "order_no": "ODCALLBACK_AMT_001",
         "user_id": user.id,
-        "package_name": "入门包",
+        "package_name": package_name,
         "amount_cny": 19.9,
         "paid_at": int(datetime.now(timezone.utc).timestamp()),
         "status": "paid",
@@ -52,7 +54,7 @@ def test_order_status_remote_paid_is_idempotent_after_callback(
     settings_override,
     monkeypatch,
 ) -> None:
-    monkeypatch.setattr("app.worker_tasks.grant_order_referral_rewards_async.delay", lambda *_args, **_kwargs: None)
+    package_name = DEFAULT_BILLING_PACKAGES[0]["name"]
     monkeypatch.setattr(
         "app.api.billing.query_remote_order_status",
         lambda *_args, **_kwargs: {"status": "paid", "amount_cny": 9.9},
@@ -76,7 +78,7 @@ def test_order_status_remote_paid_is_idempotent_after_callback(
     payload = {
         "order_no": order.order_no,
         "user_id": user.id,
-        "package_name": "入门包",
+        "package_name": package_name,
         "amount_cny": 9.9,
         "paid_at": int(datetime.now(timezone.utc).timestamp()),
         "status": "paid",
@@ -124,8 +126,8 @@ def test_admin_adjust_credits_writes_audit_log(client: TestClient, db_session: S
     )
     assert row is not None
     assert row.target_type == "user"
-    assert row.before_json == {"credits": 100, "delta": 50}
-    assert row.after_json == {"credits": 150, "delta": 50, "reason": "补偿"}
+    assert row.before_json == {"balance_fen": 100, "delta_fen": 50}
+    assert row.after_json == {"balance_fen": 150, "delta_fen": 50, "reason": "补偿"}
 
 
 def test_admin_refund_writes_audit_log_with_before_after_status(

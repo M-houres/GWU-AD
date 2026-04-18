@@ -1,139 +1,116 @@
 <template>
-  <div class="app-shell" :class="{ 'is-collapsed': isCollapsedDesktop, 'is-mobile': isMobile, 'is-drawer-open': isDrawerOpen }">
-    <button
-      v-if="isMobile && isDrawerOpen"
-      type="button"
-      class="shell-overlay"
-      aria-label="关闭侧边导航"
-      @click="closeDrawer"
-    ></button>
-
-    <aside class="sider-wrap" :class="{ 'is-collapsed': isCollapsedDesktop, 'is-open': isDrawerOpen }">
-      <div class="sider-brand">
-        <div class="sider-brand__top">
-          <RouterLink to="/app/detect" class="brand-home" aria-label="格物学术首页" :title="isCollapsedDesktop ? '格物学术' : ''">
-            <span class="brand-mark">GW</span>
-            <div class="brand-copy">
-              <strong>格物学术</strong>
-            </div>
-          </RouterLink>
-
-          <div class="sider-brand__actions">
-            <button
-              v-if="!isMobile"
-              type="button"
-              class="shell-icon-btn shell-icon-btn--ghost"
-              :aria-label="sidebarToggleLabel"
-              :title="sidebarToggleLabel"
-              @click="toggleSidebar"
-            >
-              <component :is="sidebarToggleIcon" :size="18" />
-            </button>
-            <button
-              v-else
-              type="button"
-              class="shell-icon-btn shell-icon-btn--ghost"
-              aria-label="关闭侧边导航"
-              title="关闭侧边导航"
-              @click="closeDrawer"
-            >
-              <X :size="18" />
-            </button>
+  <div class="app-shell" :class="{ 'is-mobile': isMobile }">
+    <header class="header-wrap" :class="{ 'is-elevated': isHeaderElevated }">
+      <div class="header-left">
+        <RouterLink to="/app/detect" class="brand-home" aria-label="格物学术首页" title="格物学术">
+          <span class="brand-mark">GW</span>
+          <div class="brand-copy">
+            <strong>格物学术</strong>
           </div>
-        </div>
+        </RouterLink>
       </div>
 
-      <div class="scrollbar-wrapper">
+      <div class="header-center">
         <div v-if="!isNavigationReady" class="menu-loading-placeholder" aria-hidden="true"></div>
-        <ul v-else class="el-menu">
-          <template v-for="(group, groupIndex) in visibleMenuGroups" :key="group.key">
-            <li v-for="item in group.items" :key="item.path" class="menu-wrapper">
-              <div v-if="item.disabled" class="el-menu-item is-disabled" aria-disabled="true" :title="isCollapsedDesktop ? item.label : ''">
-                <i class="siderIcon">
-                  <component :is="item.icon" :size="16" />
-                </i>
-                <span class="subMenu_title_box">{{ item.label }}</span>
-                <span v-if="item.badge && !isCollapsedDesktop" class="menu-beta-badge">{{ item.badge }}</span>
-              </div>
-              <RouterLink v-else :to="item.path" class="menu-link" :title="isCollapsedDesktop ? item.label : ''">
-                <div class="el-menu-item" :class="{ 'is-active': isMenuActive(item.path) }">
+        <nav v-else class="top-nav-scroll" aria-label="主导航">
+          <div class="top-nav-track">
+            <div class="top-nav-primary">
+              <template v-for="item in visibleTopMenus" :key="item.path">
+                <div v-if="item.disabled" class="top-nav-link is-disabled" aria-disabled="true">
                   <i class="siderIcon">
-                    <component :is="item.icon" :size="16" />
+                    <component :is="item.icon" :size="15" />
                   </i>
                   <span class="subMenu_title_box">{{ item.label }}</span>
-                  <span v-if="item.badge && !isCollapsedDesktop" class="menu-beta-badge">{{ item.badge }}</span>
+                  <span v-if="item.badge" class="menu-beta-badge">{{ item.badge }}</span>
                 </div>
-              </RouterLink>
-            </li>
-            <li v-if="groupIndex < visibleMenuGroups.length - 1" class="nav-divider" aria-hidden="true"></li>
-          </template>
-        </ul>
+                <RouterLink v-else :to="item.path" class="menu-link">
+                  <div class="top-nav-link" :class="{ 'is-active': isMenuActive(item.path) }">
+                    <i class="siderIcon">
+                      <component :is="item.icon" :size="15" />
+                    </i>
+                    <span class="subMenu_title_box">{{ item.label }}</span>
+                    <span v-if="item.badge" class="menu-beta-badge">{{ item.badge }}</span>
+                  </div>
+                </RouterLink>
+              </template>
+              <div v-if="overflowTopMenus.length" ref="navMoreRef" class="top-more">
+                <button
+                  type="button"
+                  class="top-btn top-btn--more top-btn--nav-more"
+                  :class="{ 'is-active': isNavMoreOpen }"
+                  aria-label="更多导航"
+                  title="更多导航"
+                  @click="toggleNavMore"
+                >
+                  <MoreHorizontal :size="16" />
+                  <span>更多</span>
+                </button>
+                <div v-if="isNavMoreOpen" class="top-dropdown top-dropdown--align-right">
+                  <template v-for="item in overflowTopMenus" :key="item.path">
+                    <div v-if="item.disabled" class="top-dropdown__item is-disabled" aria-disabled="true">
+                      {{ item.label }}
+                    </div>
+                    <RouterLink
+                      v-else
+                      :to="item.path"
+                      class="top-dropdown__item top-dropdown__item--link"
+                      @click="handleTopMenuNavigate"
+                    >
+                      {{ item.label }}
+                    </RouterLink>
+                  </template>
+                </div>
+              </div>
+            </div>
+            <div class="top-nav-shortcuts">
+              <button
+                v-if="!hideAccountEntry"
+                type="button"
+                class="top-btn"
+                :class="{ 'is-active': isPrimaryAccountActionActive }"
+                @click="openAccountEntry"
+              >
+                {{ accountEntryLabel }}
+              </button>
+            </div>
+          </div>
+        </nav>
       </div>
-    </aside>
 
-    <div class="shell-main">
-      <header class="header-wrap">
-        <div class="header-left">
-          <button
-            v-if="isMobile"
-            type="button"
-            class="shell-icon-btn"
-            :aria-label="mobileMenuLabel"
-            :title="mobileMenuLabel"
-            @click="toggleSidebar"
-          >
-            <Menu :size="18" />
-          </button>
-          <div class="header-title" :class="{ 'header-title--hidden': shouldHideHeaderTitle }">{{ routeTitle }}</div>
-        </div>
+      <div class="header-right">
+        <button
+          v-if="hasUserToken && !isCompactMobile"
+          type="button"
+          class="top-btn top-btn--muted"
+          @click="logout()"
+        >
+          退出
+        </button>
+      </div>
+    </header>
 
-        <div class="header-right">
-          <button
-            v-if="showNoticeEntry"
-            type="button"
-            class="header-notice-btn"
-            :class="{ 'is-active': isNoticeDialogOpen }"
-            @click="isNoticeDialogOpen = true"
-          >
-            公告
-          </button>
-          <button type="button" class="header-topup" :class="{ 'is-active': isBuyActive }" @click="hasUserToken ? goBuy() : goLogin()">充值</button>
-          <button type="button" class="header-link" :class="{ 'is-active': isPrimaryAccountActionActive }" @click="hasUserToken ? goProfile() : goLogin()">
-            {{ hasUserToken ? "个人中心" : "登录" }}
-          </button>
-          <button
-            v-if="hasUserToken"
-            type="button"
-            class="header-link header-link--muted"
-            @click="logout()"
-          >
-            退出
-          </button>
-        </div>
-      </header>
-
-      <main class="main-wrap">
-        <div class="main-content">
-          <div v-if="!shouldHideTopbar" class="navbarCon">
-            <div class="app-breadcrumb">
-              <span>{{ breadcrumbTitle }}</span>
-              <span class="no-redirect">{{ routeTitle }}</span>
-            </div>
-            <div class="navbarCon_right">
-              <button type="button" @click="router.back()">返回</button>
-            </div>
-          </div>
-
-          <div class="app-main">
-            <div class="app-main-con">
-              <slot />
-            </div>
+    <main class="main-wrap">
+      <div class="main-content">
+        <div v-if="!shouldHideTopbar" class="navbarCon">
+          <div class="app-breadcrumb">
+            <span>{{ breadcrumbTitle }}</span>
+            <span class="no-redirect">{{ routeTitle }}</span>
           </div>
         </div>
-      </main>
-    </div>
 
-    <div v-if="showNoticeEntry && isNoticeDialogOpen" class="notice-dialog-mask" @click.self="isNoticeDialogOpen = false">
+        <div class="app-main">
+          <div class="app-main-con">
+            <slot />
+          </div>
+        </div>
+      </div>
+    </main>
+
+    <div
+      v-if="showNoticeEntry && isNoticeDialogOpen && !disableNoticeDialog"
+      class="notice-dialog-mask"
+      @click.self="isNoticeDialogOpen = false"
+    >
       <div class="notice-dialog" role="dialog" aria-modal="true" aria-label="公告">
         <div class="notice-dialog__head">
           <h3>{{ noticeTitle }}</h3>
@@ -147,11 +124,10 @@
 </template>
 
 <script setup>
-import { Bot, FilePenLine, FileSearch2, Gift, Menu, PanelLeftClose, PanelLeftOpen, ScanSearch, ShieldCheck, X } from "lucide-vue-next"
+import { FilePenLine, FileSearch2, MoreHorizontal, ScanSearch, User } from "lucide-vue-next"
 import { computed, onMounted, onUnmounted, ref, watch } from "vue"
 import { RouterLink, useRoute, useRouter } from "vue-router"
 
-import { useShellLayout } from "../composables/useShellLayout"
 import { userHttp } from "../lib/http"
 import { clearUserSession, getUserNavigationConfig, getUserToken, setUserNavigationConfig } from "../lib/session"
 import { normalizeUserNavigationConfig } from "../lib/userNavigation"
@@ -161,6 +137,14 @@ const props = defineProps({
     type: String,
     default: "",
   },
+  subtitle: {
+    type: String,
+    default: "",
+  },
+  credits: {
+    type: [Number, String],
+    default: null,
+  },
   hideTopbar: {
     type: Boolean,
     default: false,
@@ -169,30 +153,31 @@ const props = defineProps({
     type: Boolean,
     default: false,
   },
+  hideAccountEntry: {
+    type: Boolean,
+    default: false,
+  },
+  disableNoticeDialog: {
+    type: Boolean,
+    default: false,
+  },
 })
 
 const emit = defineEmits(["buy"])
 
-const DEFAULT_HEADER_NOTICE_TEXT = "平台系统持续优化中，任务提交后请在个人中心查看处理进度。"
-const GROUP_ORDER = ["core", "lab", "account"]
+const DEFAULT_HEADER_NOTICE_TEXT = "平台系统持续优化中，任务提交后请在账户中心查看处理进度。"
+const GROUP_ORDER = ["core"]
 const MENU_ICON_MAP = {
   rewrite: FilePenLine,
   dedup: FileSearch2,
   detect: ScanSearch,
-  review: Bot,
-  defense: ShieldCheck,
-  referral: Gift,
 }
+const MOBILE_BREAKPOINT = 1024
+const COMPACT_BREAKPOINT = 720
+const NOTICE_SEEN_STORAGE_KEY = "wuhong_user_notice_seen_key"
 
 const router = useRouter()
 const route = useRoute()
-const {
-  isMobile,
-  isCollapsedDesktop,
-  isDrawerOpen,
-  toggleSidebar,
-  closeDrawer,
-} = useShellLayout({ storageKey: "wuhong_user_shell_collapsed" })
 const hasUserToken = ref(false)
 const isNoticeDialogOpen = ref(false)
 const cachedNavigation = getUserNavigationConfig()
@@ -204,6 +189,11 @@ const noticeState = ref({
   content: DEFAULT_HEADER_NOTICE_TEXT,
   updated_at: "",
 })
+const viewportWidth = ref(typeof window !== "undefined" ? window.innerWidth : 1440)
+const isHeaderElevated = ref(false)
+const isNavMoreOpen = ref(false)
+const navMoreRef = ref(null)
+
 let noticePollTimer = null
 
 const allMenuItems = computed(() =>
@@ -219,19 +209,15 @@ const visibleMenuGroups = computed(() =>
   })).filter((group) => group.items.length)
 )
 const visibleMenus = computed(() => visibleMenuGroups.value.flatMap((group) => group.items))
+const centerMenus = computed(() => visibleMenus.value)
 const matchedMenu = computed(() => allMenuItems.value.find((item) => isRouteMatch(route.path, item.path)) || null)
 const activeMenu = computed(() => matchedMenu.value || visibleMenus.value[0] || allMenuItems.value[0] || null)
 const routeTitle = computed(() => props.title || String(route.meta?.title || "").trim() || activeMenu.value?.label || "工作台")
 const breadcrumbTitle = computed(() => matchedMenu.value?.label || routeTitle.value || "工作台")
-const shouldHideHeaderTitle = computed(() => {
-  if (props.hideHeaderTitle) return true
-  return isRouteMatch(route.path, "/app/profile") || isRouteMatch(route.path, "/app/referral")
-})
 const shouldHideTopbar = computed(() => {
   if (props.hideTopbar) return true
-  return isRouteMatch(route.path, "/app/profile") || isRouteMatch(route.path, "/app/referral")
+  return isRouteMatch(route.path, "/app/profile")
 })
-const isBuyActive = computed(() => isRouteMatch(route.path, "/app/buy"))
 const isPrimaryAccountActionActive = computed(() => (hasUserToken.value ? isRouteMatch(route.path, "/app/profile") : isRouteMatch(route.path, "/login")))
 const noticeTitle = computed(() => String(noticeState.value.title || "公告"))
 const showNoticeEntry = computed(() => noticeState.value.enabled)
@@ -242,24 +228,50 @@ const noticeBodyText = computed(() => {
   return String(noticeState.value.content || DEFAULT_HEADER_NOTICE_TEXT)
 })
 const noticeUpdatedLabel = computed(() => formatNoticeTime(noticeState.value.updated_at))
-const sidebarToggleIcon = computed(() => (isCollapsedDesktop.value ? PanelLeftOpen : PanelLeftClose))
-const sidebarToggleLabel = computed(() => (isCollapsedDesktop.value ? "展开侧边导航" : "折叠侧边导航"))
-const mobileMenuLabel = computed(() => (isDrawerOpen.value ? "关闭侧边导航" : "打开侧边导航"))
+const isMobile = computed(() => viewportWidth.value < MOBILE_BREAKPOINT)
+const isCompactMobile = computed(() => viewportWidth.value < COMPACT_BREAKPOINT)
+const topMenuLimit = computed(() => (isCompactMobile.value ? 3 : Number.POSITIVE_INFINITY))
+const visibleTopMenus = computed(() => centerMenus.value.slice(0, topMenuLimit.value))
+const overflowTopMenus = computed(() => centerMenus.value.slice(topMenuLimit.value))
+const accountEntryLabel = computed(() => (hasUserToken.value ? "账户中心" : "登录"))
 
 onMounted(() => {
   syncTokenState()
+  syncViewportWidth()
+  syncHeaderElevated()
   startNoticeSync()
+  if (typeof window !== "undefined") {
+    window.addEventListener("resize", syncViewportWidth, { passive: true })
+    window.addEventListener("scroll", syncHeaderElevated, { passive: true })
+  }
+  if (typeof document !== "undefined") {
+    document.addEventListener("click", handleDocumentClick)
+  }
 })
 
 onUnmounted(() => {
   stopNoticeSync()
+  if (typeof window !== "undefined") {
+    window.removeEventListener("resize", syncViewportWidth)
+    window.removeEventListener("scroll", syncHeaderElevated)
+  }
+  if (typeof document !== "undefined") {
+    document.removeEventListener("click", handleDocumentClick)
+  }
 })
 
 watch(
   () => route.fullPath,
   () => {
     syncTokenState()
-    closeDrawer()
+    closeTopMenus()
+  }
+)
+
+watch(
+  () => overflowTopMenus.value.length,
+  (length) => {
+    if (!length) isNavMoreOpen.value = false
   }
 )
 
@@ -300,14 +312,32 @@ function applyNavigation(raw) {
 
 function applyNotice(raw) {
   const content = String(raw?.content || raw?.header_text || DEFAULT_HEADER_NOTICE_TEXT).trim() || DEFAULT_HEADER_NOTICE_TEXT
+  const title = String(raw?.title || "系统公告").trim() || "系统公告"
+  const updatedAt = String(raw?.updated_at || "").trim()
+  const isEnabled = raw?.enabled !== false
+  const version = Number.parseInt(String(raw?.version ?? raw?.notice_version ?? ""), 10)
   noticeState.value = {
-    enabled: raw?.enabled !== false,
-    title: String(raw?.title || "系统公告").trim() || "系统公告",
+    enabled: isEnabled,
+    title,
     content,
-    updated_at: String(raw?.updated_at || "").trim(),
+    updated_at: updatedAt,
   }
-  if (!noticeState.value.enabled) {
+  if (!isEnabled) {
     isNoticeDialogOpen.value = false
+    return
+  }
+
+  const hasExplicitNotice = Boolean(raw && (raw.content || raw.header_text || raw.title || raw.updated_at))
+  if (!hasExplicitNotice) {
+    return
+  }
+
+  const nextNoticeKey = Number.isFinite(version) && version > 0
+    ? `notice_v_${version}`
+    : `${title}__${content}`
+  if (nextNoticeKey !== readSeenNoticeKey()) {
+    writeSeenNoticeKey(nextNoticeKey)
+    isNoticeDialogOpen.value = true
   }
 }
 
@@ -315,7 +345,9 @@ function startNoticeSync() {
   stopNoticeSync()
   loadShellOptions()
   noticePollTimer = window.setInterval(loadAnnouncement, 45000)
-  document.addEventListener("visibilitychange", handleVisibilityChange)
+  if (typeof document !== "undefined") {
+    document.addEventListener("visibilitychange", handleVisibilityChange)
+  }
 }
 
 function stopNoticeSync() {
@@ -323,7 +355,9 @@ function stopNoticeSync() {
     window.clearInterval(noticePollTimer)
     noticePollTimer = null
   }
-  document.removeEventListener("visibilitychange", handleVisibilityChange)
+  if (typeof document !== "undefined") {
+    document.removeEventListener("visibilitychange", handleVisibilityChange)
+  }
 }
 
 function handleVisibilityChange() {
@@ -346,6 +380,60 @@ function syncTokenState() {
   hasUserToken.value = Boolean(getUserToken())
 }
 
+function readSeenNoticeKey() {
+  if (typeof window === "undefined") return ""
+  try {
+    return window.localStorage.getItem(NOTICE_SEEN_STORAGE_KEY) || ""
+  } catch {
+    return ""
+  }
+}
+
+function writeSeenNoticeKey(value) {
+  if (typeof window === "undefined") return
+  try {
+    window.localStorage.setItem(NOTICE_SEEN_STORAGE_KEY, value)
+  } catch {}
+}
+
+function syncViewportWidth() {
+  if (typeof window === "undefined") return
+  viewportWidth.value = window.innerWidth
+}
+
+function syncHeaderElevated() {
+  if (typeof window === "undefined") return
+  isHeaderElevated.value = window.scrollY > 8
+}
+
+function handleDocumentClick(event) {
+  const target = event.target
+  if (!isTargetInside(navMoreRef.value, target)) {
+    isNavMoreOpen.value = false
+  }
+}
+
+function isTargetInside(root, target) {
+  if (!root || !target || typeof root.contains !== "function") return false
+  return root.contains(target)
+}
+
+function closeTopMenus() {
+  isNavMoreOpen.value = false
+}
+
+function toggleNavMore() {
+  isNavMoreOpen.value = !isNavMoreOpen.value
+}
+
+function handleTopMenuNavigate() {
+  isNavMoreOpen.value = false
+}
+
+function openAccountEntry() {
+  hasUserToken.value ? goProfile() : goLogin()
+}
+
 async function logout() {
   try {
     await userHttp.post("/auth/logout")
@@ -353,11 +441,6 @@ async function logout() {
   clearUserSession()
   hasUserToken.value = false
   router.push("/login")
-}
-
-function goBuy() {
-  emit("buy")
-  router.push("/app/buy")
 }
 
 function goProfile() {
@@ -390,9 +473,8 @@ function isRouteMatch(currentPath, targetPath) {
   --shell-ink-faint: #8096b4;
   --shell-accent: #1e5bdf;
   --shell-accent-strong: #184ec8;
-  --shell-accent-deep: #143f9d;
-  --shell-shadow: 0 22px 46px rgba(30, 91, 223, 0.18);
-  --shell-shadow-soft: 0 14px 28px rgba(30, 91, 223, 0.12);
+  --shell-shadow: 0 20px 40px rgba(30, 91, 223, 0.12);
+  --shell-shadow-soft: 0 10px 22px rgba(30, 91, 223, 0.08);
   --shell-band:
     linear-gradient(
       135deg,
@@ -405,404 +487,292 @@ function isRouteMatch(currentPath, targetPath) {
       #1d4ed8 82%,
       #2563eb 100%
     );
-  --sider-width-expanded: 236px;
-  --sider-width-collapsed: 88px;
-  --sider-width-current: var(--sider-width-expanded);
   min-height: 100vh;
   min-height: 100svh;
-  display: grid;
-  grid-template-columns: var(--sider-width-current) minmax(0, 1fr);
-  position: relative;
+  display: flex;
+  flex-direction: column;
   background: var(--shell-band);
   color: var(--shell-ink);
-  transition: grid-template-columns 0.22s ease;
-}
-
-.app-shell.is-collapsed {
-  --sider-width-current: var(--sider-width-collapsed);
-}
-
-.shell-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 79;
-  border: 0;
-  background: rgba(10, 24, 51, 0.42);
-  backdrop-filter: blur(4px);
-}
-
-.sider-wrap {
-  position: sticky;
-  top: 0;
-  height: 100vh;
-  display: flex;
-  flex-direction: column;
-  border-right: 0;
-  background: transparent;
-  box-shadow: none;
-  z-index: 80;
-  transition: transform 0.22s ease, width 0.22s ease;
-}
-
-.sider-brand {
-  padding: 24px 20px 18px;
-  border-bottom: 0;
-}
-
-.sider-brand__top {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.sider-brand__actions {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.brand-home {
-  display: inline-flex;
-  align-items: center;
-  gap: 12px;
-  text-decoration: none;
-  min-width: 0;
-}
-
-.brand-mark {
-  width: 40px;
-  height: 40px;
-  border-radius: 14px;
-  display: grid;
-  place-items: center;
-  background: rgba(255, 255, 255, 0.18);
-  color: #ffffff;
-  font-size: 12px;
-  font-weight: 800;
-  letter-spacing: 0.1em;
-  box-shadow:
-    0 12px 24px rgba(13, 44, 119, 0.18),
-    inset 0 1px 0 rgba(255, 255, 255, 0.18);
-}
-
-.brand-copy {
-  display: grid;
-  gap: 2px;
-}
-
-.brand-copy strong {
-  font-size: 18px;
-  line-height: 1.2;
-  font-weight: 700;
-  color: #ffffff;
-  letter-spacing: 0.02em;
-}
-
-.brand-copy span {
-  font-size: 11px;
-  line-height: 1.2;
-  color: rgba(239, 245, 255, 0.72);
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.scrollbar-wrapper {
-  flex: 1;
-  overflow: auto;
-  padding: 18px 0 20px;
-}
-
-.shell-icon-btn {
-  width: 38px;
-  height: 38px;
-  border-radius: 12px;
-  border: 1px solid rgba(214, 226, 248, 0.92);
-  background: rgba(248, 251, 255, 0.96);
-  color: var(--shell-ink);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  transition:
-    transform 0.16s ease,
-    border-color 0.16s ease,
-    background-color 0.16s ease,
-    color 0.16s ease,
-    box-shadow 0.16s ease;
-}
-
-.shell-icon-btn:hover {
-  transform: translateY(-1px);
-  border-color: rgba(30, 91, 223, 0.24);
-  background: #ffffff;
-  box-shadow: 0 12px 24px rgba(30, 91, 223, 0.12);
-}
-
-.shell-icon-btn--ghost {
-  border-color: rgba(255, 255, 255, 0.18);
-  background: rgba(255, 255, 255, 0.12);
-  color: #ffffff;
-}
-
-.shell-icon-btn--ghost:hover {
-  border-color: rgba(255, 255, 255, 0.28);
-  background: rgba(255, 255, 255, 0.2);
-  color: #ffffff;
-}
-
-.el-menu {
-  margin: 0;
-  padding: 0 14px;
-  list-style: none;
-  display: grid;
-  gap: 14px;
-}
-
-.menu-loading-placeholder {
-  min-height: 248px;
-  margin: 0 14px;
-  border-radius: 24px;
-  border: 0;
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.2), rgba(255, 255, 255, 0.12)),
-    repeating-linear-gradient(
-      180deg,
-      transparent 0,
-      transparent 22px,
-      rgba(255, 255, 255, 0.12) 22px,
-      rgba(255, 255, 255, 0.12) 34px
-    );
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16);
-}
-
-.menu-wrapper {
-  list-style: none;
-}
-
-.menu-link {
-  display: block;
-  text-decoration: none;
-}
-
-.nav-divider {
-  display: none;
-}
-
-.el-menu-item {
-  list-style: none;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  width: 100%;
-  margin: 0;
-  min-height: 46px;
-  padding: 12px 16px;
-  border-radius: 14px;
-  border: 0;
-  color: rgba(245, 249, 255, 0.9);
-  background: rgba(255, 255, 255, 0.12);
-  transition:
-    background-color 0.16s ease,
-    border-color 0.16s ease,
-    color 0.16s ease,
-    transform 0.16s ease,
-    box-shadow 0.16s ease;
-}
-
-.el-menu-item:hover {
-  background: rgba(255, 255, 255, 0.22);
-  transform: translateY(-1px) scale(1.015);
-  box-shadow: 0 16px 28px rgba(12, 42, 112, 0.18);
-}
-
-.el-menu-item.is-active {
-  background: rgba(255, 255, 255, 0.96);
-  color: var(--shell-accent);
-  box-shadow: 0 18px 30px rgba(12, 42, 112, 0.22);
-}
-
-.el-menu-item.is-disabled {
-  background: rgba(255, 255, 255, 0.08);
-  color: rgba(233, 241, 255, 0.48);
-  opacity: 0.88;
-  cursor: default;
-}
-
-.el-menu-item.is-disabled:hover {
-  transform: none;
-  background: rgba(255, 255, 255, 0.08);
-  box-shadow: none;
-}
-
-.siderIcon {
-  display: inline-flex;
-  align-items: center;
-  color: currentColor;
-  flex-shrink: 0;
-}
-
-.subMenu_title_box {
-  min-width: 0;
-  flex: 1;
-  color: inherit;
-  font-size: 14px;
-  font-weight: 600;
-  line-height: 1.4;
-}
-
-.menu-beta-badge {
-  flex-shrink: 0;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.16);
-  color: currentColor;
-  font-size: 11px;
-  line-height: 1;
-  padding: 5px 8px;
-}
-
-.shell-main {
-  min-width: 0;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  background: #ffffff;
 }
 
 .header-wrap {
   position: sticky;
   top: 0;
-  z-index: 50;
+  z-index: 90;
   min-height: 64px;
-  display: flex;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
-  justify-content: space-between;
   gap: 16px;
-  padding: 12px 24px;
-  background: rgba(255, 255, 255, 0.96);
-  border-bottom: 1px solid rgba(214, 226, 248, 0.88);
-  box-shadow: 0 8px 20px rgba(30, 91, 223, 0.04);
+  padding: 10px 24px;
+  background: linear-gradient(135deg, rgba(43, 104, 228, 0.96) 0%, rgba(30, 91, 223, 0.95) 100%);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.2);
   backdrop-filter: blur(12px);
+  transition: box-shadow 0.18s ease;
+}
+
+.header-wrap.is-elevated {
+  box-shadow: 0 12px 26px rgba(8, 31, 88, 0.28);
 }
 
 .header-left {
   min-width: 0;
-  display: flex;
+  display: inline-flex;
   align-items: center;
   gap: 12px;
 }
 
-.header-title {
+.brand-home {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  text-decoration: none;
   min-width: 0;
-  font-size: 18px;
-  font-weight: 700;
-  color: var(--shell-ink);
-  letter-spacing: 0.04em;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  flex-shrink: 0;
 }
 
-.header-title--hidden {
-  visibility: hidden;
+.brand-mark {
+  width: 38px;
+  height: 38px;
+  border-radius: 12px;
+  display: grid;
+  place-items: center;
+  background: rgba(255, 255, 255, 0.16);
+  border: 1px solid rgba(255, 255, 255, 0.24);
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  box-shadow: none;
+}
+
+.brand-copy strong {
+  display: block;
+  color: #ffffff;
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 1.1;
+  letter-spacing: 0.03em;
+}
+
+.top-btn {
+  min-height: 40px;
+  padding: 0 6px;
+  border-radius: 0;
+  border: 0;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.9);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    color 0.16s ease,
+    opacity 0.16s ease;
+}
+
+.top-btn:hover {
+  color: #ffffff;
+  opacity: 1;
+}
+
+.top-btn.is-active {
+  color: #ffffff;
+  text-decoration: none;
+}
+
+.top-btn.is-primary {
+  font-weight: 700;
+}
+
+.top-btn--muted {
+  background: transparent;
+  color: rgba(255, 255, 255, 0.78);
+}
+
+.top-btn--more {
+  padding-inline: 4px;
+}
+
+.top-more {
+  position: relative;
+}
+
+.top-dropdown {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  min-width: 132px;
+  padding: 8px;
+  border-radius: 12px;
+  border: 1px solid rgba(214, 226, 248, 0.92);
+  background: #ffffff;
+  box-shadow: var(--shell-shadow-soft);
+  z-index: 40;
+  display: grid;
+  gap: 6px;
+}
+
+.top-dropdown--align-right {
+  left: auto;
+  right: 0;
+}
+
+.top-dropdown__item {
+  min-height: 40px;
+  padding: 0 12px;
+  border-radius: 10px;
+  border: 1px solid transparent;
+  background: rgba(247, 250, 255, 0.96);
+  color: var(--shell-ink-soft);
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+  transition:
+    background-color 0.16s ease,
+    border-color 0.16s ease,
+    color 0.16s ease;
+}
+
+.top-dropdown__item:hover {
+  background: #ffffff;
+  color: var(--shell-ink);
+  border-color: rgba(30, 91, 223, 0.16);
+}
+
+.top-dropdown__item.is-disabled {
+  opacity: 0.62;
+  cursor: not-allowed;
+}
+
+.header-center {
+  min-width: 0;
+}
+
+.menu-loading-placeholder {
+  height: 40px;
+  border-radius: 999px;
+  background:
+    linear-gradient(90deg, rgba(255, 255, 255, 0.18) 0%, rgba(255, 255, 255, 0.28) 30%, rgba(255, 255, 255, 0.18) 60%),
+    transparent;
+  background-size: 220px 100%;
+  animation: menu-loading-wave 1.6s linear infinite;
+}
+
+@keyframes menu-loading-wave {
+  0% {
+    background-position: 0 0;
+  }
+  100% {
+    background-position: 220px 0;
+  }
+}
+
+.top-nav-scroll {
+  overflow-x: auto;
+  overflow-y: hidden;
+  white-space: nowrap;
+  scrollbar-width: thin;
+}
+
+.top-nav-scroll::-webkit-scrollbar {
+  height: 5px;
+}
+
+.top-nav-scroll::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.35);
+}
+
+.top-nav-track {
+  min-width: 100%;
+  width: max-content;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.top-nav-primary,
+.top-nav-shortcuts {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.menu-link {
+  text-decoration: none;
+}
+
+.top-nav-link {
+  min-height: 40px;
+  padding: 0 8px;
+  border-radius: 0;
+  border: 0;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.9);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  transition:
+    color 0.16s ease,
+    opacity 0.16s ease;
+}
+
+.top-nav-link:hover {
+  color: #ffffff;
+  opacity: 1;
+}
+
+.top-nav-link.is-active {
+  color: #ffffff;
+  text-decoration: underline;
+  text-decoration-thickness: 2px;
+  text-underline-offset: 6px;
+}
+
+.top-nav-link.is-disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.siderIcon {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.subMenu_title_box {
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.menu-beta-badge {
+  border-radius: 999px;
+  padding: 4px 8px;
+  font-size: 11px;
+  line-height: 1;
+  background: rgba(255, 255, 255, 0.22);
+  color: currentColor;
 }
 
 .header-right {
   display: inline-flex;
   align-items: center;
   justify-content: flex-end;
-  flex-wrap: wrap;
-  gap: 12px;
-}
-
-.header-notice-btn,
-.header-link {
-  min-height: 34px;
-  padding: 0 15px;
-  border-radius: 10px;
-  border: 1px solid rgba(214, 226, 248, 0.92);
-  background: rgba(248, 251, 255, 0.96);
-  color: var(--shell-ink-soft);
-  font-size: 12.5px;
-  font-weight: 600;
-  line-height: 1;
-  cursor: pointer;
-  transition:
-    background-color 0.16s ease,
-    color 0.16s ease,
-    border-color 0.16s ease,
-    transform 0.16s ease;
-}
-
-.header-notice-btn.is-active,
-.header-link.is-active {
-  background: linear-gradient(135deg, #4a84ff 0%, #1e5bdf 100%);
-  border-color: rgba(30, 91, 223, 0.24);
-  color: #ffffff;
-  box-shadow: 0 12px 24px rgba(30, 91, 223, 0.16);
-}
-
-.header-topup {
-  min-height: 34px;
-  padding: 0 15px;
-  border-radius: 10px;
-  border: 1px solid rgba(214, 226, 248, 0.92);
-  background: rgba(248, 251, 255, 0.96);
-  color: var(--shell-ink-soft);
-  font-size: 12.5px;
-  font-weight: 700;
-  line-height: 1;
-  cursor: pointer;
-  box-shadow: none;
-  transition:
-    background-color 0.16s ease,
-    color 0.16s ease,
-    border-color 0.16s ease,
-    transform 0.16s ease,
-    box-shadow 0.16s ease;
-}
-
-.header-topup.is-active {
-  background: linear-gradient(135deg, #4a84ff 0%, #1e5bdf 100%);
-  border-color: rgba(30, 91, 223, 0.24);
-  color: #ffffff;
-  box-shadow: 0 12px 24px rgba(30, 91, 223, 0.18);
-}
-
-.header-notice-btn:hover,
-.header-link:hover,
-.header-link--muted:hover {
-  background: #ffffff;
-  color: var(--shell-ink);
-  border-color: rgba(30, 91, 223, 0.18);
-  transform: translateY(-1px);
-}
-
-.header-topup:hover {
-  background: #ffffff;
-  color: var(--shell-ink);
-  border-color: rgba(30, 91, 223, 0.18);
-  transform: translateY(-1px);
-  box-shadow: none;
-}
-
-.header-notice-btn:active,
-.header-link:active,
-.header-link--muted:active {
-  background: rgba(244, 248, 255, 0.98);
-  color: var(--shell-ink);
-  transform: translateY(0);
-}
-
-.header-topup:active {
-  background: rgba(244, 248, 255, 0.98);
-  color: var(--shell-ink);
-  transform: translateY(0);
-}
-
-.header-link--muted {
-  background: transparent;
-  color: var(--shell-ink-faint);
+  gap: 8px;
+  flex-shrink: 0;
 }
 
 .main-wrap {
@@ -822,22 +792,21 @@ function isRouteMatch(currentPath, targetPath) {
 }
 
 .navbarCon {
-  min-height: 52px;
+  min-height: 54px;
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
   gap: 12px;
   padding: 12px 16px;
   background: #ffffff;
-  border: 0;
   border-radius: var(--radius-card);
   box-shadow: 0 10px 22px rgba(30, 91, 223, 0.06);
 }
 
 .app-breadcrumb {
   display: inline-flex;
-  align-items: center;
-  gap: 8px;
+  flex-direction: column;
+  gap: 4px;
   min-width: 0;
   font-size: 13px;
   color: var(--shell-ink-faint);
@@ -845,35 +814,13 @@ function isRouteMatch(currentPath, targetPath) {
 
 .app-breadcrumb .no-redirect {
   min-width: 0;
-  font-size: 15px;
+  font-size: 24px;
   color: var(--shell-ink);
   font-weight: 700;
+  line-height: 1.2;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-}
-
-.navbarCon_right button {
-  min-height: 34px;
-  padding: 0 12px;
-  border-radius: 10px;
-  border: 1px solid rgba(214, 226, 248, 0.92);
-  background: rgba(255, 255, 255, 0.96);
-  color: var(--shell-ink-soft);
-  font-size: 12.5px;
-  font-weight: 600;
-  cursor: pointer;
-  transition:
-    background-color 0.16s ease,
-    border-color 0.16s ease,
-    color 0.16s ease,
-    transform 0.16s ease;
-}
-
-.navbarCon_right button:hover {
-  background: rgba(244, 248, 255, 0.98);
-  border-color: rgba(163, 191, 237, 0.92);
-  transform: translateY(-1px);
 }
 
 .app-main,
@@ -885,12 +832,10 @@ function isRouteMatch(currentPath, targetPath) {
   position: relative;
 }
 
-.header-notice-btn:focus-visible,
-.header-topup:focus-visible,
-.header-link:focus-visible,
-.navbarCon_right button:focus-visible,
-.menu-link:focus-visible .el-menu-item {
-  outline: 2px solid rgba(86, 129, 191, 0.48);
+.top-btn:focus-visible,
+.top-nav-link:focus-visible,
+.top-dropdown__item:focus-visible {
+  outline: 2px solid rgba(255, 255, 255, 0.72);
   outline-offset: 2px;
 }
 
@@ -954,83 +899,82 @@ function isRouteMatch(currentPath, targetPath) {
   white-space: pre-wrap;
 }
 
-.app-shell.is-collapsed .sider-brand {
-  padding-inline: 14px;
-}
-
-.app-shell.is-collapsed .sider-brand__top {
-  justify-content: center;
-}
-
-.app-shell.is-collapsed .brand-home {
-  justify-content: center;
-  gap: 0;
-}
-
-.app-shell.is-collapsed .brand-copy,
-.app-shell.is-collapsed .subMenu_title_box,
-.app-shell.is-collapsed .menu-beta-badge {
-  display: none;
-}
-
-.app-shell.is-collapsed .el-menu {
-  padding-inline: 10px;
-}
-
-.app-shell.is-collapsed .el-menu-item {
-  justify-content: center;
-  gap: 0;
-  padding-inline: 12px;
-  min-height: 50px;
-}
-
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
   .header-wrap {
     backdrop-filter: none;
   }
 }
 
+@media (max-width: 1279px) {
+  .header-wrap {
+    padding-inline: 16px;
+    gap: 12px;
+  }
+
+  .app-breadcrumb .no-redirect {
+    font-size: 20px;
+  }
+
+  .main-wrap {
+    padding: 18px 16px calc(22px + env(safe-area-inset-bottom, 0px));
+  }
+}
+
 @media (max-width: 1023px) {
-  .app-shell {
-    display: block;
-    min-height: 100svh;
+  .brand-copy strong {
+    font-size: 16px;
   }
 
-  .sider-wrap {
-    position: fixed;
-    inset: 0 auto 0 0;
-    width: min(82vw, 320px);
-    height: 100vh;
-    height: 100svh;
-    border-right: 1px solid rgba(255, 255, 255, 0.14);
-    border-bottom: 0;
-    transform: translateX(-104%);
-    box-shadow: 0 24px 44px rgba(8, 26, 66, 0.26);
+  .top-btn,
+  .top-nav-link,
+  .top-dropdown__item {
+    min-height: 40px;
+  }
+}
+
+@media (max-width: 720px) {
+  .header-wrap {
+    min-height: 56px;
+    padding: calc(6px + env(safe-area-inset-top, 0px)) 12px 6px;
+    gap: 8px;
   }
 
-  .sider-wrap.is-open {
-    transform: translateX(0);
-  }
-
-  .scrollbar-wrapper {
-    overflow: auto;
-    padding: 12px 0 22px;
-  }
-
-  .nav-divider {
+  .brand-copy {
     display: none;
   }
 
-  .header-wrap {
-    min-height: auto;
-    padding: calc(10px + env(safe-area-inset-top, 0px)) 14px 10px;
-    align-items: stretch;
+  .brand-mark {
+    width: 34px;
+    height: 34px;
+    border-radius: 11px;
+    font-size: 11px;
   }
 
-  .header-right {
-    width: 100%;
-    justify-content: flex-start;
-    flex-wrap: nowrap;
+  .top-btn,
+  .top-nav-link,
+  .top-dropdown__item {
+    min-height: 44px;
+    font-size: 12px;
+  }
+
+  .top-btn {
+    padding-inline: 10px;
+  }
+
+  .top-btn--more {
+    padding-inline: 9px;
+  }
+
+  .top-btn--more span {
+    display: none;
+  }
+
+  .top-nav-link {
+    padding-inline: 12px;
+  }
+
+  .subMenu_title_box {
+    font-size: 13px;
   }
 
   .main-wrap {
@@ -1038,52 +982,16 @@ function isRouteMatch(currentPath, targetPath) {
   }
 
   .navbarCon {
-    padding: 10px 12px;
-    flex-direction: column;
-    align-items: stretch;
-  }
-
-  .navbarCon_right {
-    display: flex;
-    justify-content: flex-end;
-  }
-}
-
-@media (max-width: 720px) {
-  .brand-copy span {
-    display: none;
-  }
-
-  .header-right {
-    gap: 6px;
-    flex-wrap: nowrap;
+    padding: 12px;
     align-items: center;
   }
 
-  .header-notice-btn,
-  .header-topup,
-  .header-link {
-    min-height: 32px;
-    padding: 0 8px;
-    font-size: 11.5px;
-    min-width: 0;
+  .app-breadcrumb {
+    font-size: 12px;
   }
 
-  .header-right > * {
-    flex: 1 1 0;
-    min-width: 0;
-    justify-content: center;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-
-  .header-title {
-    font-size: 16px;
-  }
-
-  .main-wrap {
-    padding-inline: 10px;
+  .app-breadcrumb .no-redirect {
+    font-size: 18px;
   }
 }
 </style>

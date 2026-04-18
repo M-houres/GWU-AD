@@ -18,12 +18,12 @@ function resolveBaseURL() {
   if (explicit) {
     return explicit
   }
-  // Local fallback: keep browser requests same-origin in dev so auth cookies,
-  // refresh, uploads, and task submission do not depend on cross-site behavior.
+  // Local fallback: talk to the backend directly during dev.
+  // The Vite proxy adds severe latency to multipart task uploads on localhost.
   if (typeof window !== "undefined") {
     const { hostname } = window.location
     if (hostname === "127.0.0.1" || hostname === "localhost") {
-      return "/api/v1"
+      return "http://127.0.0.1:8000/api/v1"
     }
   }
   return "/api/v1"

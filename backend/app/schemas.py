@@ -18,20 +18,17 @@ class SendCodeReq(BaseModel):
 class LoginReq(BaseModel):
     phone: str = Field(min_length=11, max_length=20)
     code: str = Field(min_length=4, max_length=8)
-    referrer_code: str | None = None
     device_fingerprint: str | None = Field(default=None, max_length=128)
 
 
 class MiniProgramLoginReq(BaseModel):
     code: str = Field(min_length=2, max_length=256)
-    referrer_code: str | None = None
     device_fingerprint: str | None = Field(default=None, max_length=128)
 
 
 class MiniProgramPhoneLoginReq(BaseModel):
     login_code: str = Field(min_length=2, max_length=256)
     phone_code: str = Field(min_length=2, max_length=256)
-    referrer_code: str | None = None
     device_fingerprint: str | None = Field(default=None, max_length=128)
 
 
@@ -40,6 +37,8 @@ class UserResp(BaseModel):
     phone: str
     nickname: str
     credits: int
+    balance_fen: int | None = None
+    balance_cny: float | None = None
     created_at: datetime
 
 
@@ -47,6 +46,8 @@ class TaskCreateResp(BaseModel):
     id: int
     status: str
     cost_credits: int
+    cost_fen: int | None = None
+    cost_points: int | None = None
 
 
 class AdminLoginReq(BaseModel):
@@ -55,7 +56,9 @@ class AdminLoginReq(BaseModel):
 
 
 class AdminAdjustCreditReq(BaseModel):
-    delta: int
+    delta: int | None = None
+    delta_fen: int | None = None
+    delta_cny: Decimal | None = None
     reason: str
 
 
@@ -65,11 +68,13 @@ class PaginationQuery(BaseModel):
 
 
 class MockPayReq(BaseModel):
-    package_name: str
+    package_name: str | None = None
+    amount_cny: Decimal | None = Field(default=None, gt=0)
 
 
 class CreateOrderReq(BaseModel):
-    package_name: str
+    package_name: str | None = None
+    amount_cny: Decimal | None = Field(default=None, gt=0)
     provider: str = Field(default="wechat")
     scene: str = Field(default="web")
 

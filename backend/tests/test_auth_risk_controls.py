@@ -8,7 +8,6 @@ def _login_with_code(
     client: TestClient,
     *,
     phone: str,
-    referrer_code: str | None = None,
     user_agent: str = "pytest-agent",
     device_fingerprint: str | None = None,
     ip: str = "10.10.10.10",
@@ -21,8 +20,6 @@ def _login_with_code(
     assert send_resp.status_code == 200
     code = send_resp.json()["data"]["debug_code"]
     payload = {"phone": phone, "code": code}
-    if referrer_code:
-        payload["referrer_code"] = referrer_code
     if device_fingerprint:
         payload["device_fingerprint"] = device_fingerprint
     return client.post("/api/v1/auth/login", json=payload, headers=headers)
@@ -261,7 +258,7 @@ def test_wx_miniprogram_phone_login_accepts_mock_codes_in_non_prod(
         assert body["data"]["scene"] == "miniprogram"
         assert body["data"]["login_type"] == "phone_quick"
         assert body["data"]["token"]
-        assert body["data"]["user"]["phone"] == "13800001234"
+        assert body["data"]["user"]["phone"] == "138****1234"
     finally:
         settings.app_env = old_env
 
@@ -342,7 +339,7 @@ def test_wx_miniprogram_phone_login_calls_phone_api_and_binds_real_phone(
         body = resp.json()
         assert body["code"] == 0
         assert body["data"]["login_type"] == "phone_quick"
-        assert body["data"]["user"]["phone"] == "13800006666"
+        assert body["data"]["user"]["phone"] == "138****6666"
 
         user = db_session.get(User, body["data"]["user"]["id"])
         assert user is not None

@@ -5,28 +5,21 @@ import { adminHasPermission, getAdminInfo, getAdminToken, getUserToken } from '.
 
 const AdminLoginPage = () => import('../views/admin/AdminLoginPage.vue')
 const AdminOrderPage = () => import('../views/admin/AdminOrderPage.vue')
-const AdminReferralPage = () => import('../views/admin/AdminReferralPage.vue')
 const AdminTaskPage = () => import('../views/admin/AdminTaskPage.vue')
 const AdminUserPage = () => import('../views/admin/AdminUserPage.vue')
 const AdminUserDetailPage = () => import('../views/admin/AdminUserDetailPage.vue')
 const AdminDashboardPage = () => import('../views/admin/AdminDashboardPage.vue')
 const AdminAlgoPackagePage = () => import('../views/admin/AdminAlgoPackagePage.vue')
 const AdminConfigPage = () => import('../views/admin/AdminConfigPage.vue')
-const AdminNoticeConfigPage = () => import('../views/admin/AdminNoticeConfigPage.vue')
-const AdminLogsPage = () => import('../views/admin/AdminLogsPage.vue')
-const AdminAdminUsersPage = () => import('../views/admin/AdminAdminUsersPage.vue')
 const LoginPage = () => import('../views/user/LoginPage.vue')
 const UserBuyPage = () => import('../views/user/UserBuyPage.vue')
 const UserProfilePage = () => import('../views/user/UserProfilePage.vue')
 const UserDetectPage = () => import('../views/user/UserDetectPage.vue')
 const UserDetectRecordsPage = () => import('../views/user/UserDetectRecordsPage.vue')
-const UserReferralPage = () => import('../views/user/UserReferralPage.vue')
 const UserRewritePage = () => import('../views/user/UserRewritePage.vue')
 const UserRewriteRecordsPage = () => import('../views/user/UserRewriteRecordsPage.vue')
 const UserDedupPage = () => import('../views/user/UserDedupPage.vue')
 const UserDedupRecordsPage = () => import('../views/user/UserDedupRecordsPage.vue')
-const UserReviewPage = () => import('../views/user/UserReviewPage.vue')
-const UserDefensePage = () => import('../views/user/UserDefensePage.vue')
 const TermsPage = () => import('../views/user/TermsPage.vue')
 const PrivacyPage = () => import('../views/user/PrivacyPage.vue')
 
@@ -35,12 +28,8 @@ const adminEntryRoutes = [
   { path: '/admin/users', permission: 'users:view' },
   { path: '/admin/tasks', permission: 'tasks:view' },
   { path: '/admin/orders', permission: 'orders:view' },
-  { path: '/admin/referrals', permission: 'referrals:view' },
-  { path: '/admin/logs', permission: 'logs:view' },
   { path: '/admin/algo-packages', permission: 'algo:view' },
   { path: '/admin/configs', permission: 'configs:view' },
-  { path: '/admin/configs/notice', permission: 'configs:view' },
-  { path: '/admin/admin-users', permission: 'admins:view' },
 ]
 
 // Pages that can be browsed without login; action buttons inside these pages
@@ -49,10 +38,7 @@ const userGuestBrowsablePaths = new Set([
   '/app/detect',
   '/app/dedup',
   '/app/rewrite',
-  '/app/review',
-  '/app/defense',
   '/app/buy',
-  '/app/referral',
 ])
 
 function firstAccessibleAdminRoute() {
@@ -70,20 +56,16 @@ const router = createRouter({
     { path: '/', redirect: '/app/detect' },
     { path: '/home', redirect: '/app/detect' },
     { path: '/login', component: LoginPage },
-    // Keep invite links like /register?ref=... working, but render login page.
     { path: '/register', component: LoginPage },
     { path: '/terms', component: TermsPage, meta: { title: '服务协议' } },
     { path: '/privacy', component: PrivacyPage, meta: { title: '隐私政策' } },
     { path: '/detect', redirect: '/app/detect' },
     { path: '/dedup', redirect: '/app/dedup' },
     { path: '/rewrite', redirect: '/app/rewrite' },
-    { path: '/review', redirect: '/app/review' },
-    { path: '/defense', redirect: '/app/defense' },
     { path: '/history', redirect: '/app/profile?tab=history' },
     { path: '/buy', redirect: '/app/buy' },
     { path: '/credits', redirect: '/app/profile?tab=credits' },
     { path: '/profile', redirect: '/app/profile' },
-    { path: '/referral', redirect: '/app/referral' },
     { path: '/app/history', redirect: '/app/profile?tab=history' },
     { path: '/app/credits', redirect: '/app/profile?tab=credits' },
     { path: '/app/detect', component: UserDetectPage, meta: { auth: 'user', title: 'AIGC检测' } },
@@ -92,11 +74,8 @@ const router = createRouter({
     { path: '/app/dedup/records', component: UserDedupRecordsPage, meta: { auth: 'user', title: '降重复率记录' } },
     { path: '/app/rewrite', component: UserRewritePage, meta: { auth: 'user', title: '降AIGC率' } },
     { path: '/app/rewrite/records', component: UserRewriteRecordsPage, meta: { auth: 'user', title: '降AIGC率记录' } },
-    { path: '/app/review', component: UserReviewPage, meta: { auth: 'user', title: '智能审稿' } },
-    { path: '/app/defense', component: UserDefensePage, meta: { auth: 'user', title: '答辩服务' } },
-    { path: '/app/referral', component: UserReferralPage, meta: { auth: 'user', title: '推广福利' } },
-    { path: '/app/buy', component: UserBuyPage, meta: { auth: 'user', title: '购买积分' } },
-    { path: '/app/profile', component: UserProfilePage, meta: { auth: 'user', title: '个人中心' } },
+    { path: '/app/buy', component: UserBuyPage, meta: { auth: 'user', title: '充值通用点数' } },
+    { path: '/app/profile', component: UserProfilePage, meta: { auth: 'user', title: '账户中心' } },
     { path: '/admin', redirect: '/admin/dashboard' },
     { path: '/admin/login', component: AdminLoginPage },
     { path: '/admin/dashboard', component: AdminDashboardPage, meta: { auth: 'admin', title: '后台总览', adminPermission: 'dashboard:view' } },
@@ -105,12 +84,8 @@ const router = createRouter({
     { path: '/admin/tasks', component: AdminTaskPage, meta: { auth: 'admin', title: '任务管理', adminPermission: 'tasks:view' } },
     { path: '/admin/orders', component: AdminOrderPage, meta: { auth: 'admin', title: '订单管理', adminPermission: 'orders:view' } },
     { path: '/admin/algo-packages', component: AdminAlgoPackagePage, meta: { auth: 'admin', title: '算法配置', adminPermission: 'algo:view' } },
-    { path: '/admin/referrals', component: AdminReferralPage, meta: { auth: 'admin', title: '推广管理', adminPermission: 'referrals:view' } },
     { path: '/admin/configs', component: AdminConfigPage, meta: { auth: 'admin', title: '配置中心', adminPermission: 'configs:view' } },
-    { path: '/admin/configs/notice', component: AdminNoticeConfigPage, meta: { auth: 'admin', title: '公告配置', adminPermission: 'configs:view' } },
     { path: '/admin/configs/miniapp', redirect: '/admin/configs?tab=miniapp' },
-    { path: '/admin/logs', component: AdminLogsPage, meta: { auth: 'admin', title: '系统日志', adminPermission: 'logs:view' } },
-    { path: '/admin/admin-users', component: AdminAdminUsersPage, meta: { auth: 'admin', title: '权限管理', adminPermission: 'admins:view' } },
   ],
 })
 

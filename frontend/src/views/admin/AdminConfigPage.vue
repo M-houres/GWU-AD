@@ -119,21 +119,21 @@
 
           <template v-else-if="activeTab === 'billing'">
             <section class="rounded-2xl border border-[#dce4eb] bg-white p-4">
-              <div class="text-sm font-semibold text-[#1f2c35]">任务计费（按字符）</div>
-              <div class="mt-1 text-xs leading-5 text-[#5f6d79]">计费口径：任务实际扣费 = 字符数 × 单价。AIGC 检测每天前 6 篇免费，超出后按单价计费。建议按典型字数（1k/5k/8k）先做换算。</div>
+              <div class="text-sm font-semibold text-[#1f2c35]">任务计费（通用点数 / 字符）</div>
+              <div class="mt-1 text-xs leading-5 text-[#5f6d79]">任务直接按字符数乘以整数点数单价扣费。当前默认三类任务都是 1 字符扣 1 点数。AIGC 检测每天前 6 篇免费，超出后按配置计费。</div>
               <div class="mt-3 grid gap-3 md:grid-cols-3">
-                <label class="space-y-1 text-sm"><span>AIGC 单价</span><input v-model.number="forms.billing.aigc_rate" type="number" min="1" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" /></label>
-                <label class="space-y-1 text-sm"><span>降重单价</span><input v-model.number="forms.billing.dedup_rate" type="number" min="1" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" /></label>
-                <label class="space-y-1 text-sm"><span>降AIGC率单价</span><input v-model.number="forms.billing.rewrite_rate" type="number" min="1" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" /></label>
+                <label class="space-y-1 text-sm"><span>AIGC 单价（点数/字符）</span><input v-model.number="forms.billing.aigc_points_per_char" type="number" min="1" step="1" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" /></label>
+                <label class="space-y-1 text-sm"><span>降重单价（点数/字符）</span><input v-model.number="forms.billing.dedup_points_per_char" type="number" min="1" step="1" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" /></label>
+                <label class="space-y-1 text-sm"><span>降AIGC率单价（点数/字符）</span><input v-model.number="forms.billing.rewrite_points_per_char" type="number" min="1" step="1" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" /></label>
               </div>
             </section>
 
             <section class="rounded-2xl border border-[#dce4eb] bg-white p-4">
               <div class="flex flex-wrap items-center justify-between gap-2">
-                <div>
-                  <div class="text-sm font-semibold text-[#1f2c35]">充值套餐（前台展示）</div>
-                  <div class="mt-1 text-xs leading-5 text-[#5f6d79]">运营只需要在这里配置套餐名称、价格、积分和简介，前台购买页会自动同步。</div>
-                </div>
+                  <div>
+                    <div class="text-sm font-semibold text-[#1f2c35]">通用点数套餐（前台展示）</div>
+                    <div class="mt-1 text-xs leading-5 text-[#5f6d79]">每个套餐都要同时配置支付金额和到账通用点数，前台购买页只会展示这里配置的套餐。</div>
+                  </div>
                 <button class="rounded-lg bg-[#edf2f6] px-3 py-2 text-xs text-[#344250]" @click="addBillingPackage">
                   新增套餐
                 </button>
@@ -150,12 +150,12 @@
                       <input v-model.trim="pkg.name" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" placeholder="例如：标准包" />
                     </label>
                     <label class="space-y-1 text-sm">
-                      <span>价格（元）</span>
-                      <input v-model.number="pkg.price" type="number" min="0.01" step="0.01" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" />
+                        <span>价格（元）</span>
+                        <input v-model.number="pkg.price" type="number" min="0.01" step="0.01" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" />
                     </label>
                     <label class="space-y-1 text-sm">
-                      <span>积分</span>
-                      <input v-model.number="pkg.credits" type="number" min="1" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" />
+                      <span>到账通用点数</span>
+                      <input v-model.number="pkg.credits" type="number" min="1" step="1" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" />
                     </label>
                     <label class="space-y-1 text-sm">
                       <span>标签（可选）</span>
@@ -170,10 +170,10 @@
                         删除
                       </button>
                     </div>
-                    <label class="space-y-1 text-sm md:col-span-5">
-                      <span>套餐介绍</span>
-                      <input v-model.trim="pkg.description" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" placeholder="给普通运营人员看的简介，前台会展示" />
-                    </label>
+                     <label class="space-y-1 text-sm md:col-span-5">
+                       <span>套餐介绍</span>
+                       <input v-model.trim="pkg.description" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" placeholder="给普通运营人员看的简介，前台会展示" />
+                     </label>
                     <label class="inline-flex items-center gap-2 text-sm md:col-span-1">
                       <input v-model="pkg.enabled" type="checkbox" />
                       前台启用
@@ -231,10 +231,10 @@
             </div>
             <section class="rounded-2xl border border-[#dce4eb] bg-white p-4">
               <div class="text-sm font-semibold text-[#1f2c35]">新用户与风控参数</div>
-              <div class="mt-1 text-xs leading-5 text-[#5f6d79]">保存后立即生效，用于控制注册赠送积分和登录风控阈值。</div>
+              <div class="mt-1 text-xs leading-5 text-[#5f6d79]">保存后立即生效，用于控制注册赠送通用点数和登录风控阈值。</div>
               <div class="mt-3 grid gap-3 md:grid-cols-2">
                 <label class="space-y-1 text-sm">
-                  <span>新用户初始积分</span>
+                  <span>新用户初始通用点数</span>
                   <input v-model.number="forms.login.new_user_initial_credits" type="number" min="0" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" />
                 </label>
                 <label class="space-y-1 text-sm">
@@ -258,6 +258,25 @@
           </template>
 
           <template v-else-if="activeTab === 'miniapp'">
+            <section class="rounded-2xl border border-[#dce4eb] bg-[#fbfcfd] p-4">
+              <div class="text-sm font-semibold text-[#1f2c35]">MVP 验收基线</div>
+              <div class="mt-1 text-xs leading-5 text-[#5f6d79]">基线 5 只锁定 4 件事：小程序登录、小程序支付、API 域名和来源追踪。不要在这里继续扩非 MVP 能力。</div>
+              <div class="mt-3 grid gap-3 md:grid-cols-2">
+                <div class="rounded-xl border border-[#dce4eb] bg-white px-3 py-3 text-sm text-[#4f5d69]">
+                  登录链：启用小程序登录后，必须保证 AppID / AppSecret 完整，且 `/auth/options` 能返回开关。
+                </div>
+                <div class="rounded-xl border border-[#dce4eb] bg-white px-3 py-3 text-sm text-[#4f5d69]">
+                  支付链：启用小程序支付后，必须配置公网 HTTPS `payment_notify_url`，下单场景走 `scene=miniprogram`。
+                </div>
+                <div class="rounded-xl border border-[#dce4eb] bg-white px-3 py-3 text-sm text-[#4f5d69]">
+                  域名链：`api_base_url`、`request_domain` 与微信后台域名白名单必须一致。
+                </div>
+                <div class="rounded-xl border border-[#dce4eb] bg-white px-3 py-3 text-sm text-[#4f5d69]">
+                  追踪链：用户、订单、任务、点数流水都要能在后台按 `miniapp` 来源追踪。
+                </div>
+              </div>
+            </section>
+
             <section class="rounded-2xl border border-[#dce4eb] bg-white p-4">
               <div class="text-sm font-semibold text-[#1f2c35]">基础配置</div>
               <div class="mt-3 grid gap-3 md:grid-cols-2">
@@ -524,35 +543,51 @@ const smsProviders = [
 
 const defaultBillingPackages = [
   {
-    name: "入门包",
-    price: 9.9,
+    name: "入门版",
+    price: 19,
     credits: 10000,
-    description: "适合单篇检测与初稿优化，低门槛启动。",
+    description: "适合新手试用或偶尔使用，低门槛体验核心功能。",
     badge: "新手推荐",
     enabled: true,
   },
   {
-    name: "标准包",
+    name: "基础版",
     price: 39,
-    credits: 50000,
-    description: "适合毕业季高频使用，兼顾成本和处理量。",
-    badge: "运营主推",
+    credits: 20000,
+    description: "适合少量多次使用，覆盖日常降重、降AI和检测需求。",
+    badge: "日常常用",
     enabled: true,
   },
   {
-    name: "专业包",
-    price: 128,
-    credits: 200000,
-    description: "适合团队批量处理，单位成本更优。",
+    name: "专业版",
+    price: 79,
+    credits: 50000,
+    description: "适合中度使用需求，兼顾成本和可用点数储备。",
     badge: "高性价比",
     enabled: true,
   },
   {
-    name: "年费包",
-    price: 388,
+    name: "增强版",
+    price: 149,
+    credits: 100000,
+    description: "适合常规批量使用，适配更稳定的内容处理节奏。",
+    badge: "批量优选",
+    enabled: true,
+  },
+  {
+    name: "高级版",
+    price: 419,
+    credits: 300000,
+    description: "适合中高频长期使用，兼顾规模与长期成本。",
+    badge: "长期推荐",
+    enabled: true,
+  },
+  {
+    name: "旗舰版",
+    price: 1199,
     credits: 1000000,
-    description: "适合长期运营或机构使用，大额度稳定供给。",
-    badge: "长期使用",
+    description: "适合高频大量使用场景，提供充足通用点数储备。",
+    badge: "旗舰首选",
     enabled: true,
   },
 ]
@@ -616,12 +651,12 @@ const guideMap = {
   },
   billing: {
     code: "Pricing Setup",
-    lead: "同时配置任务单价和充值套餐，前台会自动同步。",
+    lead: "同时配置任务单价和通用点数套餐，前台会自动同步。",
     title: "定价直接影响转化",
-    desc: "任务按字符计费，套餐按价格兑积分。运营填完即可上线生效。",
+    desc: "任务按整数点数/字符直接扣费，充值按通用点数套餐到账。运营填完即可上线生效。",
     checklist: [
       "三类单价必须都大于 0。",
-      "至少启用 1 个套餐，并补充用户易懂的套餐介绍。",
+      "至少启用 1 个套餐，并确保支付金额和到账通用点数都已填写。",
     ],
     docs: [
       { label: "微信支付 开发文档", href: "https://pay.wechatpay.cn/doc/v3/merchant/4012791898" },
@@ -694,7 +729,7 @@ const forms = ref({
     temperature: 0.3,
   },
   payment: { provider: "wechatpay_v3", test_mode: true, notify_url: "" },
-  billing: { aigc_rate: 1, dedup_rate: 2, rewrite_rate: 2, packages: cloneBillingPackages() },
+  billing: { aigc_points_per_char: 1, dedup_points_per_char: 1, rewrite_points_per_char: 1, packages: cloneBillingPackages() },
   login: {
     sms_provider: "custom_webhook",
     sms_api_key: "",
@@ -837,9 +872,9 @@ function pickLlm(provider) {
 
 function validateCurrent() {
   if (activeTab.value === "billing") {
-    const { aigc_rate, dedup_rate, rewrite_rate, packages } = normalizeBillingForm(forms.value.billing)
-    if (!(aigc_rate > 0) || !(dedup_rate > 0) || !(rewrite_rate > 0)) {
-      return "计费单价必须大于 0"
+    const { aigc_points_per_char, dedup_points_per_char, rewrite_points_per_char, packages } = normalizeBillingForm(forms.value.billing)
+    if (!(aigc_points_per_char > 0) || !(dedup_points_per_char > 0) || !(rewrite_points_per_char > 0)) {
+      return "任务点数单价必须是大于 0 的整数"
     }
     if (!Array.isArray(packages) || packages.length === 0) {
       return "至少需要配置 1 个套餐"
@@ -853,7 +888,7 @@ function validateCurrent() {
       if (names.has(pkg.name)) return `套餐名称重复：${pkg.name}`
       names.add(pkg.name)
       if (!(Number(pkg.price) > 0)) return `套餐 ${pkg.name} 价格必须大于 0`
-      if (!(Number(pkg.credits) > 0)) return `套餐 ${pkg.name} 积分必须大于 0`
+      if (!(Number(pkg.credits) > 0)) return `套餐 ${pkg.name} 到账通用点数必须大于 0`
     }
   }
   if (activeTab.value === "user_navigation") {
@@ -883,7 +918,7 @@ function validateCurrent() {
   if (activeTab.value === "login") {
     const cfg = forms.value.login || {}
     if (Number(cfg.new_user_initial_credits) < 0) {
-      return "新用户初始积分不能小于 0"
+      return "新用户初始通用点数不能小于 0"
     }
     if (Number(cfg.max_code_retry) < 1) {
       return "验证码最大重试次数不能小于 1"
@@ -931,6 +966,9 @@ function payloadFor(category) {
   const payload = { ...(forms.value[category] || {}) }
   if (category === "billing") {
     const normalized = normalizeBillingForm(payload)
+    payload.aigc_points_per_char = normalized.aigc_points_per_char
+    payload.dedup_points_per_char = normalized.dedup_points_per_char
+    payload.rewrite_points_per_char = normalized.rewrite_points_per_char
     payload.packages = normalized.packages.map((pkg) => ({
       name: pkg.name,
       price: Number(pkg.price),
@@ -939,6 +977,9 @@ function payloadFor(category) {
       badge: pkg.badge,
       enabled: Boolean(pkg.enabled),
     }))
+    delete payload.aigc_rate
+    delete payload.dedup_rate
+    delete payload.rewrite_rate
   }
   if (category === "payment" && payload.provider === "alipay" && payload.app_private_key_pem) {
     payload.api_key = payload.app_private_key_pem
@@ -991,9 +1032,9 @@ function cloneBillingPackages(packages = defaultBillingPackages) {
 function normalizeBillingForm(raw) {
   const source = raw && typeof raw === "object" ? raw : {}
   return {
-    aigc_rate: Number(source.aigc_rate) || 1,
-    dedup_rate: Number(source.dedup_rate) || 2,
-    rewrite_rate: Number(source.rewrite_rate) || 2,
+    aigc_points_per_char: Math.max(1, Math.round(Number(source.aigc_points_per_char ?? source.aigc_rate) || 1)),
+    dedup_points_per_char: Math.max(1, Math.round(Number(source.dedup_points_per_char ?? source.dedup_rate) || 1)),
+    rewrite_points_per_char: Math.max(1, Math.round(Number(source.rewrite_points_per_char ?? source.rewrite_rate) || 1)),
     packages: cloneBillingPackages(source.packages),
   }
 }
@@ -1032,7 +1073,7 @@ function addBillingPackage() {
   }
   forms.value.billing.packages.push({
     name: "",
-    price: 9.9,
+    price: 30,
     credits: 10000,
     description: "",
     badge: "",

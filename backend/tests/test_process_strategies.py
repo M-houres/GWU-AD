@@ -41,7 +41,7 @@ def _build_package_zip(*, platform: str, function_type: str, name: str = "engine
     return buf.getvalue()
 
 
-def test_admin_strategies_list_default_nine_cells(
+def test_admin_strategies_list_default_six_cells(
     client: TestClient,
     admin_override,
 ) -> None:
@@ -52,8 +52,8 @@ def test_admin_strategies_list_default_nine_cells(
 
     data = body["data"]
     items = data["items"]
-    assert len(items) == 9
-    assert set(data["platforms"]) == {"cnki", "vip", "paperpass"}
+    assert len(items) == 6
+    assert set(data["platforms"]) == {"cnki", "vip"}
     assert set(data["task_types"]) == {"aigc_detect", "dedup", "rewrite"}
 
     for row in items:
@@ -314,3 +314,46 @@ def test_strategy_string_false_is_parsed_as_disabled(db_session: Session) -> Non
 
     strategy = get_process_strategy(db_session, task_type=TaskType.REWRITE, platform="cnki")
     assert strategy["is_enabled"] is False
+
+
+def test_admin_algo_config_table_returns_platforms_and_execution_rows(
+    client: TestClient,
+    admin_override,
+) -> None:
+    resp = client.get("/api/v1/admin/algo-config/table")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["code"] == 0
+    data = body["data"]
+    assert len(data["platforms"]) == 2
+    assert {item["key"] for item in data["platforms"]} == {"cnki", "vip"}
+    assert len(data["items"]) == 6
+
+
+def test_admin_can_create_platform_and_generate_default_execution_rows(
+    client: TestClient,
+    admin_override,
+) -> None:
+    resp = client.post(
+        "/api/v1/admin/algo-config/platforms",
+        json={
+            "key": "wanfang",
+            "label": "万方",
+            "aigc_label": "模拟万方",
+            "enabled": True,
+            "sort_order": 3,
+            "task_types": ["aigc_detect", "dedup", "rewrite"],
+        },
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["code"] == 0
+    assert body["data"]["key"] == "wanfang"
+
+    table_resp = client.get("/api/v1/admin/algo-config/table")
+    assert table_resp.status_code == 200
+    data = table_resp.json()["data"]
+    assert any(item["key"] == "wanfang" for item in data["platforms"])
+    wanfang_rows = [item for item in data["items"] if item["platform"] == "wanfang"]
+    assert len(wanfang_rows) == 3
+    assert {item["task_type"] for item in wanfang_rows} == {"aigc_detect", "dedup", "rewrite"}

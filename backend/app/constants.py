@@ -1,43 +1,62 @@
+from decimal import Decimal
+
 from app.models import TaskType
 
 
-TASK_RATES: dict[TaskType, int] = {
-    TaskType.AIGC_DETECT: 1,
-    TaskType.DEDUP: 3,
-    TaskType.REWRITE: 2,
+TASK_POINTS_PER_CHAR_DEFAULT = Decimal("1")
+TASK_POINTS_PER_CHAR: dict[TaskType, Decimal] = {
+    TaskType.AIGC_DETECT: TASK_POINTS_PER_CHAR_DEFAULT,
+    TaskType.DEDUP: TASK_POINTS_PER_CHAR_DEFAULT,
+    TaskType.REWRITE: TASK_POINTS_PER_CHAR_DEFAULT,
 }
 
 DEFAULT_BILLING_PACKAGES = [
     {
-        "name": "入门包",
-        "price": 9.9,
+        "name": "入门版",
+        "price": 19.0,
         "credits": 10000,
-        "description": "适合单篇检测与初稿优化，低门槛启动。",
+        "description": "适合新手试用或偶尔使用，低门槛体验核心功能。",
         "badge": "新手推荐",
         "enabled": True,
     },
     {
-        "name": "标准包",
+        "name": "基础版",
         "price": 39.0,
-        "credits": 50000,
-        "description": "适合毕业季高频使用，兼顾成本和处理量。",
-        "badge": "运营主推",
+        "credits": 20000,
+        "description": "适合少量多次使用，覆盖日常降重、降AI和检测需求。",
+        "badge": "日常常用",
         "enabled": True,
     },
     {
-        "name": "专业包",
-        "price": 128.0,
-        "credits": 200000,
-        "description": "适合团队批量处理，单位成本更优。",
+        "name": "专业版",
+        "price": 79.0,
+        "credits": 50000,
+        "description": "适合中度使用需求，兼顾成本和可用点数储备。",
         "badge": "高性价比",
         "enabled": True,
     },
     {
-        "name": "大额包",
-        "price": 388.0,
+        "name": "增强版",
+        "price": 149.0,
+        "credits": 100000,
+        "description": "适合常规批量使用，适配更稳定的内容处理节奏。",
+        "badge": "批量优选",
+        "enabled": True,
+    },
+    {
+        "name": "高级版",
+        "price": 419.0,
+        "credits": 300000,
+        "description": "适合中高频长期使用，兼顾规模与长期成本。",
+        "badge": "长期推荐",
+        "enabled": True,
+    },
+    {
+        "name": "旗舰版",
+        "price": 1199.0,
         "credits": 1000000,
-        "description": "适合长期运营或机构使用，大额度稳定供给。",
-        "badge": "长期使用",
+        "description": "适合高频大量使用场景，提供充足通用点数储备。",
+        "badge": "旗舰首选",
         "enabled": True,
     },
 ]

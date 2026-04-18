@@ -16,7 +16,6 @@
         <article v-for="item in summaryCards" :key="item.label" class="workbench-feed__summary-card">
           <span>{{ item.label }}</span>
           <strong>{{ item.value }}</strong>
-          <small>{{ item.hint }}</small>
         </article>
       </div>
 
@@ -79,10 +78,10 @@ const summaryCards = computed(() => {
   const completed = tasks.value.filter((item) => item.status === "completed").length
   const failed = tasks.value.filter((item) => item.status === "failed").length
   return [
-    { label: "最近任务", value: all, hint: "当前工作台内最近记录" },
-    { label: "处理中", value: processing, hint: "自动轮询刷新" },
-    { label: "已完成", value: completed, hint: "可直接查看结果" },
-    { label: "失败", value: failed, hint: "建议检查失败原因" },
+    { label: "最近任务", value: all },
+    { label: "处理中", value: processing },
+    { label: "已完成", value: completed },
+    { label: "失败", value: failed },
   ]
 })
 
@@ -212,12 +211,6 @@ function goLogin() {
   font-size: 26px;
   line-height: 1;
   color: #14345d;
-}
-
-.workbench-feed__summary-card small {
-  font-size: 12px;
-  line-height: 1.6;
-  color: #61789b;
 }
 
 @media (max-width: 960px) {

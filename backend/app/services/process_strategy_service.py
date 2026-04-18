@@ -6,8 +6,9 @@ from sqlalchemy.orm import Session
 
 from app.exceptions import BizError
 from app.models import SystemConfig, TaskType
-from app.services.algo_package_service import get_active_slot_config
+from app.services.algo_package_service import activate_algorithm_package, get_active_slot_config, list_algorithm_packages
 from app.services.builtin_algo_packages import ensure_builtin_algo_package_active
+from app.services.platform_registry import list_platforms, normalize_platform, platform_label, supported_platform_keys
 
 STRATEGY_CATEGORY = "process_strategies_v1"
 
@@ -20,24 +21,7 @@ ENGINE_MODE_MAP = {
     PROCESS_MODE_ALGO_LLM: "LLM_PLUS_ALGO",
 }
 
-PLATFORM_ALIASES = {
-    "cnki": "cnki",
-    "zhiwang": "cnki",
-    "vip": "vip",
-    "weipu": "vip",
-    "paperpass": "paperpass",
-}
-
-SUPPORTED_PLATFORMS = ("cnki", "vip", "paperpass")
 SUPPORTED_TASK_TYPES = tuple(item.value for item in TaskType)
-
-
-def normalize_platform(raw: str) -> str:
-    key = str(raw or "").strip().lower()
-    value = PLATFORM_ALIASES.get(key)
-    if value:
-        return value
-    raise BizError(code=4116, message=f"不支持的平台: {raw}")
 
 
 def normalize_task_type(raw: str | TaskType) -> TaskType:
@@ -62,7 +46,9 @@ def normalize_process_mode(raw: str | None) -> str:
 
 def _strategy_key(task_type: TaskType | str, platform: str) -> str:
     t = normalize_task_type(task_type)
-    p = normalize_platform(platform)
+    p = str(platform or "").strip().lower()
+    if not p:
+        raise BizError(code=4116, message="不支持的平台")
     return f"{t.value}:{p}"
 
 
@@ -127,7 +113,7 @@ def get_process_strategy(
     platform: str,
 ) -> dict[str, Any]:
     t = normalize_task_type(task_type)
-    p = normalize_platform(platform)
+    p = normalize_platform(platform, task_type=t, db=db)
     row = (
         db.query(SystemConfig)
         .filter(
@@ -142,15 +128,30 @@ def get_process_strategy(
 def list_process_strategies(db: Session) -> dict[str, Any]:
     rows = db.query(SystemConfig).filter(SystemConfig.category == STRATEGY_CATEGORY).all()
     mapping = {str(row.config_key): row for row in rows}
+    package_rows = list_algorithm_packages(db)
+    latest_map: dict[str, dict[str, Any]] = {}
+    for item in package_rows.get("items", []):
+        key = f"{item.get('platform')}:{item.get('function_type')}"
+        current = latest_map.get(key)
+        if current is None or str(item.get("uploaded_at") or "") >= str(current.get("uploaded_at") or ""):
+            latest_map[key] = item
     items: list[dict[str, Any]] = []
+    supported_platforms = supported_platform_keys(db)
     for task_type in SUPPORTED_TASK_TYPES:
-        for platform in SUPPORTED_PLATFORMS:
+        for platform in supported_platforms:
             key = f"{task_type}:{platform}"
             strategy = _merge_with_row(_default_strategy(TaskType(task_type), platform), mapping.get(key))
+            active_package = get_active_slot_config(db, platform=platform, function_type=task_type)
+            latest_package = latest_map.get(f"{platform}:{task_type}")
+            strategy["active_package"] = active_package
+            strategy["latest_package"] = latest_package
+            strategy["current_version"] = (active_package or {}).get("version")
+            strategy["latest_version"] = (latest_package or {}).get("version")
             items.append(strategy)
     return {
         "task_types": list(SUPPORTED_TASK_TYPES),
-        "platforms": list(SUPPORTED_PLATFORMS),
+        "platforms": list(supported_platforms),
+        "platform_configs": list_platforms(db, enabled_only=False),
         "items": items,
     }
 
@@ -166,7 +167,7 @@ def update_process_strategy(
     updated_by: int | None = None,
 ) -> dict[str, Any]:
     t = normalize_task_type(task_type)
-    p = normalize_platform(platform)
+    p = normalize_platform(platform, task_type=t, db=db)
     key = _strategy_key(t, p)
     row = (
         db.query(SystemConfig)
@@ -205,6 +206,42 @@ def update_process_strategy(
     return _merge_with_row(current, row)
 
 
+def update_execution_config(
+    db: Session,
+    *,
+    task_type: TaskType | str,
+    platform: str,
+    process_mode: str | None = None,
+    is_enabled: bool | None = None,
+    timeout_sec: int | None = None,
+    active_version: str | None = None,
+    updated_by: int | None = None,
+) -> dict[str, Any]:
+    result = update_process_strategy(
+        db,
+        task_type=task_type,
+        platform=platform,
+        process_mode=process_mode,
+        is_enabled=is_enabled,
+        timeout_sec=timeout_sec,
+        updated_by=updated_by,
+    )
+    normalized_task_type = normalize_task_type(task_type)
+    normalized_platform = normalize_platform(platform, task_type=normalized_task_type, db=db)
+    if active_version is not None:
+        activate_algorithm_package(
+            db,
+            platform=normalized_platform,
+            function_type=normalized_task_type.value,
+            version=str(active_version).strip(),
+            updated_by=updated_by or 0,
+        )
+    active_package = get_active_slot_config(db, platform=normalized_platform, function_type=normalized_task_type.value)
+    result["active_package"] = active_package
+    result["current_version"] = (active_package or {}).get("version")
+    return result
+
+
 def resolve_task_processing_mode(
     db: Session,
     *,
@@ -212,7 +249,7 @@ def resolve_task_processing_mode(
     platform: str,
 ) -> tuple[str, dict[str, Any]]:
     normalized_task_type = normalize_task_type(task_type)
-    normalized_platform = normalize_platform(platform)
+    normalized_platform = normalize_platform(platform, task_type=normalized_task_type, db=db)
     strategy = get_process_strategy(
         db,
         task_type=normalized_task_type,

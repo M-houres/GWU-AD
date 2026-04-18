@@ -4,6 +4,7 @@
     subtitle="查看检测进度、风险比例与报告下载状态。最新提交任务默认置顶展示。"
     :credits="userCredits"
     :hide-topbar="true"
+    :disable-notice-dialog="true"
     @buy="showBuy = !showBuy"
   >
     <section class="aigc-record-head">
@@ -77,6 +78,7 @@
             <div>作者：{{ safeText(item.result_json?.authors) }}</div>
             <div>提交时间：{{ formatTime(item.created_at) }}</div>
             <div>计费字数：{{ item.char_count || 0 }}</div>
+            <div>消耗通用点数：{{ formatCredits(taskCostFen(item)) }}</div>
             <div>平台：{{ mapPlatform(item.platform, item.task_type) }}</div>
           </div>
         </div>
@@ -93,6 +95,7 @@
           </template>
           <template v-else>
             <div class="aigc-record-item__error">检测异常</div>
+            <div class="aigc-record-item__score-note">{{ taskFailureHint(item) }}</div>
             <button class="scholar-button scholar-button--secondary" type="button" @click="retryTask(item)">
               重新提交
             </button>
@@ -116,7 +119,9 @@
             <p class="aigc-record-item__deadline">有效期至：{{ reportDeadline(item.created_at) }}</p>
           </template>
           <template v-else>
-            <p class="aigc-record-item__waiting">处理中请稍候</p>
+            <p class="aigc-record-item__waiting">
+              {{ item.status === "failed" ? refundHint(item) : "处理中请稍候" }}
+            </p>
           </template>
         </div>
       </article>
@@ -149,7 +154,7 @@ import UserShell from "../../components/UserShell.vue"
 import { useUserProfile } from "../../composables/useUserProfile"
 import { downloadAxiosBlobResponse } from "../../lib/download"
 import { userHttp } from "../../lib/http"
-import { fetchAllUserTasks } from "../../lib/userRecords"
+import { fetchUserTasksFast, shouldPollTaskRecords } from "../../lib/userRecords"
 import { getUserToken } from "../../lib/session"
 import { mapTaskPlatform } from "../../lib/taskPlatform"
 import { isTaskProcessingStatus } from "../../lib/taskStatus"
@@ -165,16 +170,18 @@ const page = ref(1)
 const pageSize = 8
 const tasks = ref([])
 const pollTimer = ref(null)
+let loadToken = 0
 
 const { user, refreshUser } = useUserProfile()
 const userCredits = computed(() => {
-  const value = user.value && user.value.credits
+  const value = user.value && (user.value.balance_fen ?? user.value.credits)
   return typeof value === "number" ? value : null
 })
 const focusTaskId = computed(() => {
   const raw = Number(route.query.focus)
   return Number.isFinite(raw) && raw > 0 ? raw : null
 })
+const justSubmitted = computed(() => String(route.query.submitted || "").trim() === "1")
 
 const counts = computed(() => {
   const all = tasks.value.length
@@ -263,15 +270,23 @@ async function loadTasks() {
     tasks.value = []
     return
   }
+  const token = ++loadToken
   loading.value = true
   try {
-    const data = await fetchAllUserTasks(
+    const { items, restPromise } = await fetchUserTasksFast(
       { task_type: "aigc_detect" },
-      { pageSize: 100, maxPages: 20 }
+      { focusTaskId: focusTaskId.value, pageSize: 100, maxPages: 20 }
     )
-    tasks.value = [...data].sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))
-  } finally {
+    if (token !== loadToken) return
+    tasks.value = items
     loading.value = false
+    const mergedItems = await restPromise
+    if (token !== loadToken) return
+    tasks.value = mergedItems
+  } finally {
+    if (token === loadToken) {
+      loading.value = false
+    }
   }
 }
 
@@ -281,7 +296,7 @@ function startPolling() {
     return
   }
   pollTimer.value = window.setInterval(() => {
-    if (tasks.value.some((item) => isTaskProcessingStatus(item.status))) {
+    if (shouldPollTaskRecords({ tasks: tasks.value, focusTaskId: focusTaskId.value, submitted: justSubmitted.value })) {
       loadTasks()
     }
   }, 4000)
@@ -317,6 +332,17 @@ function formatTime(value) {
   return value ? String(value).slice(0, 19).replace("T", " ") : "-"
 }
 
+function taskCostFen(item) {
+  if (typeof item?.cost_fen === "number") return item.cost_fen
+  if (typeof item?.cost_points === "number") return item.cost_points
+  if (typeof item?.cost_credits === "number") return item.cost_credits
+  return 0
+}
+
+function formatCredits(value) {
+  return `${Number(value || 0).toLocaleString()} 通用点数`
+}
+
 function reportDeadline(value) {
   if (!value) {
     return "-"
@@ -342,6 +368,21 @@ function aigcScore(item) {
   }
   const pct = num <= 1 ? Math.round(num * 100) : Math.round(num)
   return `${pct}%`
+}
+
+function taskFailureMessage(item) {
+  const message = String(item?.error_message || "").trim()
+  return message || "任务处理失败，请稍后重试"
+}
+
+function taskFailureHint(item) {
+  const message = taskFailureMessage(item)
+  return message.length > 22 ? `${message.slice(0, 22)}...` : message
+}
+
+function refundHint(item) {
+  if (item?.refund_done) return "处理失败，已退回通用点数"
+  return taskFailureHint(item)
 }
 
 function goUpload() {
@@ -378,3 +419,4 @@ async function afterPaid() {
   await refreshUser()
 }
 </script>
+

@@ -93,6 +93,12 @@ def test_submit_task_stores_metadata_and_unique_storage_paths(
         assert Path(task.source_path).name.endswith("_sample.docx")
         assert task.result_json["paper_title"] == "测试篇名"
         assert task.result_json["authors"] == "张三;李四"
+        payload = resp.json()["data"]
+        assert payload["task_type"] == "dedup"
+        assert payload["source_filename"] == "sample.docx"
+        assert payload["char_count"] == task.char_count
+        assert payload["balance_after"] == user.credits
+        assert payload["idempotent"] is False
     finally:
         app.dependency_overrides.pop(current_user, None)
 
@@ -245,6 +251,7 @@ def test_submit_task_still_returns_success_when_dispatch_fails_after_commit(
         payload = resp.json()["data"]
         assert payload["dispatch_mode"] == "failed"
         assert payload["status"] == "failed"
+        assert payload["balance_after"] == 10000
         task = db_session.get(Task, payload["id"])
         assert task is not None
         assert task.status == TaskStatus.FAILED
@@ -342,7 +349,7 @@ def test_preprocess_marks_failed_and_refunds_when_process_dispatch_fails(
 
     monkeypatch.setattr(worker_tasks, "extract_text_from_file", lambda *_args, **_kwargs: "有效正文内容")
     monkeypatch.setattr(worker_tasks, "count_billable_chars", lambda *_args, **_kwargs: 100)
-    monkeypatch.setattr(worker_tasks, "_resolve_task_rate", lambda *_args, **_kwargs: 2)
+    monkeypatch.setattr(worker_tasks, "resolve_task_points_per_char", lambda *_args, **_kwargs: 2)
     monkeypatch.setattr(worker_tasks, "_decrement_submission_counters", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(
         worker_tasks,

@@ -29,14 +29,11 @@ from app.models import (
     CreditTransaction,
     LLMErrorLog,
     Order,
-    PromoBenefitRecord,
-    PromoClassroom,
-    PromoShareSubmission,
-    PromoShareSubmissionStatus,
     SwitchLog,
     SystemConfig,
     SystemSwitch,
     Task,
+    TaskStatus,
     TaskType,
     User,
 )
@@ -74,22 +71,19 @@ from app.services.builtin_algo_packages import (
 )
 from app.services.credit_service import change_credits
 from app.services.llm_service import LLM_PROVIDER_PRESETS, SUPPORTED_LLM_PROVIDERS, normalize_llm_provider
-from app.money import cny_to_api, cny_sum
+from app.money import cny_to_api, cny_sum, cny_to_fen, fen_to_cny, to_cny_decimal
 from app.services.payment_service import DEFAULT_PAYMENT_CONFIG, normalize_payment_provider
-from app.services.promo_center_service import (
-    SHARE_PLATFORM_PRESETS,
-    build_admin_promo_overview,
-    mark_share_reward_paid,
-    review_share_submission,
-)
 from app.services.process_strategy_service import (
     get_process_strategy,
     list_process_strategies,
     normalize_platform,
     normalize_process_mode,
     normalize_task_type,
+    platform_label,
+    update_execution_config,
     update_process_strategy,
 )
+from app.services.platform_registry import list_platforms, upsert_platform, validate_platform_payload
 from app.services.user_navigation_service import default_user_navigation_config, normalize_user_navigation_config
 
 router = APIRouter()
@@ -142,10 +136,10 @@ CONFIG_FIELD_LABELS = {
         "callback_secret": "回调验签密钥",
     },
     "billing": {
-        "aigc_rate": "AIGC单价",
-        "dedup_rate": "降重单价",
-        "rewrite_rate": "学术润色单价",
-        "packages": "套餐配置",
+        "aigc_points_per_char": "AIGC单价(点数/字符，整数)",
+        "dedup_points_per_char": "降重单价(点数/字符，整数)",
+        "rewrite_points_per_char": "降AIGC率单价(点数/字符，整数)",
+        "packages": "通用点数套餐",
     },
     "login": {
         "sms_provider": "短信服务商",
@@ -173,7 +167,7 @@ CONFIG_FIELD_LABELS = {
         "notice_level": "公告级别",
         "notice_version": "公告版本",
         "notice_updated_at": "公告更新时间",
-        "new_user_initial_credits": "新用户初始积分",
+        "new_user_initial_credits": "新用户初始通用点数",
         "max_code_retry": "验证码最大重试次数",
         "phone_lock_minutes": "验证码错误锁定分钟数",
         "send_code_ip_1h_limit": "发送验证码IP限流",
@@ -230,9 +224,9 @@ CONFIG_DEFAULTS = {
     },
     "payment": dict(DEFAULT_PAYMENT_CONFIG),
     "billing": {
-        "aigc_rate": 1,
-        "dedup_rate": 3,
-        "rewrite_rate": 2,
+        "aigc_points_per_char": 1,
+        "dedup_points_per_char": 1,
+        "rewrite_points_per_char": 1,
         "packages": deepcopy(DEFAULT_BILLING_PACKAGES),
     },
     "login": {
@@ -308,14 +302,12 @@ _SMS_PROVIDERS = {"custom_webhook", "tencent_sms", "aliyun_sms", "disabled"}
 ADMIN_PERMISSION_CATALOG = [
     {"key": "dashboard:view", "label": "查看总览看板", "group": "看板"},
     {"key": "users:view", "label": "查看用户列表与详情", "group": "用户"},
-    {"key": "users:manage", "label": "封禁与调整用户积分", "group": "用户"},
+    {"key": "users:manage", "label": "封禁与调整用户通用点数", "group": "用户"},
     {"key": "tasks:view", "label": "查看任务与结果下载", "group": "任务"},
     {"key": "orders:view", "label": "查看订单列表与详情", "group": "订单"},
     {"key": "orders:refund", "label": "执行订单退款", "group": "订单"},
-    {"key": "referrals:view", "label": "查看推广统计与记录", "group": "推广"},
-    {"key": "referrals:manage", "label": "修改推广规则与重试奖励", "group": "推广"},
     {"key": "logs:view", "label": "查看系统日志", "group": "日志"},
-    {"key": "credits:view", "label": "查看积分流水", "group": "积分"},
+    {"key": "credits:view", "label": "查看点数流水", "group": "点数"},
     {"key": "algo:view", "label": "查看算法包列表", "group": "算法包"},
     {"key": "algo:manage", "label": "上传/启停算法包", "group": "算法包"},
     {"key": "configs:view", "label": "查看系统配置", "group": "系统配置"},
@@ -332,7 +324,6 @@ DEFAULT_OPERATOR_PERMISSIONS = {
     "tasks:view",
     "orders:view",
     "orders:refund",
-    "referrals:view",
     "logs:view",
     "credits:view",
     "algo:view",
@@ -341,7 +332,7 @@ ADMIN_PERMISSION_TEMPLATES = [
     {
         "key": "ops_basic",
         "label": "运营基础",
-        "description": "适合日常运营，覆盖用户、任务、订单与推广查看。",
+        "description": "适合日常运营，覆盖用户、任务、订单与点数处理。",
         "permissions": [
             "dashboard:view",
             "users:view",
@@ -349,7 +340,6 @@ ADMIN_PERMISSION_TEMPLATES = [
             "tasks:view",
             "orders:view",
             "orders:refund",
-            "referrals:view",
             "logs:view",
             "credits:view",
         ],
@@ -376,7 +366,6 @@ ADMIN_PERMISSION_TEMPLATES = [
             "users:view",
             "tasks:view",
             "orders:view",
-            "referrals:view",
             "logs:view",
             "credits:view",
             "algo:view",
@@ -516,6 +505,8 @@ def _as_bool(value, default: bool = False) -> bool:
 
 
 def _as_int(value, *, default: int, min_value: int | None = None, max_value: int | None = None, field: str = "") -> int:
+    if isinstance(value, float) and not value.is_integer():
+        raise BizError(code=4341, message=f"{field} 必须是整数")
     try:
         num = int(value)
     except Exception as exc:
@@ -544,6 +535,22 @@ def _as_float(
     if max_value is not None and num > max_value:
         raise BizError(code=4341, message=f"{field} 不能大于 {max_value}")
     return num
+
+
+def _fen_to_cny_api(value_fen: int) -> float:
+    amount = fen_to_cny(int(value_fen or 0))
+    return cny_to_api(amount or 0)
+
+
+def _resolve_admin_adjust_delta_fen(req: AdminAdjustCreditReq) -> int:
+    if req.delta_cny is not None:
+        amount = to_cny_decimal(req.delta_cny)
+        return cny_to_fen(amount)
+    if req.delta_fen is not None:
+        return int(req.delta_fen)
+    if req.delta is not None:
+        return int(req.delta)
+    raise BizError(code=4302, message="调整值不能为空")
 
 
 def _as_text(value, *, default: str = "", max_len: int = 256) -> str:
@@ -1034,8 +1041,8 @@ def _normalize_billing_packages(value) -> list[dict]:
             2,
         )
         credits = _as_int(
-            item.get("credits", 0),
-            default=0,
+            item.get("credits", cny_to_fen(price)),
+            default=cny_to_fen(price),
             min_value=1,
             max_value=100_000_000,
             field=f"{name}.credits",
@@ -1062,14 +1069,26 @@ def _normalize_category_payload(category: str, payload: dict) -> dict:
     raw = payload if isinstance(payload, dict) else {}
 
     if category == "billing":
-        base["aigc_rate"] = _as_int(raw.get("aigc_rate", base["aigc_rate"]), default=1, min_value=1, max_value=1000, field="aigc_rate")
-        base["dedup_rate"] = _as_int(raw.get("dedup_rate", base["dedup_rate"]), default=3, min_value=1, max_value=1000, field="dedup_rate")
-        base["rewrite_rate"] = _as_int(
-            raw.get("rewrite_rate", base["rewrite_rate"]),
-            default=2,
+        base["aigc_points_per_char"] = _as_int(
+            raw.get("aigc_points_per_char", raw.get("aigc_rate", base["aigc_points_per_char"])),
+            default=1,
             min_value=1,
-            max_value=1000,
-            field="rewrite_rate",
+            max_value=9999,
+            field="aigc_points_per_char",
+        )
+        base["dedup_points_per_char"] = _as_int(
+            raw.get("dedup_points_per_char", raw.get("dedup_rate", base["dedup_points_per_char"])),
+            default=1,
+            min_value=1,
+            max_value=9999,
+            field="dedup_points_per_char",
+        )
+        base["rewrite_points_per_char"] = _as_int(
+            raw.get("rewrite_points_per_char", raw.get("rewrite_rate", base["rewrite_points_per_char"])),
+            default=1,
+            min_value=1,
+            max_value=9999,
+            field="rewrite_points_per_char",
         )
         base["packages"] = _normalize_billing_packages(raw.get("packages", base.get("packages", [])))
         return base
@@ -1335,17 +1354,17 @@ def _normalize_category_payload(category: str, payload: dict) -> dict:
 
 def _category_readiness(category: str, value: dict) -> dict:
     if category == "billing":
-        rate_ok = all(int(value.get(k, 0)) > 0 for k in ("aigc_rate", "dedup_rate", "rewrite_rate"))
+        rate_ok = all(float(value.get(k, 0) or 0) > 0 for k in ("aigc_points_per_char", "dedup_points_per_char", "rewrite_points_per_char"))
         packages = value.get("packages") if isinstance(value.get("packages"), list) else []
         enabled_count = sum(1 for item in packages if isinstance(item, dict) and bool(item.get("enabled")))
         pkg_ok = enabled_count >= 1
         ok = rate_ok and pkg_ok
         if not rate_ok:
-            message = "计费单价配置异常"
+            message = "任务点数单价配置异常"
         elif not pkg_ok:
-            message = "至少需启用 1 个充值套餐"
+            message = "至少需启用 1 个通用点数套餐"
         else:
-            message = f"计费与套餐已就绪（启用 {enabled_count} 个套餐）"
+            message = f"点数计费与套餐已就绪（启用 {enabled_count} 个套餐）"
         return {"category": category, "status": "ready" if ok else "error", "message": message}
     if category == "user_navigation":
         navigation = normalize_user_navigation_config(value)
@@ -1419,16 +1438,31 @@ def _category_readiness(category: str, value: dict) -> dict:
         miniapp = _extract_miniapp_payload(value)
         if not miniapp["enabled"]:
             return {"category": category, "status": "warning", "message": "小程序配置未启用"}
+        base_app_id = str(miniapp.get("app_id") or "")
+        base_app_secret = str(miniapp.get("app_secret") or "")
+        if not base_app_id or not base_app_secret:
+            return {"category": category, "status": "error", "message": "小程序基础配置缺少 AppID / AppSecret"}
         login_enabled = bool(miniapp.get("wechat_miniprogram_login_enabled"))
-        app_id = str(miniapp.get("wechat_miniprogram_app_id") or miniapp.get("app_id") or "")
-        app_secret = str(miniapp.get("wechat_miniprogram_app_secret") or miniapp.get("app_secret") or "")
+        payment_enabled = bool(miniapp.get("wechat_miniprogram_payment_enabled"))
+        app_id = str(miniapp.get("wechat_miniprogram_app_id") or base_app_id or "")
+        app_secret = str(miniapp.get("wechat_miniprogram_app_secret") or base_app_secret or "")
         if login_enabled and (not app_id or not app_secret):
             return {"category": category, "status": "error", "message": "小程序登录已启用但 AppID/AppSecret 未填写完整"}
-        if miniapp.get("api_base_url") and not _is_http_url(str(miniapp.get("api_base_url", ""))):
-            return {"category": category, "status": "error", "message": "小程序 API 地址格式错误"}
-        if miniapp.get("request_domain") and (not _is_https_url(str(miniapp.get("request_domain", "")))):
-            return {"category": category, "status": "warning", "message": "request 域名建议使用 HTTPS"}
-        return {"category": category, "status": "ready", "message": "小程序配置已就绪"}
+        api_base_url = str(miniapp.get("api_base_url") or "")
+        request_domain = str(miniapp.get("request_domain") or "")
+        payment_notify_url = str(miniapp.get("payment_notify_url") or "")
+        if (not api_base_url) or (not _is_http_url(api_base_url)):
+            return {"category": category, "status": "error", "message": "小程序 API 地址未配置或格式错误"}
+        if (not request_domain) or (not _is_https_url(request_domain)):
+            return {"category": category, "status": "error", "message": "小程序 request 域名未配置或不是 HTTPS"}
+        if payment_enabled and (not payment_notify_url):
+            return {"category": category, "status": "error", "message": "小程序支付已启用但未填写 payment_notify_url"}
+        if payment_enabled and (not _is_public_https_url(payment_notify_url)):
+            return {"category": category, "status": "error", "message": "小程序 payment_notify_url 必须是公网 HTTPS 地址"}
+        status_bits: list[str] = []
+        status_bits.append("登录已启用" if login_enabled else "登录未启用")
+        status_bits.append("支付已启用" if payment_enabled else "支付未启用")
+        return {"category": category, "status": "ready", "message": f"小程序配置已就绪（{'；'.join(status_bits)}）"}
     if category == "login":
         debug_enabled = bool(value.get("debug_code_enabled"))
         debug_runtime_enabled = debug_enabled and settings.app_env != "prod"
@@ -1517,6 +1551,30 @@ def _get_category_config(db: Session, category: str, *, redact: bool = False) ->
         )
         merged["api_key"] = _as_text(merged.get("api_key") or merged.get("app_private_key_pem"), default="", max_len=8192)
     if category == "billing":
+        merged["aigc_points_per_char"] = _as_int(
+            merged.get("aigc_points_per_char", merged.get("aigc_rate", 1)),
+            default=1,
+            min_value=1,
+            max_value=9999,
+            field="aigc_points_per_char",
+        )
+        merged["dedup_points_per_char"] = _as_int(
+            merged.get("dedup_points_per_char", merged.get("dedup_rate", 1)),
+            default=1,
+            min_value=1,
+            max_value=9999,
+            field="dedup_points_per_char",
+        )
+        merged["rewrite_points_per_char"] = _as_int(
+            merged.get("rewrite_points_per_char", merged.get("rewrite_rate", 1)),
+            default=1,
+            min_value=1,
+            max_value=9999,
+            field="rewrite_points_per_char",
+        )
+        merged.pop("aigc_rate", None)
+        merged.pop("dedup_rate", None)
+        merged.pop("rewrite_rate", None)
         try:
             merged["packages"] = _normalize_billing_packages(merged.get("packages"))
         except BizError:
@@ -1689,12 +1747,7 @@ def _save_category_config(db: Session, category: str, value: dict, admin: AdminU
 
 
 def _platform_label(platform: str) -> str:
-    mapping = {
-        "cnki": "知网",
-        "vip": "维普",
-        "paperpass": "PaperPass",
-    }
-    return mapping.get(platform, platform)
+    return platform_label(platform)
 
 
 def _task_type_label(task_type: str) -> str:
@@ -2057,6 +2110,56 @@ def dashboard(_: AdminUser = Depends(require_admin_permission("dashboard:view"))
         .all()
     )
     platform_items = [{"platform": p, "count": int(c)} for p, c in platform_dist]
+    readiness_map = {}
+    for category in ("login", "payment", "billing", "llm", "miniapp"):
+        readiness_map[category] = _category_readiness(category, _get_category_config(db, category, redact=False))
+    strategy_rows = list_process_strategies(db).get("items", [])
+    strategy_total = len(strategy_rows)
+    strategy_enabled = sum(1 for item in strategy_rows if bool(item.get("is_enabled")))
+    strategy_with_active_slot = sum(1 for item in strategy_rows if item.get("active_slot"))
+    task_status_rows = db.query(Task.status, func.count(Task.id)).group_by(Task.status).all()
+    task_status_map = {
+        (status.value if hasattr(status, "value") else str(status)): int(count)
+        for status, count in task_status_rows
+    }
+    refund_pending_count = int(
+        db.query(Task)
+        .filter(Task.status == TaskStatus.FAILED, Task.cost_credits > 0, Task.refund_done.is_(False))
+        .count()
+    )
+    paid_not_refunded_orders = int(db.query(Order).filter(Order.status == "paid").count())
+    llm_error_24h = int(
+        db.query(LLMErrorLog)
+        .filter(LLMErrorLog.created_at >= datetime.utcnow() - timedelta(hours=24))
+        .count()
+    )
+    baseline_status = "ready"
+    baseline_reasons: list[str] = []
+    for category in ("login", "payment", "billing"):
+        status = readiness_map.get(category, {}).get("status")
+        if status == "error":
+            baseline_status = "error"
+            baseline_reasons.append(f"{CONFIG_LABELS.get(category, category)}未就绪")
+        elif status == "warning" and baseline_status != "error":
+            baseline_status = "warning"
+            baseline_reasons.append(f"{CONFIG_LABELS.get(category, category)}待确认")
+    if strategy_enabled <= 0:
+        baseline_status = "error"
+        baseline_reasons.append("任务策略未启用")
+    elif strategy_with_active_slot < strategy_enabled and baseline_status != "error":
+        baseline_status = "warning"
+        baseline_reasons.append("部分任务策略缺少激活算法包")
+    operational_alerts = []
+    if task_status_map.get("failed", 0) > 0:
+        operational_alerts.append({"level": "warning", "key": "failed_tasks", "message": f"当前有 {task_status_map.get('failed', 0)} 个失败任务，请及时复核。"})
+    if refund_pending_count > 0:
+        operational_alerts.append({"level": "error", "key": "refund_pending", "message": f"当前有 {refund_pending_count} 个失败任务尚未退款。"})
+    if readiness_map.get("payment", {}).get("status") == "warning":
+        operational_alerts.append({"level": "warning", "key": "payment_mode", "message": str(readiness_map.get("payment", {}).get("message") or "支付配置待确认")})
+    if readiness_map.get("miniapp", {}).get("status") == "error":
+        operational_alerts.append({"level": "warning", "key": "miniapp_config", "message": str(readiness_map.get("miniapp", {}).get("message") or "小程序配置未就绪")})
+    if llm_error_24h > 0:
+        operational_alerts.append({"level": "warning", "key": "llm_errors", "message": f"最近 24 小时共有 {llm_error_24h} 条 LLM 异常日志。"})
     funnel = {
         "visitors": total_users * 3,
         "registered": total_users,
@@ -2082,6 +2185,55 @@ def dashboard(_: AdminUser = Depends(require_admin_permission("dashboard:view"))
                 "tasks": _build_source_stats(tasks_by_source, as_float=False),
                 "paid_orders": _build_source_stats(paid_orders_by_source, as_float=False),
                 "revenue": _build_source_stats(paid_revenue_by_source, as_float=True),
+            },
+            "mvp_baseline": {
+                "status": baseline_status,
+                "reasons": baseline_reasons,
+                "items": [
+                    {
+                        "key": "login",
+                        "label": "账户与登录",
+                        "status": readiness_map["login"]["status"],
+                        "message": readiness_map["login"]["message"],
+                    },
+                    {
+                        "key": "payment",
+                        "label": "支付与订单",
+                        "status": readiness_map["payment"]["status"],
+                        "message": readiness_map["payment"]["message"],
+                    },
+                    {
+                        "key": "billing",
+                        "label": "点数计费",
+                        "status": readiness_map["billing"]["status"],
+                        "message": readiness_map["billing"]["message"],
+                    },
+                    {
+                        "key": "tasks",
+                        "label": "任务处理",
+                        "status": "ready" if strategy_enabled > 0 else "error",
+                        "message": f"已启用 {strategy_enabled}/{strategy_total} 条任务策略，激活算法包覆盖 {strategy_with_active_slot}/{strategy_total} 条",
+                    },
+                    {
+                        "key": "llm",
+                        "label": "算法与大模型",
+                        "status": readiness_map["llm"]["status"],
+                        "message": readiness_map["llm"]["message"],
+                    },
+                    {
+                        "key": "miniapp",
+                        "label": "小程序",
+                        "status": readiness_map["miniapp"]["status"],
+                        "message": readiness_map["miniapp"]["message"],
+                    },
+                ],
+            },
+            "operational_alerts": operational_alerts,
+            "ops_summary": {
+                "task_status": task_status_map,
+                "refund_pending_count": refund_pending_count,
+                "paid_order_count": paid_not_refunded_orders,
+                "llm_error_24h": llm_error_24h,
             },
             "switch_status": {
                 "current_mode": switch.current_mode if switch else "LLM_PLUS_ALGO",
@@ -2238,6 +2390,8 @@ def admin_users(
             "id": u.id,
             "phone": u.phone,
             "nickname": u.nickname,
+            "balance_fen": int(u.credits or 0),
+            "balance_cny": _fen_to_cny_api(u.credits or 0),
             "credits": u.credits,
             "is_banned": u.is_banned,
             "source": _normalize_source_bucket(u.source),
@@ -2265,15 +2419,16 @@ def adjust_user_credits(
     user = db.get(User, user_id)
     if user is None:
         raise BizError(code=4040, message="用户不存在", http_status=404)
-    if req.delta == 0:
+    delta_fen = _resolve_admin_adjust_delta_fen(req)
+    if delta_fen == 0:
         raise BizError(code=4302, message="调整值不能为0")
-    before_credits = int(user.credits)
+    before_balance_fen = int(user.credits or 0)
     change_credits(
         db,
         user,
         tx_type=CreditType.ADMIN_ADJUST,
-        delta=req.delta,
-        reason=f"管理员[{admin.username}]调整积分:{req.reason}",
+        delta=delta_fen,
+        reason=f"管理员[{admin.username}]调整点数:{req.reason}",
         related_id=f"admin_adjust:{admin.id}:{datetime.utcnow().timestamp()}",
         source="admin",
     )
@@ -2283,12 +2438,19 @@ def adjust_user_credits(
             action="user_credit_adjust",
             target_type="user",
             target_id=str(user.id),
-            before_json={"credits": before_credits, "delta": req.delta},
-            after_json={"credits": int(user.credits), "delta": req.delta, "reason": req.reason},
+            before_json={"balance_fen": before_balance_fen, "delta_fen": delta_fen},
+            after_json={"balance_fen": int(user.credits or 0), "delta_fen": delta_fen, "reason": req.reason},
         )
     )
     db.commit()
-    return ok(data={"user_id": user.id, "credits": user.credits})
+    return ok(
+        data={
+            "user_id": user.id,
+            "balance_fen": int(user.credits or 0),
+            "balance_cny": _fen_to_cny_api(user.credits or 0),
+            "credits": user.credits,
+        }
+    )
 
 
 @router.post("/users/{user_id}/ban", response_model=APIResp)
@@ -2343,8 +2505,8 @@ def user_detail(
     )
     orders = db.query(Order).filter(Order.user_id == user.id, Order.status == "paid").all()
     total_paid_cny = cny_to_api(cny_sum(o.amount_cny for o in orders))
-    total_paid_credits = int(sum(int(o.credits) for o in orders))
-    total_task_cost = int(
+    total_recharge_fen = int(sum(int(o.credits or 0) for o in orders))
+    total_task_cost_fen = int(
         db.query(func.coalesce(func.sum(Task.cost_credits), 0))
         .filter(Task.user_id == user.id)
         .scalar()
@@ -2356,6 +2518,8 @@ def user_detail(
                 "id": user.id,
                 "phone": user.phone,
                 "nickname": user.nickname,
+                "balance_fen": int(user.credits or 0),
+                "balance_cny": _fen_to_cny_api(user.credits or 0),
                 "credits": user.credits,
                 "is_banned": user.is_banned,
                 "source": _normalize_source_bucket(user.source),
@@ -2363,13 +2527,24 @@ def user_detail(
             },
             "summary": {
                 "total_paid_cny": total_paid_cny,
-                "total_paid_credits": total_paid_credits,
-                "total_task_cost_credits": total_task_cost,
+                "total_recharge_fen": total_recharge_fen,
+                "total_recharge_cny": _fen_to_cny_api(total_recharge_fen),
+                "total_task_cost_fen": total_task_cost_fen,
+                "total_task_cost_points": total_task_cost_fen,
+                "total_paid_credits": total_recharge_fen,
+                "total_task_cost_credits": total_task_cost_fen,
             },
             "credit_transactions": [
                 {
                     "id": tx.id,
                     "tx_type": tx.tx_type.value,
+                    "source": _normalize_source_bucket(tx.source),
+                    "delta_fen": int(tx.delta or 0),
+                    "delta_cny": _fen_to_cny_api(tx.delta or 0),
+                    "balance_before_fen": int(tx.balance_before or 0),
+                    "balance_before_cny": _fen_to_cny_api(tx.balance_before or 0),
+                    "balance_after_fen": int(tx.balance_after or 0),
+                    "balance_after_cny": _fen_to_cny_api(tx.balance_after or 0),
                     "delta": tx.delta,
                     "balance_before": tx.balance_before,
                     "balance_after": tx.balance_after,
@@ -2384,7 +2559,10 @@ def user_detail(
                     "task_type": t.task_type.value,
                     "platform": t.platform,
                     "status": t.status.value,
+                    "source": _normalize_source_bucket(t.source),
                     "char_count": t.char_count,
+                    "cost_fen": int(t.cost_credits or 0),
+                    "cost_points": int(t.cost_credits or 0),
                     "cost_credits": t.cost_credits,
                     "source_filename": t.source_filename,
                     "report_path": t.report_path,
@@ -2464,7 +2642,10 @@ def admin_tasks(
             "status": t.status.value,
             "source": _normalize_source_bucket(t.source),
             "char_count": t.char_count,
+            "cost_fen": int(t.cost_credits or 0),
+            "cost_points": int(t.cost_credits or 0),
             "cost_credits": t.cost_credits,
+            "refund_done": bool(t.refund_done),
             "created_at": t.created_at,
         }
         for t in rows
@@ -2500,7 +2681,10 @@ def admin_task_detail(
             "source": _normalize_source_bucket(row.source),
             "status": row.status.value,
             "char_count": row.char_count,
+            "cost_fen": int(row.cost_credits or 0),
+            "cost_points": int(row.cost_credits or 0),
             "cost_credits": row.cost_credits,
+            "refund_done": bool(row.refund_done),
             "source_filename": row.source_filename,
             "source_path": row.source_path,
             "report_path": row.report_path,
@@ -2568,6 +2752,8 @@ def admin_orders(
             "order_no": o.order_no,
             "user_id": o.user_id,
             "amount_cny": cny_to_api(o.amount_cny),
+            "recharge_fen": int(o.credits or 0),
+            "recharge_cny": _fen_to_cny_api(o.credits or 0),
             "credits": o.credits,
             "status": o.status,
             "source": _normalize_source_bucket(o.source),
@@ -2601,6 +2787,8 @@ def order_detail(order_no: str, _: AdminUser = Depends(require_admin_permission(
             "user_id": row.user_id,
             "user_phone": user.phone if user else "",
             "amount_cny": cny_to_api(row.amount_cny),
+            "recharge_fen": int(row.credits or 0),
+            "recharge_cny": _fen_to_cny_api(row.credits or 0),
             "credits": row.credits,
             "status": row.status,
             "provider": row.provider,
@@ -2629,13 +2817,13 @@ def refund_order(
     if user is None:
         raise BizError(code=4040, message="用户不存在", http_status=404)
     if user.credits < int(order.credits):
-        raise BizError(code=4348, message="用户已消耗部分权益，当前订单不可直接退款")
+        raise BizError(code=4348, message="用户通用点数已不足以冲销本订单，当前订单不可直接退款")
     change_credits(
         db,
         user,
         tx_type=CreditType.ADMIN_ADJUST,
         delta=-int(order.credits),
-        reason=f"管理员[{admin.username}]订单退款:{order.order_no}",
+        reason=f"管理员[{admin.username}]点数充值退款:{order.order_no}",
         related_id=f"refund:{order.order_no}",
         source="admin",
     )
@@ -2652,97 +2840,6 @@ def refund_order(
     )
     db.commit()
     return ok(data={"order_no": order.order_no, "status": order.status, "idempotent": False})
-
-
-@router.get("/referrals/stats", response_model=APIResp)
-def referral_stats(_: AdminUser = Depends(require_admin_permission("referrals:view")), db: Session = Depends(db_dep)) -> APIResp:
-    return ok(data=build_admin_promo_overview(db))
-
-
-@router.get("/referrals/rewards", response_model=APIResp)
-def referral_rewards(
-    page: int = Query(default=1, ge=1),
-    page_size: int = Query(default=20, ge=1, le=100),
-    _: AdminUser = Depends(require_admin_permission("referrals:view")),
-    db: Session = Depends(db_dep),
-) -> APIResp:
-    base_query = db.query(PromoShareSubmission)
-    total = base_query.count()
-    rows = (
-        base_query.order_by(desc(PromoShareSubmission.created_at))
-        .offset((page - 1) * page_size)
-        .limit(page_size)
-        .all()
-    )
-    items = [
-        {
-            "id": row.id,
-            "user_id": row.user_id,
-            "platform": row.platform,
-            "platform_label": SHARE_PLATFORM_PRESETS.get(row.platform, {}).get("label", row.platform),
-            "tier_key": row.tier_key,
-            "share_link": row.share_link,
-            "payout_account": row.payout_account,
-            "payout_name": row.payout_name,
-            "note": row.note,
-            "status": row.status.value,
-            "reward_credits": row.reward_credits,
-            "reward_amount_cny": float(row.reward_amount_cny or 0),
-            "coupon_name": row.coupon_name,
-            "coupon_count": row.coupon_count,
-            "review_note": row.review_note,
-            "created_at": row.created_at,
-            "reviewed_at": row.reviewed_at,
-        }
-        for row in rows
-    ]
-    return ok(data={"items": items, "pagination": paginate(total, page, page_size)})
-
-
-@router.get("/referrals/suspicious", response_model=APIResp)
-def suspicious_accounts(
-    page: int = Query(default=1, ge=1),
-    page_size: int = Query(default=20, ge=1, le=100),
-    _: AdminUser = Depends(require_admin_permission("referrals:view")),
-    db: Session = Depends(db_dep),
-) -> APIResp:
-    rows = (
-        db.query(PromoClassroom)
-        .filter(PromoClassroom.status == "active")
-        .order_by(desc(PromoClassroom.activity_score), desc(PromoClassroom.member_count))
-        .offset((page - 1) * page_size)
-        .limit(page_size)
-        .all()
-    )
-    total = db.query(func.count(PromoClassroom.id)).filter(PromoClassroom.status == "active").scalar() or 0
-    items = [
-        {
-            "id": row.id,
-            "owner_user_id": row.owner_user_id,
-            "name": row.name,
-            "invite_code": row.invite_code,
-            "level": row.level,
-            "member_count": row.member_count,
-            "activity_score": row.activity_score,
-            "created_at": row.created_at,
-        }
-        for row in rows
-    ]
-    return ok(data={"items": items, "pagination": paginate(total, page, page_size)})
-
-
-@router.post("/referrals/config", response_model=APIResp)
-def update_referral_config(
-    payload: dict,
-    admin: AdminUser = Depends(require_admin_permission("referrals:manage")),
-    db: Session = Depends(db_dep),
-) -> APIResp:
-    raise BizError(code=4419, message="分享红包活动当前采用固定规则，暂不支持后台改动奖励配置")
-
-
-@router.get("/referrals/config", response_model=APIResp)
-def get_referral_config(_: AdminUser = Depends(require_admin_permission("referrals:manage")), db: Session = Depends(db_dep)) -> APIResp:
-    return ok(data={"mode": "promo_center", "reward_policy": "现金红包人工审核"})
 
 
 @router.get("/configs/audit-logs", response_model=APIResp)
@@ -2833,160 +2930,6 @@ def update_config(
         raise
 
 
-@router.post("/referrals/rewards/{reward_id}/retry", response_model=APIResp)
-def retry_referral_reward(
-    reward_id: int,
-    _: AdminUser = Depends(require_admin_permission("referrals:manage")),
-    db: Session = Depends(db_dep),
-) -> APIResp:
-    raise BizError(code=4419, message="当前活动中心红包发放为人工处理，不支持自动重试")
-
-
-@router.get("/referrals/share-tasks", response_model=APIResp)
-def referral_share_tasks(
-    page: int = Query(default=1, ge=1),
-    page_size: int = Query(default=20, ge=1, le=100),
-    status: str | None = Query(default=None),
-    platform: str | None = Query(default=None),
-    q_phone: str | None = Query(default=None),
-    _: AdminUser = Depends(require_admin_permission("referrals:view")),
-    db: Session = Depends(db_dep),
-) -> APIResp:
-    base_query = db.query(PromoShareSubmission)
-    if status:
-        try:
-            normalized_status = PromoShareSubmissionStatus(str(status).strip().lower())
-            base_query = base_query.filter(PromoShareSubmission.status == normalized_status)
-        except Exception:
-            raise BizError(code=4348, message="share submission status 不支持")
-    if platform:
-        base_query = base_query.filter(PromoShareSubmission.platform == str(platform).strip().lower())
-    total = base_query.count()
-    rows = (
-        base_query.order_by(desc(PromoShareSubmission.created_at))
-        .offset((page - 1) * page_size)
-        .limit(page_size)
-        .all()
-    )
-    user_ids = {row.user_id for row in rows}
-    benefit_map = {}
-    if user_ids:
-        benefit_rows = (
-            db.query(PromoBenefitRecord)
-            .filter(PromoBenefitRecord.scene == "share_center", PromoBenefitRecord.user_id.in_(user_ids))
-            .all()
-        )
-        benefit_map = {(row.user_id, row.benefit_code): row for row in benefit_rows}
-    items = [
-        {
-            "id": row.id,
-            "user_id": row.user_id,
-            "platform": row.platform,
-            "platform_label": SHARE_PLATFORM_PRESETS.get(row.platform, {}).get("label", row.platform),
-            "label": SHARE_PLATFORM_PRESETS.get(row.platform, {}).get("label", row.platform),
-            "tier_key": row.tier_key,
-            "share_link": row.share_link,
-            "payout_account": row.payout_account,
-            "payout_name": row.payout_name,
-            "note": row.note,
-            "status": row.status.value,
-            "payout_status": (
-                benefit_map[(row.user_id, f"{row.platform}:{row.tier_key}")].payout_status
-                if (row.user_id, f"{row.platform}:{row.tier_key}") in benefit_map
-                else "none"
-            ),
-            "reward_credits": row.reward_credits,
-            "reward_amount_cny": float(row.reward_amount_cny or 0),
-            "coupon_name": row.coupon_name,
-            "coupon_count": row.coupon_count,
-            "review_note": row.review_note,
-            "created_at": row.created_at,
-            "reviewed_at": row.reviewed_at,
-            "paid_at": (
-                benefit_map[(row.user_id, f"{row.platform}:{row.tier_key}")].paid_at
-                if (row.user_id, f"{row.platform}:{row.tier_key}") in benefit_map
-                else None
-            ),
-        }
-        for row in rows
-    ]
-    return ok(data={"items": items, "pagination": paginate(total, page, page_size)})
-
-
-@router.get("/referrals/share-tasks/{submission_id}/screenshot")
-def download_referral_share_task_screenshot(
-    submission_id: int,
-    _: AdminUser = Depends(require_admin_permission("referrals:view")),
-    db: Session = Depends(db_dep),
-) -> FileResponse:
-    raise BizError(code=4419, message="新版分享任务改为链接审核，暂不下载截图")
-
-
-@router.post("/referrals/share-tasks/{submission_id}/review", response_model=APIResp)
-def review_referral_share_task(
-    submission_id: int,
-    payload: dict,
-    admin: AdminUser = Depends(require_admin_permission("referrals:manage")),
-    db: Session = Depends(db_dep),
-) -> APIResp:
-    row = db.query(PromoShareSubmission).filter(PromoShareSubmission.id == submission_id).with_for_update().first()
-    if row is None:
-        raise BizError(code=4046, message="分享任务不存在", http_status=404)
-    target_status = str(payload.get("status", "")).strip().lower()
-    review_note = str(payload.get("review_note", "")).strip()[:255]
-    if target_status not in {PromoShareSubmissionStatus.APPROVED.value, PromoShareSubmissionStatus.REJECTED.value}:
-        raise BizError(code=4349, message="审核状态仅支持 approved / rejected")
-    updated, idempotent = review_share_submission(
-        db,
-        submission=row,
-        admin_id=admin.id,
-        approved=target_status == PromoShareSubmissionStatus.APPROVED.value,
-        review_note=review_note,
-    )
-    db.commit()
-    return ok(
-        data={
-            "id": updated.id,
-            "status": updated.status.value,
-            "review_note": updated.review_note or "",
-            "idempotent": idempotent,
-        }
-    )
-
-
-@router.post("/referrals/share-tasks/{submission_id}/payout", response_model=APIResp)
-def payout_referral_share_task(
-    submission_id: int,
-    payload: dict,
-    admin: AdminUser = Depends(require_admin_permission("referrals:manage")),
-    db: Session = Depends(db_dep),
-) -> APIResp:
-    row = db.query(PromoShareSubmission).filter(PromoShareSubmission.id == submission_id).with_for_update().first()
-    if row is None:
-        raise BizError(code=4047, message="分享任务不存在", http_status=404)
-    payout_note = str(payload.get("payout_note", "")).strip()[:255]
-    try:
-        benefit, idempotent = mark_share_reward_paid(
-            db,
-            submission=row,
-            admin_id=admin.id,
-            payout_note=payout_note,
-        )
-    except ValueError as exc:
-        if str(exc) == "share_submission_not_approved":
-            raise BizError(code=4350, message="仅审核通过的分享任务才能标记打款", http_status=422)
-        raise BizError(code=4351, message="未找到待发放红包记录", http_status=404)
-    db.commit()
-    return ok(
-        data={
-            "submission_id": row.id,
-            "payout_status": benefit.payout_status,
-            "paid_at": benefit.paid_at,
-            "idempotent": idempotent,
-        }
-    )
-
-
 @router.get("/strategies", response_model=APIResp)
 def admin_process_strategies(
     _: AdminUser = Depends(require_admin_permission("algo:view")),
@@ -2999,7 +2942,7 @@ def admin_process_strategies(
         task_type = str(row.get("task_type", ""))
         active_slot = get_active_slot_config(db, platform=platform, function_type=task_type)
         item = dict(row)
-        item["platform_label"] = _platform_label(platform)
+        item["platform_label"] = platform_label(platform, db=db)
         item["task_type_label"] = _task_type_label(task_type)
         item["active_package"] = (
             {
@@ -3015,9 +2958,71 @@ def admin_process_strategies(
         data={
             "task_types": data.get("task_types", []),
             "platforms": data.get("platforms", []),
+            "platform_configs": data.get("platform_configs", []),
             "items": items,
         }
     )
+
+
+@router.get("/execution-configs", response_model=APIResp)
+def admin_execution_configs(
+    _: AdminUser = Depends(require_admin_permission("algo:view")),
+    db: Session = Depends(db_dep),
+) -> APIResp:
+    return admin_process_strategies(_, db)
+
+
+@router.get("/algo-config/table", response_model=APIResp)
+def admin_algo_config_table(
+    _: AdminUser = Depends(require_admin_permission("algo:view")),
+    db: Session = Depends(db_dep),
+) -> APIResp:
+    platform_rows = list_platforms(db, enabled_only=False)
+    execution_rows = list_process_strategies(db)
+    return ok(
+        data={
+            "platforms": platform_rows,
+            "task_types": execution_rows.get("task_types", []),
+            "items": execution_rows.get("items", []),
+        }
+    )
+
+
+@router.post("/algo-config/platforms", response_model=APIResp)
+def admin_create_or_update_platform(
+    payload: dict,
+    admin: AdminUser = Depends(require_admin_permission("algo:manage")),
+    db: Session = Depends(db_dep),
+) -> APIResp:
+    if not isinstance(payload, dict):
+        raise BizError(code=4302, message="请求体必须为 JSON 对象")
+    before = list_platforms(db, enabled_only=False)
+    normalized = validate_platform_payload(payload)
+    try:
+        result = upsert_platform(db, payload=normalized, updated_by=admin.id)
+        for task_type in normalized.get("task_types", []):
+            update_process_strategy(
+                db,
+                task_type=task_type,
+                platform=normalized["key"],
+                updated_by=admin.id,
+            )
+        after = list_platforms(db, enabled_only=False)
+        db.add(
+            AdminAuditLog(
+                admin_id=admin.id,
+                action="platform_upsert",
+                target_type="algo_platform",
+                target_id=normalized["key"],
+                before_json=before,
+                after_json=after,
+            )
+        )
+        db.commit()
+        return ok(data=result)
+    except Exception:
+        db.rollback()
+        raise
 
 
 @router.put("/strategies/{task_type}/{platform}", response_model=APIResp)
@@ -3034,7 +3039,7 @@ def admin_update_process_strategy(
         raise BizError(code=4341, message="至少需要提供 process_mode / is_enabled / timeout_sec 其中之一")
 
     normalized_task_type = normalize_task_type(task_type)
-    normalized_platform = normalize_platform(platform)
+    normalized_platform = normalize_platform(platform, task_type=normalized_task_type, db=db)
     before = get_process_strategy(db, task_type=normalized_task_type, platform=normalized_platform)
 
     process_mode = payload.get("process_mode") if "process_mode" in payload else None
@@ -3093,6 +3098,66 @@ def admin_update_process_strategy(
     return ok(data=result_payload)
 
 
+@router.put("/execution-configs/{task_type}/{platform}", response_model=APIResp)
+def admin_update_execution_config(
+    task_type: str,
+    platform: str,
+    payload: dict,
+    admin: AdminUser = Depends(require_admin_permission("algo:manage")),
+    db: Session = Depends(db_dep),
+) -> APIResp:
+    if not isinstance(payload, dict):
+        raise BizError(code=4302, message="请求体必须为 JSON 对象")
+    if not any(key in payload for key in ("process_mode", "is_enabled", "timeout_sec", "active_version")):
+        raise BizError(code=4341, message="至少需要提供 process_mode / is_enabled / timeout_sec / active_version 其中之一")
+
+    normalized_task_type = normalize_task_type(task_type)
+    normalized_platform = normalize_platform(platform, task_type=normalized_task_type, db=db)
+    before = get_process_strategy(db, task_type=normalized_task_type, platform=normalized_platform)
+    process_mode = payload.get("process_mode") if "process_mode" in payload else None
+    if process_mode is not None:
+        process_mode = normalize_process_mode(process_mode)
+    is_enabled = _as_bool(payload.get("is_enabled"), default=False) if "is_enabled" in payload else None
+    timeout_sec = payload.get("timeout_sec") if "timeout_sec" in payload else None
+    active_version = payload.get("active_version") if "active_version" in payload else None
+
+    if is_enabled:
+        active_slot = get_active_slot_config(db, platform=normalized_platform, function_type=normalized_task_type.value)
+        if not active_slot and not active_version:
+            raise BizError(code=4118, message="该平台功能尚未激活算法包，无法启用")
+
+    try:
+        result = update_execution_config(
+            db,
+            task_type=normalized_task_type,
+            platform=normalized_platform,
+            process_mode=process_mode,
+            is_enabled=is_enabled,
+            timeout_sec=timeout_sec,
+            active_version=active_version,
+            updated_by=admin.id,
+        )
+        db.add(
+            AdminAuditLog(
+                admin_id=admin.id,
+                action="execution_config_update",
+                target_type="execution_config",
+                target_id=f"{normalized_task_type.value}:{normalized_platform}",
+                before_json=before,
+                after_json=result,
+            )
+        )
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+
+    result_payload = dict(result)
+    result_payload["platform_label"] = platform_label(normalized_platform, db=db)
+    result_payload["task_type_label"] = _task_type_label(normalized_task_type.value)
+    return ok(data=result_payload)
+
+
 @router.get("/credit-transactions", response_model=APIResp)
 def credit_transactions(
     page: int = Query(default=1, ge=1),
@@ -3113,6 +3178,12 @@ def credit_transactions(
             "id": tx.id,
             "user_id": tx.user_id,
             "tx_type": tx.tx_type.value,
+            "delta_fen": int(tx.delta or 0),
+            "delta_cny": _fen_to_cny_api(tx.delta or 0),
+            "balance_before_fen": int(tx.balance_before or 0),
+            "balance_before_cny": _fen_to_cny_api(tx.balance_before or 0),
+            "balance_after_fen": int(tx.balance_after or 0),
+            "balance_after_cny": _fen_to_cny_api(tx.balance_after or 0),
             "delta": tx.delta,
             "balance_before": tx.balance_before,
             "balance_after": tx.balance_after,
@@ -3129,6 +3200,37 @@ def credit_transactions(
 def get_algo_packages(_: AdminUser = Depends(require_admin_permission("algo:view")), db: Session = Depends(db_dep)) -> APIResp:
     data = list_algorithm_packages(db)
     return ok(data=data)
+
+
+@router.get("/algo-packages/history", response_model=APIResp)
+def get_algo_package_history(
+    platform: str = Query(...),
+    function_type: str = Query(...),
+    _: AdminUser = Depends(require_admin_permission("algo:view")),
+    db: Session = Depends(db_dep),
+) -> APIResp:
+    normalized_platform = normalize_platform(platform, task_type=function_type, db=db)
+    normalized_task_type = normalize_task_type(function_type).value
+    data = list_algorithm_packages(db)
+    items = [
+        item
+        for item in data.get("items", [])
+        if item.get("platform") == normalized_platform and item.get("function_type") == normalized_task_type
+    ]
+    items.sort(
+        key=lambda item: (
+            str(item.get("uploaded_at") or ""),
+            str(item.get("version") or ""),
+        ),
+        reverse=True,
+    )
+    return ok(
+        data={
+            "platform": normalized_platform,
+            "function_type": normalized_task_type,
+            "items": items,
+        }
+    )
 
 
 @router.get("/algo-packages/guide")
@@ -3175,11 +3277,13 @@ def download_algo_package_archive(
     function_type: str = Query(...),
     version: str = Query(...),
     _: AdminUser = Depends(require_admin_permission("algo:view")),
+    db: Session = Depends(db_dep),
 ) -> Response:
     package_path = get_algorithm_package_archive_path(
         platform=platform,
         function_type=function_type,
         version=version,
+        db=db,
     )
     filename = f"algo_package_{platform}_{function_type}_{version}.zip"
     return FileResponse(

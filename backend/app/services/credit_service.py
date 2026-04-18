@@ -31,7 +31,7 @@ def change_credits(
     before = user.credits
     after = before + delta
     if not allow_negative and after < 0:
-        raise BizError(code=4006, message="积分不足")
+        raise BizError(code=4006, message="通用点数不足")
     user.credits = after
     tx = CreditTransaction(
         user_id=user.id,

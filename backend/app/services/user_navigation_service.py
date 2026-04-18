@@ -32,36 +32,6 @@ USER_NAVIGATION_PRESETS = [
         "disabled": False,
         "badge": "",
     },
-    {
-        "key": "review",
-        "label": "智能审稿",
-        "path": "/app/review",
-        "group": "lab",
-        "visible": True,
-        "order": 4,
-        "disabled": True,
-        "badge": "开发中",
-    },
-    {
-        "key": "defense",
-        "label": "答辩服务",
-        "path": "/app/defense",
-        "group": "lab",
-        "visible": True,
-        "order": 5,
-        "disabled": True,
-        "badge": "开发中",
-    },
-    {
-        "key": "referral",
-        "label": "推广福利",
-        "path": "/app/referral",
-        "group": "account",
-        "visible": True,
-        "order": 6,
-        "disabled": False,
-        "badge": "",
-    },
 ]
 
 _USER_NAVIGATION_KEY_ORDER = {item["key"]: index for index, item in enumerate(USER_NAVIGATION_PRESETS)}

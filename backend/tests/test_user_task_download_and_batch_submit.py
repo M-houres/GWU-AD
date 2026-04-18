@@ -114,6 +114,7 @@ def test_task_detail_hides_output_path_and_exposes_download_ready(client, db_ses
         data = resp.json()["data"]
         assert "output_path" not in data
         assert data["download_ready"] is True
+        assert data["refund_done"] is False
     finally:
         app.dependency_overrides.pop(current_user, None)
 

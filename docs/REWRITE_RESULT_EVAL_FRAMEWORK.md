@@ -35,13 +35,11 @@
 
 1. `知网降 AIGC`
 2. `维普降 AIGC`
-3. `PaperPass降 AIGC`
 
 对应内部算法包槽位：
 
 1. `cnki_rewrite_v*.zip`
 2. `vip_rewrite_v*.zip`
-3. `pp_rewrite_v*.zip`
 
 ## 3. 北极星定义
 
@@ -339,7 +337,6 @@ weighted_drop = score_drop * 100 * 0.15
 
 1. 知网单独训练
 2. 维普单独训练
-3. PaperPass 单独训练
 
 基础改写能力可以共用，但评分、晋级、主线发布必须分平台。
 

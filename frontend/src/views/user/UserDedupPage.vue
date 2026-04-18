@@ -1,10 +1,11 @@
-﻿<template>
+<template>
   <UserShell
     title="降重复率"
     subtitle="上传文档后提交任务，系统将按平台规则自动进行降重处理并生成结果记录。"
     :credits="userCredits"
     :hide-topbar="true"
     :hide-header-title="true"
+    :disable-notice-dialog="true"
     @buy="showBuy = !showBuy"
   >
     <section class="uploadPage_content uploadPage_content--compact">
@@ -16,6 +17,7 @@
         <p class="aigc-page-head__quota">围绕高重复风险内容进行表达重构与语序优化，兼顾原意保留与查重率控制。</p>
       </section>
       <div class="aigc-page-head__divider" aria-hidden="true"></div>
+      <TaskJourneyPanel :credits="userCredits" />
 
       <div class="uploadLiterature_content">
         <div class="uploadLit_content panels-container">
@@ -120,6 +122,7 @@
                       {{ submitting ? "提交中..." : "提交降重" }}
                     </button>
                   </div>
+                  <p class="aigc-submit-tip">{{ pricingHint }}</p>
                 </div>
               </div>
             </div>
@@ -163,24 +166,17 @@ import { computed, onMounted, onUnmounted, reactive, ref } from "vue"
 import { useRoute, useRouter } from "vue-router"
 
 import BuyCreditsPanel from "../../components/BuyCreditsPanel.vue"
+import TaskJourneyPanel from "../../components/TaskJourneyPanel.vue"
 import UserShell from "../../components/UserShell.vue"
 import WorkbenchTaskFeed from "../../components/WorkbenchTaskFeed.vue"
 import { useUserProfile } from "../../composables/useUserProfile"
+import { createTaskSubmitHandler } from "../../lib/taskSubmitFlow"
 import { userHttp } from "../../lib/http"
-import {
-  buildTaskSubmitNetworkHint,
-  createTaskSubmitIdempotencyKey,
-  isTaskSubmitCanceledError,
-  isTaskSubmitNetworkError,
-  isTaskSubmitTimeoutError,
-  recoverSubmittedTaskByIdempotency,
-  recoverSubmittedTask,
-  submitTaskWithRetry,
-} from "../../lib/taskSubmitRecovery"
+import { createTaskSubmitIdempotencyKey } from "../../lib/taskSubmitRecovery"
 import { derivePaperTitleFromFilename, shouldAutoFillPaperTitle } from "../../lib/paperTitle"
 import { TASK_PLATFORM_OPTIONS } from "../../lib/taskPlatform"
 import { ensureUserLogin } from "../../lib/requireLogin"
-import { getUserToken } from "../../lib/session"
+import { getUserToken, setUserInfo } from "../../lib/session"
 
 const router = useRouter()
 const route = useRoute()
@@ -188,7 +184,7 @@ const showBuy = ref(false)
 const { user, refreshUser } = useUserProfile()
 
 const userCredits = computed(() => {
-  const value = user.value && user.value.credits
+  const value = user.value && (user.value.balance_fen ?? user.value.credits)
   return typeof value === "number" ? value : null
 })
 
@@ -199,6 +195,7 @@ const form = reactive({
 })
 
 const platformCards = TASK_PLATFORM_OPTIONS
+const pricingHint = ref("任务按字符数直接扣点，默认 1 字符 = 1 点数。提交后可在降重记录页查看状态、失败原因和结果下载。")
 
 const features = [
   {
@@ -225,12 +222,15 @@ const features = [
 
 const fieldErrors = reactive({
   paper: "",
+  report: "",
   title: "",
   authors: "",
 })
 
 const dragMain = ref(false)
+const dragReport = ref(false)
 const paperFile = ref(null)
+const reportFile = ref(null)
 const autoFilledTitle = ref("")
 const submitting = ref(false)
 const errorText = ref("")
@@ -285,6 +285,11 @@ function clearPaper() {
   fieldErrors.paper = ""
 }
 
+function clearReport() {
+  reportFile.value = null
+  fieldErrors.report = ""
+}
+
 function onPaperInput(event) {
   const file = event.target.files?.[0] || null
   setMainFile(file)
@@ -295,6 +300,18 @@ function onMainDrop(event) {
   dragMain.value = false
   const file = event.dataTransfer?.files?.[0] || null
   setMainFile(file)
+}
+
+function onReportInput(event) {
+  const file = event.target.files?.[0] || null
+  setReportFile(file)
+  event.target.value = ""
+}
+
+function onReportDrop(event) {
+  dragReport.value = false
+  const file = event.dataTransfer?.files?.[0] || null
+  setReportFile(file)
 }
 
 function setMainFile(file) {
@@ -319,8 +336,25 @@ function setMainFile(file) {
   }
 }
 
+function setReportFile(file) {
+  fieldErrors.report = ""
+  if (!file) return
+
+  const ext = file.name.includes(".") ? file.name.slice(file.name.lastIndexOf(".")).toLowerCase() : ""
+  if (![".docx", ".pdf"].includes(ext)) {
+    fieldErrors.report = "全文查重报告仅支持 .docx / .pdf"
+    return
+  }
+  if (file.size > 20 * 1024 * 1024) {
+    fieldErrors.report = "文件超过 20MB 限制"
+    return
+  }
+  reportFile.value = file
+}
+
 function validateForm() {
   fieldErrors.paper = ""
+  fieldErrors.report = ""
   fieldErrors.title = ""
   fieldErrors.authors = ""
 
@@ -341,173 +375,76 @@ function validateForm() {
 }
 
 async function submitTask() {
-  if (!ensureUserLogin(router, route, "/app/dedup")) return
-  if (submitting.value) return
-
   if (!validateForm()) {
     errorText.value = "请先完成必填项后再提交"
     return
   }
+  await runSubmitTask()
+}
 
-  const snapshot = {
+const runSubmitTask = createTaskSubmitHandler({
+  ensureAuthenticated: () => ensureUserLogin(router, route, "/app/dedup"),
+  submittingRef: submitting,
+  errorTextRef: errorText,
+  successTextRef: successText,
+  beginSubmitGuard,
+  isActiveSubmit,
+  finishSubmitGuard,
+  refreshUser,
+  applyUserBalance: (balanceAfter) => {
+    const current = user.value && typeof user.value === "object" ? user.value : {}
+    const next = { ...current, credits: balanceAfter, balance_fen: balanceAfter }
+    user.value = next
+    setUserInfo(next)
+  },
+  router,
+  recordPath: "/app/dedup/records",
+  recordLabel: "降重记录页",
+  onInsufficientCredits: () => {
+    showBuy.value = true
+  },
+  buildSnapshot: () => ({
     taskType: "dedup",
     platform: String(form.platform || "cnki"),
     paper: paperFile.value,
+    report: reportFile.value,
     paperTitle: form.title.trim(),
     authors: form.authors.trim(),
     sourceFilename: paperFile.value?.name || "",
-  }
-  const submittedAt = Date.now()
-  const idempotencyKey = createTaskSubmitIdempotencyKey({
-    taskType: snapshot.taskType,
-    platform: snapshot.platform,
-    paperTitle: snapshot.paperTitle,
-    authors: snapshot.authors,
-    sourceFilename: snapshot.sourceFilename,
-    submittedAt,
-  })
-  const { token, signal } = beginSubmitGuard()
-  submitting.value = true
-  errorText.value = ""
-  successText.value = ""
-  const submitOnce = () => {
-    const payload = new FormData()
-    payload.append("task_type", snapshot.taskType)
-    payload.append("platform", snapshot.platform)
-    payload.append("paper", snapshot.paper)
-    payload.append("paper_title", snapshot.paperTitle)
-    payload.append("authors", snapshot.authors)
-    return userHttp.post("/tasks/submit", payload, {
-      timeout: 120000,
-      signal,
-      headers: {
-        "X-Idempotency-Key": idempotencyKey,
-      },
+    userHttp,
+  }),
+  buildSubmitOnce: ({ snapshot, submittedAt, signal }) => {
+    snapshot.idempotencyKey = createTaskSubmitIdempotencyKey({
+      taskType: snapshot.taskType,
+      platform: snapshot.platform,
+      paperTitle: snapshot.paperTitle,
+      authors: snapshot.authors,
+      sourceFilename: snapshot.sourceFilename,
+      submittedAt,
     })
-  }
-
-  try {
-    const data = await submitTaskWithRetry({
-      signal,
-      maxAttempts: 4,
-      retryDelayMs: 1200,
-      submitOnce,
-    })
-    if (!isActiveSubmit(token)) return
-
-    const status = String(data?.status || "").trim().toLowerCase()
-    if (status === "failed") {
-      const reason = String(data?.error_message || "").trim()
-      errorText.value = reason
-        ? `任务 #${data.id} 处理失败：${reason}`
-        : `任务 #${data.id} 排队失败，请到降重记录页查看失败原因后重试`
-      try {
-        await refreshUser()
-      } catch (refreshError) {
-        console.warn("task_submit_refresh_user_failed", refreshError)
+    return () => {
+      const payload = new FormData()
+      payload.append("task_type", snapshot.taskType)
+      payload.append("platform", snapshot.platform)
+      payload.append("paper", snapshot.paper)
+      if (snapshot.report) {
+        payload.append("report", snapshot.report)
       }
-      if (!isActiveSubmit(token)) return
-      router.push({ path: "/app/dedup/records", query: { focus: String(data.id) } })
-      return
-    }
-
-    successText.value = `提交成功，任务 #${data.id} 已进入处理队列`
-    try {
-      await refreshUser()
-    } catch (refreshError) {
-      console.warn("task_submit_refresh_user_failed", refreshError)
-    }
-    if (!isActiveSubmit(token)) return
-    router.push({ path: "/app/dedup/records", query: { focus: String(data.id) } })
-  } catch (error) {
-    if (isTaskSubmitCanceledError(error) || !isActiveSubmit(token)) {
-      return
-    }
-    if (isTaskSubmitTimeoutError(error) || isTaskSubmitNetworkError(error)) {
-      const idempotentTask = await recoverSubmittedTaskByIdempotency({
-        userHttp,
-        taskType: snapshot.taskType,
-        platform: snapshot.platform,
-        sourceFilename: snapshot.sourceFilename,
-        idempotencyKey,
+      payload.append("paper_title", snapshot.paperTitle)
+      payload.append("authors", snapshot.authors)
+      return userHttp.post("/tasks/submit", payload, {
+        timeout: 120000,
         signal,
+        headers: {
+          "X-Idempotency-Key": snapshot.idempotencyKey,
+        },
       })
-      if (!isActiveSubmit(token)) return
-      if (idempotentTask?.id) {
-        successText.value = `任务已找回：#${idempotentTask.id}，正在跳转记录页`
-        try {
-          await refreshUser()
-        } catch (refreshError) {
-          console.warn("task_submit_refresh_user_failed", refreshError)
-        }
-        if (!isActiveSubmit(token)) return
-        router.push({ path: "/app/dedup/records", query: { focus: String(idempotentTask.id) } })
-        return
-      }
-      const recoveredTask = await recoverSubmittedTask({
-        taskType: snapshot.taskType,
-        paperTitle: snapshot.paperTitle,
-        authors: snapshot.authors,
-        sourceFilename: snapshot.sourceFilename,
-        submittedAt,
-        attempts: 6,
-        retryDelayMs: 1200,
-        signal,
-      })
-      if (!isActiveSubmit(token)) return
-      if (recoveredTask?.id) {
-        successText.value = `提交响应中断，但任务 #${recoveredTask.id} 已进入处理队列，正在跳转记录页`
-        try {
-          await refreshUser()
-        } catch (refreshError) {
-          console.warn("task_submit_refresh_user_failed", refreshError)
-        }
-        if (!isActiveSubmit(token)) return
-        router.push({ path: "/app/dedup/records", query: { focus: String(recoveredTask.id) } })
-        return
-      }
-      try {
-        const rescueData = await submitTaskWithRetry({
-          signal,
-          maxAttempts: 6,
-          retryDelayMs: 1500,
-          submitOnce,
-        })
-        if (!isActiveSubmit(token)) return
-        successText.value = `网络恢复后已补交成功，任务 #${rescueData.id} 已进入处理队列`
-        try {
-          await refreshUser()
-        } catch (refreshError) {
-          console.warn("task_submit_refresh_user_failed", refreshError)
-        }
-        if (!isActiveSubmit(token)) return
-        router.push({ path: "/app/dedup/records", query: { focus: String(rescueData.id) } })
-        return
-      } catch (rescueError) {
-        if (isTaskSubmitCanceledError(rescueError) || !isActiveSubmit(token)) {
-          return
-        }
-      }
     }
-    const message = String(error?.message || "").trim()
-    if (isTaskSubmitTimeoutError(error)) {
-      errorText.value = "提交耗时较长，请稍后到降重记录页确认任务是否已创建"
-      return
-    }
-    if (isTaskSubmitNetworkError(error)) {
-      errorText.value = await buildTaskSubmitNetworkHint({ signal })
-      return
-    }
-    errorText.value = message || "提交失败，请稍后重试"
-  } finally {
-    if (isActiveSubmit(token)) {
-      submitting.value = false
-    }
-    finishSubmitGuard(token)
-  }
-}
+  },
+})
 
 async function afterPaid() {
   await refreshUser()
 }
 </script>
+

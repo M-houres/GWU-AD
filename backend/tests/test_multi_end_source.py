@@ -6,6 +6,7 @@ import zipfile
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
+from app.constants import DEFAULT_BILLING_PACKAGES
 from app.main import app
 from app.models import CreditTransaction, Order, SystemConfig, Task, User
 from app.services.algo_package_service import install_algorithm_package
@@ -92,7 +93,7 @@ def test_client_source_flows_through_login_task_and_payment(
 
     mock_pay_resp = client.post(
         "/api/v1/billing/mock-pay",
-        json={"package_name": "入门包"},
+        json={"package_name": DEFAULT_BILLING_PACKAGES[0]["name"]},
         headers=auth_headers,
     )
     assert mock_pay_resp.status_code == 200

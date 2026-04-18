@@ -1,31 +1,29 @@
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, Query, Request, Response
+from fastapi import APIRouter, Depends, Query, Response
 from sqlalchemy import desc, func
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
 from app.deps import current_user, db_dep, get_redis
 from app.exceptions import BizError
+from app.money import cny_to_api, fen_to_cny
 from app.models import CreditTransaction, Notification, Task, TaskStatus, TaskType, User
 from app.pagination import paginate
 from app.responses import ok
 from app.schemas import APIResp
 from app.services.aigc_quota_service import get_aigc_daily_quota
-from app.services.promo_center_service import (
-    build_promo_center_payload,
-    create_classroom,
-    grant_subsidy_share_claim,
-    join_classroom,
-    submit_share_review,
-)
 from app.services.process_strategy_service import sanitize_user_result_json
-from app.services.referral_module import raise_referral_module_disabled
 from app.security import auth_session_key
 
 router = APIRouter()
 settings = get_settings()
+
+
+def _fen_to_cny_api(value_fen: int) -> float:
+    amount = fen_to_cny(int(value_fen or 0))
+    return cny_to_api(amount or 0)
 
 
 def _mask_phone(phone: str) -> str:
@@ -33,15 +31,6 @@ def _mask_phone(phone: str) -> str:
     if len(raw) == 11:
         return f"{raw[:3]}****{raw[-4:]}"
     return raw
-
-
-def _frontend_base_url(request: Request) -> str:
-    forwarded_proto = request.headers.get("x-forwarded-proto", "").split(",")[0].strip()
-    forwarded_host = request.headers.get("x-forwarded-host", "").split(",")[0].strip()
-    if forwarded_host:
-        scheme = forwarded_proto or request.url.scheme or "https"
-        return f"{scheme}://{forwarded_host}".rstrip("/")
-    return str(request.base_url).rstrip("/")
 
 
 def _safe_remove_user_artifact(raw_path: str | None) -> None:
@@ -68,6 +57,8 @@ def me(user: User = Depends(current_user)) -> APIResp:
             "id": user.id,
             "phone": _mask_phone(user.phone),
             "nickname": user.nickname,
+            "balance_fen": int(user.credits or 0),
+            "balance_cny": _fen_to_cny_api(user.credits or 0),
             "credits": user.credits,
             "source": user.source,
             "created_at": user.created_at,
@@ -89,6 +80,8 @@ def update_me(
             "id": user.id,
             "phone": _mask_phone(user.phone),
             "nickname": user.nickname,
+            "balance_fen": int(user.credits or 0),
+            "balance_cny": _fen_to_cny_api(user.credits or 0),
             "credits": user.credits,
             "source": user.source,
             "created_at": user.created_at,
@@ -206,6 +199,10 @@ def me_summary(user: User = Depends(current_user), db: Session = Depends(db_dep)
             },
             "credit_overview": {
                 "transaction_count": int(tx_total),
+                "income_total_fen": int(income_total),
+                "income_total_cny": _fen_to_cny_api(income_total),
+                "outcome_total_fen": abs(int(outcome_total)),
+                "outcome_total_cny": _fen_to_cny_api(abs(int(outcome_total))),
                 "income_total": int(income_total),
                 "outcome_total": abs(int(outcome_total)),
             },
@@ -218,6 +215,8 @@ def me_summary(user: User = Depends(current_user), db: Session = Depends(db_dep)
                     "status": row.status.value,
                     "source_filename": row.source_filename,
                     "char_count": row.char_count,
+                    "cost_fen": int(row.cost_credits or 0),
+                    "cost_points": int(row.cost_credits or 0),
                     "cost_credits": row.cost_credits,
                     "result_json": sanitize_user_result_json(row.result_json),
                     "created_at": row.created_at,
@@ -229,6 +228,12 @@ def me_summary(user: User = Depends(current_user), db: Session = Depends(db_dep)
                 {
                     "id": row.id,
                     "tx_type": row.tx_type.value,
+                    "delta_fen": int(row.delta or 0),
+                    "delta_cny": _fen_to_cny_api(row.delta or 0),
+                    "balance_before_fen": int(row.balance_before or 0),
+                    "balance_before_cny": _fen_to_cny_api(row.balance_before or 0),
+                    "balance_after_fen": int(row.balance_after or 0),
+                    "balance_after_cny": _fen_to_cny_api(row.balance_after or 0),
                     "delta": row.delta,
                     "balance_before": row.balance_before,
                     "balance_after": row.balance_after,
@@ -239,150 +244,6 @@ def me_summary(user: User = Depends(current_user), db: Session = Depends(db_dep)
             ],
         }
     )
-
-
-@router.get("/me/promo-center", response_model=APIResp)
-def my_promo_center(request: Request, user: User = Depends(current_user), db: Session = Depends(db_dep)) -> APIResp:
-    data = build_promo_center_payload(db, user=user, frontend_base_url=_frontend_base_url(request))
-    db.commit()
-    return ok(data=data)
-
-
-@router.post("/me/promo-center/subsidy/claim", response_model=APIResp)
-def claim_promo_subsidy(payload: dict, user: User = Depends(current_user), db: Session = Depends(db_dep)) -> APIResp:
-    task_key = str(payload.get("task_key", "")).strip().lower()
-    try:
-        record, idempotent = grant_subsidy_share_claim(db, user=user, task_key=task_key)
-    except ValueError:
-        raise BizError(code=4410, message="无效的积分补贴任务", http_status=422)
-    db.commit()
-    return ok(
-        data={
-            "id": record.id,
-            "task_key": task_key,
-            "credit_delta": record.credit_delta,
-            "idempotent": idempotent,
-        }
-    )
-
-
-@router.post("/me/promo-center/classrooms", response_model=APIResp)
-def create_promo_classroom(payload: dict, user: User = Depends(current_user), db: Session = Depends(db_dep)) -> APIResp:
-    try:
-        classroom = create_classroom(db, user=user, name=str(payload.get("name", "")).strip())
-    except ValueError as exc:
-        if str(exc) == "already_joined_other_classroom":
-            raise BizError(code=4413, message="你已加入其他班级，暂不支持同时创建或加入多个班级", http_status=409)
-        raise
-    db.commit()
-    return ok(
-        data={
-            "id": classroom.id,
-            "name": classroom.name,
-            "invite_code": classroom.invite_code,
-            "level": classroom.level,
-            "member_count": classroom.member_count,
-            "activity_score": classroom.activity_score,
-            "role": "owner",
-        }
-    )
-
-
-@router.post("/me/promo-center/classrooms/join", response_model=APIResp)
-def join_promo_classroom(payload: dict, user: User = Depends(current_user), db: Session = Depends(db_dep)) -> APIResp:
-    invite_code = str(payload.get("invite_code", "")).strip().upper()
-    if not invite_code:
-        raise BizError(code=4414, message="请先填写班级口令", http_status=422)
-    try:
-        classroom = join_classroom(db, user=user, invite_code=invite_code)
-    except ValueError as exc:
-        reason = str(exc)
-        if reason == "classroom_not_found":
-            raise BizError(code=4411, message="班级口令不存在", http_status=404)
-        if reason == "already_joined_other_classroom":
-            raise BizError(code=4413, message="你已加入其他班级，暂不支持同时创建或加入多个班级", http_status=409)
-        raise
-    db.commit()
-    return ok(
-        data={
-            "id": classroom.id,
-            "name": classroom.name,
-            "invite_code": classroom.invite_code,
-            "level": classroom.level,
-            "member_count": classroom.member_count,
-            "activity_score": classroom.activity_score,
-            "role": ("owner" if classroom.owner_user_id == user.id else "member"),
-        }
-    )
-
-
-@router.post("/me/promo-center/shares", response_model=APIResp)
-def submit_promo_share(
-    payload: dict,
-    user: User = Depends(current_user),
-    db: Session = Depends(db_dep),
-) -> APIResp:
-    try:
-        row = submit_share_review(
-            db,
-            user=user,
-            platform=str(payload.get("platform", "")).strip().lower(),
-            tier_key=str(payload.get("tier_key", "")).strip().lower(),
-            share_link=str(payload.get("share_link", "")).strip(),
-            payout_account=str(payload.get("account_name", "")).strip(),
-            payout_name=str(payload.get("real_name", "")).strip(),
-            note=str(payload.get("note", "")).strip(),
-        )
-    except ValueError as exc:
-        reason = str(exc)
-        if reason in {"invalid_platform", "invalid_tier"}:
-            raise BizError(code=4412, message="分享平台或奖励档位不支持", http_status=422)
-        if reason in {"share_link_required", "share_link_invalid"}:
-            raise BizError(code=4415, message="请填写可访问的分享链接（http/https）", http_status=422)
-        if reason == "payout_account_required":
-            raise BizError(code=4416, message="请填写有效的支付宝账号", http_status=422)
-        if reason == "payout_name_required":
-            raise BizError(code=4417, message="请填写有效的支付宝实名", http_status=422)
-        if reason == "share_submission_pending_review":
-            raise BizError(code=4418, message="该平台任务正在审核中，请勿重复提交", http_status=409)
-        if reason == "share_submission_approved_locked":
-            raise BizError(code=4420, message="该平台任务已审核通过，等待人工打款中，暂不可修改", http_status=409)
-        if reason == "share_submission_paid_locked":
-            raise BizError(code=4421, message="该平台奖励已发放，每个平台仅支持一次领奖", http_status=409)
-        raise
-    db.commit()
-    return ok(
-        data={
-            "id": row.id,
-            "platform": row.platform,
-            "tier_key": row.tier_key,
-            "status": row.status.value,
-        }
-    )
-
-
-@router.get("/me/invite-code", response_model=APIResp)
-def my_invite_code(user: User = Depends(current_user)) -> APIResp:
-    raise_referral_module_disabled()
-    return ok()
-
-
-@router.get("/me/invite-qrcode", response_model=APIResp)
-def my_invite_qrcode(user: User = Depends(current_user)) -> APIResp:
-    raise_referral_module_disabled()
-    return ok()
-
-
-@router.get("/me/growth-center", response_model=APIResp)
-def my_growth_center(user: User = Depends(current_user)) -> APIResp:
-    raise_referral_module_disabled()
-    return ok()
-
-
-@router.post("/me/share-tasks/submit", response_model=APIResp)
-def submit_share_task(user: User = Depends(current_user)) -> APIResp:
-    raise_referral_module_disabled()
-    return ok()
 
 
 @router.get("/me/credit-transactions", response_model=APIResp)
@@ -418,26 +279,6 @@ def my_credit_transactions(
         for row in rows
     ]
     return ok(data={"items": items, "pagination": paginate(total, page, page_size)})
-
-
-@router.get("/me/referrals", response_model=APIResp)
-def my_referrals(
-    page: int = Query(default=1, ge=1),
-    page_size: int = Query(default=20, ge=1, le=100),
-    user: User = Depends(current_user),
-) -> APIResp:
-    raise_referral_module_disabled()
-    return ok()
-
-
-@router.get("/me/referral-rewards", response_model=APIResp)
-def my_referral_rewards(
-    page: int = Query(default=1, ge=1),
-    page_size: int = Query(default=20, ge=1, le=100),
-    user: User = Depends(current_user),
-) -> APIResp:
-    raise_referral_module_disabled()
-    return ok()
 
 
 @router.get("/me/notifications", response_model=APIResp)

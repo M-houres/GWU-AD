@@ -24,6 +24,53 @@
       </article>
     </section>
 
+    <section class="scholar-grid dashboard-ops-grid" style="margin-top: 14px">
+      <article class="scholar-chart-card dashboard-chart-card">
+        <div class="dashboard-chart-head">
+          <div>
+            <div class="scholar-kicker">MVP Baseline</div>
+            <h3 class="scholar-subtitle">后台运营基线状态</h3>
+          </div>
+          <span class="dashboard-chip" :class="`dashboard-chip--${baselineStatus.status}`">{{ baselineStatus.label }}</span>
+        </div>
+        <p class="dashboard-section-lead">{{ baselineLead }}</p>
+        <div class="dashboard-baseline-list">
+          <article v-for="item in baselineItems" :key="item.key" class="dashboard-baseline-item">
+            <div class="dashboard-baseline-item__head">
+              <strong>{{ item.label }}</strong>
+              <span class="dashboard-chip" :class="`dashboard-chip--${item.status}`">{{ statusLabel(item.status) }}</span>
+            </div>
+            <p>{{ item.message }}</p>
+          </article>
+        </div>
+      </article>
+
+      <article class="scholar-chart-card dashboard-chart-card">
+        <div class="dashboard-chart-head">
+          <div>
+            <div class="scholar-kicker">Ops Alerts</div>
+            <h3 class="scholar-subtitle">待处理事项</h3>
+          </div>
+          <span class="dashboard-chip dashboard-chip--neutral">{{ opsAlertCount }} 项</span>
+        </div>
+        <div v-if="operationalAlerts.length" class="dashboard-alert-list">
+          <article v-for="item in operationalAlerts" :key="item.key" class="dashboard-alert-item" :class="`dashboard-alert-item--${item.level}`">
+            <strong>{{ item.level === 'error' ? '高优先级' : '提醒' }}</strong>
+            <p>{{ item.message }}</p>
+          </article>
+        </div>
+        <div v-else class="dashboard-empty-note">当前没有待处理异常，后台主链路可继续运行。</div>
+
+        <div class="dashboard-ops-metrics">
+          <article v-for="item in opsMetrics" :key="item.label" class="dashboard-ops-metric">
+            <div class="dashboard-ops-metric__label">{{ item.label }}</div>
+            <div class="dashboard-ops-metric__value">{{ item.value }}</div>
+            <div class="dashboard-ops-metric__hint">{{ item.hint }}</div>
+          </article>
+        </div>
+      </article>
+    </section>
+
     <section class="scholar-hero-grid dashboard-grid">
       <article class="scholar-chart-card dashboard-chart-card">
         <div class="dashboard-chart-head">
@@ -135,6 +182,46 @@ const sourceCards = computed(() => {
     },
   ]
 })
+const baselineItems = computed(() => dashboard.value?.mvp_baseline?.items || [])
+const operationalAlerts = computed(() => dashboard.value?.operational_alerts || [])
+const opsSummary = computed(() => dashboard.value?.ops_summary || {})
+const opsAlertCount = computed(() => operationalAlerts.value.length)
+const baselineStatus = computed(() => {
+  const status = dashboard.value?.mvp_baseline?.status || "warning"
+  return { status, label: statusLabel(status) }
+})
+const baselineLead = computed(() => {
+  const reasons = dashboard.value?.mvp_baseline?.reasons || []
+  if (!reasons.length) {
+    return "当前后台六个 MVP 入口已具备可运行基线，可继续做日常运营与验收。"
+  }
+  return `当前需关注：${reasons.join("；")}`
+})
+const opsMetrics = computed(() => {
+  const taskStatus = opsSummary.value.task_status || {}
+  return [
+    {
+      label: "失败任务",
+      value: formatNumber(taskStatus.failed || 0),
+      hint: "需要复核失败原因",
+    },
+    {
+      label: "待退款任务",
+      value: formatNumber(opsSummary.value.refund_pending_count || 0),
+      hint: "失败后尚未完成退款",
+    },
+    {
+      label: "近24h LLM异常",
+      value: formatNumber(opsSummary.value.llm_error_24h || 0),
+      hint: "用于判断是否频繁降级",
+    },
+    {
+      label: "已支付订单",
+      value: formatNumber(opsSummary.value.paid_order_count || 0),
+      hint: "当前累计已支付订单数",
+    },
+  ]
+})
 const trendRows = computed(() => {
   const rows = dashboard.value?.trend_30d || []
   return rows.slice(-7)
@@ -194,6 +281,13 @@ function formatNumber(value) {
   const num = Number(value)
   if (!Number.isFinite(num)) return "0"
   return num.toLocaleString("zh-CN")
+}
+
+function statusLabel(status) {
+  if (status === "ready") return "已就绪"
+  if (status === "error") return "未就绪"
+  if (status === "warning") return "待确认"
+  return "待确认"
 }
 
 function baseAxisStyle() {
@@ -367,6 +461,124 @@ function disposeCharts() {
   gap: 12px;
 }
 
+.dashboard-ops-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.dashboard-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 74px;
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-size: 12px;
+  line-height: 1;
+  background: #eef2f5;
+  color: #5e6c78;
+}
+
+.dashboard-chip--ready {
+  background: #e8f5ef;
+  color: #106c4f;
+}
+
+.dashboard-chip--warning {
+  background: #fff5df;
+  color: #946200;
+}
+
+.dashboard-chip--error {
+  background: #fff0ee;
+  color: #b24439;
+}
+
+.dashboard-chip--neutral {
+  background: #eef2f5;
+  color: #5e6c78;
+}
+
+.dashboard-section-lead {
+  margin-top: 12px;
+  color: #51606b;
+  line-height: 1.7;
+}
+
+.dashboard-baseline-list,
+.dashboard-alert-list {
+  margin-top: 16px;
+  display: grid;
+  gap: 12px;
+}
+
+.dashboard-baseline-item,
+.dashboard-alert-item,
+.dashboard-ops-metric {
+  border: 1px solid #dde5eb;
+  border-radius: 18px;
+  background: #fbfcfd;
+  padding: 14px;
+}
+
+.dashboard-baseline-item__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.dashboard-baseline-item p,
+.dashboard-alert-item p {
+  margin-top: 8px;
+  color: #51606b;
+  line-height: 1.7;
+}
+
+.dashboard-alert-item--error {
+  border-color: #f1d0cb;
+  background: #fff6f3;
+}
+
+.dashboard-alert-item--warning {
+  border-color: #f1e0bf;
+  background: #fffaf0;
+}
+
+.dashboard-empty-note {
+  margin-top: 16px;
+  border: 1px dashed #d8e0e7;
+  border-radius: 18px;
+  background: #fbfcfd;
+  padding: 18px;
+  color: #5e6c78;
+}
+
+.dashboard-ops-metrics {
+  margin-top: 16px;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.dashboard-ops-metric__label {
+  font-size: 12px;
+  color: #6b7884;
+}
+
+.dashboard-ops-metric__value {
+  margin-top: 6px;
+  font-size: 24px;
+  font-weight: 600;
+  color: #16222a;
+}
+
+.dashboard-ops-metric__hint {
+  margin-top: 6px;
+  font-size: 13px;
+  color: #5d6973;
+  line-height: 1.6;
+}
+
 @media (max-width: 768px) {
   .dashboard-alert {
     align-items: stretch;
@@ -379,6 +591,14 @@ function disposeCharts() {
 
   .dashboard-chart-head {
     flex-direction: column;
+  }
+
+  .dashboard-ops-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .dashboard-ops-metrics {
+    grid-template-columns: 1fr;
   }
 
   .dashboard-chart-area {

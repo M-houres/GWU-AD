@@ -5,7 +5,7 @@ See also:
 - `docs/AIGC_ALGO_TRAINING_MEMORY.md`
 
 That document records the current benchmark status, current CNKI evaluation snapshot,
-data collection requirements for CNKI / VIP / PaperPass, and the operational workflow
+data collection requirements for CNKI / VIP, and the operational workflow
 for future algorithm training.
 
 ## 1. Goal
@@ -29,7 +29,6 @@ This framework currently applies to:
 
 - `CNKI AIGC检测`
 - `VIP AIGC检测`
-- `PaperPass AIGC检测`
 
 This framework does **not** directly evaluate:
 
@@ -393,8 +392,8 @@ For each new AIGC detect package version:
 
 For this project, the evaluation target is:
 
-1. not "our report looks like CNKI / VIP / PaperPass"
-2. but "our result behaves like CNKI / VIP / PaperPass"
+1. not "our report looks like CNKI / VIP"
+2. but "our result behaves like CNKI / VIP"
 
 So the project's current report template can remain unchanged.
 

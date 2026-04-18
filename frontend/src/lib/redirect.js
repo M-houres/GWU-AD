@@ -9,7 +9,6 @@ const USER_ROUTE_ALIASES = new Set([
   "/buy",
   "/credits",
   "/profile",
-  "/referral",
 ])
 const ADMIN_ROUTE_ALIASES = new Set(["/admin"])
 

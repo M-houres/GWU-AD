@@ -1,5 +1,5 @@
 <template>
-  <AdminShell title="用户详情" subtitle="围绕账户、积分和最近任务做运营处理">
+  <AdminShell title="用户详情" subtitle="围绕账户、通用点数和最近任务做运营处理">
     <div class="space-y-4">
       <section class="overflow-hidden rounded-[28px] border border-[#d9dee4] bg-white">
         <div class="border-b border-[#e4eaf0] bg-[linear-gradient(135deg,#f6f4ed,#eef4f8)] px-6 py-5">
@@ -35,20 +35,20 @@
           <div class="space-y-5">
             <div class="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
               <article class="rounded-2xl border border-[#dde5eb] bg-[#fbfcfd] p-4">
-                <div class="text-xs tracking-[0.1em] text-[#6c7985]">当前积分</div>
-                <div class="mt-2 text-2xl font-semibold text-[#17222b]">{{ numberText(detail.user?.credits) }}</div>
+                <div class="text-xs tracking-[0.1em] text-[#6c7985]">当前通用点数</div>
+                <div class="mt-2 text-2xl font-semibold text-[#17222b]">{{ formatCredits(userBalanceFen(detail.user)) }}</div>
               </article>
               <article class="rounded-2xl border border-[#dde5eb] bg-[#fbfcfd] p-4">
                 <div class="text-xs tracking-[0.1em] text-[#6c7985]">累计充值金额</div>
                 <div class="mt-2 text-2xl font-semibold text-[#17222b]">¥{{ numberText(detail.summary?.total_paid_cny) }}</div>
               </article>
               <article class="rounded-2xl border border-[#dde5eb] bg-[#fbfcfd] p-4">
-                <div class="text-xs tracking-[0.1em] text-[#6c7985]">累计充值积分</div>
-                <div class="mt-2 text-2xl font-semibold text-[#17222b]">{{ numberText(detail.summary?.total_paid_credits) }}</div>
+                <div class="text-xs tracking-[0.1em] text-[#6c7985]">累计充值点数</div>
+                <div class="mt-2 text-2xl font-semibold text-[#17222b]">{{ formatCredits(detail.summary?.total_recharge_fen ?? detail.summary?.total_paid_credits ?? 0) }}</div>
               </article>
               <article class="rounded-2xl border border-[#dde5eb] bg-[#fbfcfd] p-4">
-                <div class="text-xs tracking-[0.1em] text-[#6c7985]">累计任务消耗</div>
-                <div class="mt-2 text-2xl font-semibold text-[#17222b]">{{ numberText(detail.summary?.total_task_cost_credits) }}</div>
+                <div class="text-xs tracking-[0.1em] text-[#6c7985]">累计任务消耗点数</div>
+                <div class="mt-2 text-2xl font-semibold text-[#17222b]">{{ formatCredits(detail.summary?.total_task_cost_fen ?? detail.summary?.total_task_cost_credits ?? 0) }}</div>
               </article>
             </div>
 
@@ -84,7 +84,7 @@
           <div class="rounded-[24px] border border-[#dde5eb] bg-[#fbfcfd] p-5">
             <div class="flex items-center justify-between gap-3">
               <div>
-                <div class="text-xs tracking-[0.1em] text-[#6c7985]">积分调整</div>
+                <div class="text-xs tracking-[0.1em] text-[#6c7985]">点数调整</div>
                 <h3 class="mt-1 text-base font-semibold text-[#17222b]">直接做运营补偿或扣减</h3>
               </div>
               <span class="rounded-full bg-white px-3 py-1 text-xs text-[#5c6872]">实时生效</span>
@@ -100,11 +100,11 @@
               </button>
             </div>
             <div class="mt-4 grid gap-3">
-              <input
-                v-model.number="delta"
-                class="rounded-xl border border-[#ccd5dd] bg-white px-4 py-3 text-sm outline-none"
-                placeholder="输入正负积分，例如 200 或 -200"
-              />
+                <input
+                  v-model.number="delta"
+                  class="rounded-xl border border-[#ccd5dd] bg-white px-4 py-3 text-sm outline-none"
+                  placeholder="输入正负点数，例如 200 或 -200"
+                />
               <input
                 v-model.trim="reason"
                 class="rounded-xl border border-[#ccd5dd] bg-white px-4 py-3 text-sm outline-none"
@@ -123,10 +123,10 @@
 
       <section class="rounded-[28px] border border-[#d9dee4] bg-white p-6">
         <div class="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <div class="text-[11px] uppercase tracking-[0.18em] text-[#73808b]">Credit Timeline</div>
-            <h3 class="mt-2 text-lg font-semibold text-[#17222b]">近期积分流水</h3>
-          </div>
+            <div>
+              <div class="text-[11px] uppercase tracking-[0.18em] text-[#73808b]">Credit Timeline</div>
+            <h3 class="mt-2 text-lg font-semibold text-[#17222b]">近期点数流水</h3>
+            </div>
           <span class="rounded-full bg-[#eef3f7] px-3 py-1 text-xs text-[#5d6973]">最近 20 条</span>
         </div>
         <div class="mt-4 overflow-x-auto">
@@ -148,16 +148,16 @@
                   <span class="rounded-full bg-[#f2f6f9] px-2 py-1 text-xs text-[#44525d]">{{ mapTxType(tx.tx_type) }}</span>
                 </td>
                 <td class="px-2 py-3">
-                  <span :class="Number(tx.delta) >= 0 ? 'text-[#106c4f]' : 'text-[#b14133]'">
-                    {{ Number(tx.delta) >= 0 ? `+${tx.delta}` : tx.delta }}
+                  <span :class="txDeltaFen(tx) >= 0 ? 'text-[#106c4f]' : 'text-[#b14133]'">
+                    {{ signedCredits(txDeltaFen(tx)) }}
                   </span>
                 </td>
-                <td class="px-2 py-3">{{ tx.balance_before }}</td>
-                <td class="px-2 py-3">{{ tx.balance_after }}</td>
+                <td class="px-2 py-3">{{ formatCredits(txBalanceBeforeFen(tx)) }}</td>
+                <td class="px-2 py-3">{{ formatCredits(txBalanceAfterFen(tx)) }}</td>
                 <td class="px-2 py-3 text-[#4f5d69]">{{ tx.reason || "-" }}</td>
               </tr>
               <tr v-if="!detail.credit_transactions?.length">
-                <td class="px-2 py-4 text-[#6a7781]" colspan="6">暂无积分流水</td>
+                <td class="px-2 py-4 text-[#6a7781]" colspan="6">暂无点数流水</td>
               </tr>
             </tbody>
           </table>
@@ -197,7 +197,7 @@
                   <div class="mt-2 flex flex-wrap gap-2 text-xs text-[#62707b]">
                     <span class="rounded-full bg-white px-2 py-1">{{ mapPlatform(task.platform) }}</span>
                     <span class="rounded-full bg-white px-2 py-1">{{ task.char_count || 0 }} 字符</span>
-                    <span class="rounded-full bg-white px-2 py-1">{{ task.cost_credits || 0 }} 积分</span>
+                    <span class="rounded-full bg-white px-2 py-1">{{ formatCredits(taskCostFen(task)) }}</span>
                     <span class="rounded-full bg-white px-2 py-1">{{ formatTime(task.created_at) }}</span>
                   </div>
                   <div class="mt-3 text-sm leading-6 text-[#485661]">
@@ -254,9 +254,6 @@
                   主文件：{{ selectedTask.source_filename || "-" }}
                 </div>
                 <div class="rounded-xl border border-[#e1e7ec] bg-white px-3 py-2 sm:col-span-2">
-                  辅助报告：{{ selectedTask.report_path || "-" }}
-                </div>
-                <div class="rounded-xl border border-[#e1e7ec] bg-white px-3 py-2 sm:col-span-2">
                   结果文件：{{ selectedTask.output_path || "-" }}
                 </div>
               </div>
@@ -264,15 +261,6 @@
               <section v-if="selectedTask.error_message" class="mt-4 rounded-2xl border border-[#f1cfc8] bg-[#fff4f1] p-4">
                 <h5 class="text-sm font-semibold text-[#9c3a31]">失败原因</h5>
                 <div class="mt-2 text-sm leading-6 text-[#9c3a31]">{{ selectedTask.error_message }}</div>
-              </section>
-
-              <section v-if="resultReportMetrics(selectedTask).length" class="mt-4 rounded-2xl border border-[#dce3e9] bg-white p-4">
-                <h5 class="text-sm font-semibold text-[#1c2831]">辅助报告指标</h5>
-                <div class="mt-3 grid gap-3 md:grid-cols-2">
-                  <div v-for="metric in resultReportMetrics(selectedTask)" :key="metric.label" class="rounded-xl border border-[#e4eaf0] bg-[#fbfcfd] px-3 py-2 text-sm text-[#44525d]">
-                    {{ metric.label }}：{{ metric.value }}{{ metric.unit || "" }}
-                  </div>
-                </div>
               </section>
 
               <section v-if="resultRiskParagraphs(selectedTask).length" class="mt-4 rounded-2xl border border-[#dce3e9] bg-white p-4">
@@ -324,7 +312,6 @@ import { mapTaskPlatform } from "../../lib/taskPlatform"
 import {
   taskResultMetrics,
   taskResultOutputPreview,
-  taskResultReportMetrics,
   taskResultReviewPoints,
   taskResultRiskParagraphs,
   taskResultSummary,
@@ -345,10 +332,10 @@ const errorText = ref("")
 const selectedTaskId = ref(null)
 
 const presetAdjustments = [
-  { label: "+200 新客补偿", value: 200, reason: "新客补偿" },
-  { label: "+500 投诉补偿", value: 500, reason: "投诉补偿" },
-  { label: "-200 违规扣减", value: -200, reason: "违规扣减" },
-  { label: "-500 人工回收", value: -500, reason: "人工回收" },
+  { label: "+200 点数 新客补偿", value: 200, reason: "新客补偿" },
+  { label: "+500 点数 投诉补偿", value: 500, reason: "投诉补偿" },
+  { label: "-200 点数 违规扣减", value: -200, reason: "违规扣减" },
+  { label: "-500 点数 人工回收", value: -500, reason: "人工回收" },
 ]
 
 const selectedTask = computed(() => {
@@ -391,7 +378,7 @@ async function adjustCredits() {
     delta: delta.value,
     reason: reason.value,
   })
-  hintText.value = `调整成功，当前积分 ${data.credits}`
+  hintText.value = `调整成功，当前通用点数 ${formatCredits(userBalanceFen(data))}`
   delta.value = 0
   reason.value = ""
   await loadDetail()
@@ -444,20 +431,56 @@ function numberText(value) {
   return Number(value).toLocaleString()
 }
 
+function formatCredits(value) {
+  return `${Number(value || 0).toLocaleString()} 通用点数`
+}
+
+function signedCredits(value) {
+  const points = Number(value || 0)
+  const sign = points >= 0 ? "+" : ""
+  return `${sign}${formatCredits(points)}`
+}
+
+function userBalanceFen(row) {
+  if (typeof row?.balance_fen === "number") return row.balance_fen
+  if (typeof row?.credits === "number") return row.credits
+  return 0
+}
+
+function taskCostFen(task) {
+  if (typeof task?.cost_fen === "number") return task.cost_fen
+  if (typeof task?.cost_credits === "number") return task.cost_credits
+  return 0
+}
+
+function txDeltaFen(tx) {
+  if (typeof tx?.delta_fen === "number") return tx.delta_fen
+  if (typeof tx?.delta === "number") return tx.delta
+  return 0
+}
+
+function txBalanceBeforeFen(tx) {
+  if (typeof tx?.balance_before_fen === "number") return tx.balance_before_fen
+  if (typeof tx?.balance_before === "number") return tx.balance_before
+  return 0
+}
+
+function txBalanceAfterFen(tx) {
+  if (typeof tx?.balance_after_fen === "number") return tx.balance_after_fen
+  if (typeof tx?.balance_after === "number") return tx.balance_after
+  return 0
+}
+
 function formatTime(value) {
   return value ? String(value).slice(0, 19).replace("T", " ") : "-"
 }
 
 function mapTxType(type) {
   const map = {
-    init: "初始积分",
+    init: "初始化点数",
     task_consume: "任务扣减",
     task_refund: "失败退回",
-    package_pay: "充值到账",
-    referral_invite: "邀请奖励",
-    referral_bonus: "注册福利",
-    referral_first_pay: "首充奖励",
-    referral_recurring: "持续返利",
+    package_pay: "点数充值",
     admin_adjust: "人工调整",
   }
   return map[type] || type || "-"
@@ -509,10 +532,6 @@ function resultSummary(task) {
 
 function resultMetrics(task) {
   return taskResultMetrics(task)
-}
-
-function resultReportMetrics(task) {
-  return taskResultReportMetrics(task)
 }
 
 function resultRiskParagraphs(task) {

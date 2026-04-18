@@ -7,7 +7,6 @@
 - 统一资料根目录仍为 `C:\Users\m\Desktop\001项目\算法训练资料包`
 - 本轮明显变化集中在 `知网资料包`
 - `维普资料包` 本轮总量未变化
-- `PaperPass资料包` 仍为空
 
 ## 最新库存快照
 
@@ -50,19 +49,7 @@
 - 维普资料池本轮无新增，但仍然是 `vip_dedup` 的主力训练池
 - 其中多版本标题组依旧有价值，适合做“同题多版本改写效果差异”分析
 
-### PaperPass
-
-- 总文件数：`0`
-
-结论：
-
-- `paperpass_aigc`
-- `paperpass_dedup`
-- `paperpass_rewrite`
-
-以上三个槽位仍未进入可训练状态
-
-## 对 9 个算法包的影响
+## 对 6 个算法包的影响
 
 ### 增益明显
 
@@ -85,9 +72,6 @@
 - `vip_aigc_detect`
 - `vip_dedup`
 - `vip_rewrite`
-- `paperpass_aigc_detect`
-- `paperpass_dedup`
-- `paperpass_rewrite`
 
 ## 本轮最有价值的判断
 
@@ -105,7 +89,6 @@
    - 知网同标题原文
    - 知网改写前后成套样本
    - 维普 AIGC 样本
-   - PaperPass 任意可用样本
 
 ## 本轮产出
 

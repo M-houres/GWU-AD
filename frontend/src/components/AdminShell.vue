@@ -1,5 +1,5 @@
 <template>
-  <div class="scholar-page academic-shell-enter shell-frame" :class="{ 'shell-frame--mobile': isMobile, 'shell-frame--drawer-open': isDrawerOpen }">
+  <div class="scholar-page shell-frame" :class="{ 'shell-frame--mobile': isMobile, 'shell-frame--drawer-open': isDrawerOpen }">
     <button
       v-if="isMobile && isDrawerOpen"
       type="button"
@@ -101,17 +101,13 @@
 <script setup>
 import {
   Boxes,
-  Gift,
   LayoutDashboard,
   ListTodo,
-  Megaphone,
   Menu,
   PanelLeftClose,
   PanelLeftOpen,
   ReceiptText,
-  ScrollText,
   Settings2,
-  ShieldCheck,
   Users,
   X,
 } from "lucide-vue-next"
@@ -152,12 +148,8 @@ const menuDefs = [
   { path: "/admin/users", label: "用户管理", permission: "users:view", icon: Users },
   { path: "/admin/tasks", label: "任务管理", permission: "tasks:view", icon: ListTodo },
   { path: "/admin/orders", label: "订单管理", permission: "orders:view", icon: ReceiptText },
-  { path: "/admin/referrals", label: "推广管理", permission: "referrals:view", icon: Gift },
-  { path: "/admin/configs/notice", label: "公告配置", permission: "configs:view", icon: Megaphone },
-  { path: "/admin/logs", label: "系统日志", permission: "logs:view", icon: ScrollText },
   { path: "/admin/algo-packages", label: "算法配置", permission: "algo:view", icon: Boxes },
   { path: "/admin/configs", label: "配置中心", permission: "configs:view", icon: Settings2 },
-  { path: "/admin/admin-users", label: "权限管理", permission: "admins:view", icon: ShieldCheck },
 ]
 
 const allMenus = computed(() => menuDefs.filter((item) => adminHasPermission(item.permission)))
@@ -208,10 +200,10 @@ function isRouteMatch(currentPath, targetPath) {
 
 .scholar-shell--admin {
   --admin-sidebar-width: 268px;
-  grid-template-columns: var(--admin-sidebar-width) minmax(0, 1fr);
+  display: block;
   min-height: 100vh;
   min-height: 100svh;
-  transition: grid-template-columns 0.2s ease;
+  transition: none;
 }
 
 .scholar-shell--admin.scholar-shell--collapsed {
@@ -219,11 +211,20 @@ function isRouteMatch(currentPath, targetPath) {
 }
 
 .scholar-sidebar--admin {
+  position: fixed;
+  inset: 0 auto 0 0;
+  width: var(--admin-sidebar-width);
+  height: 100vh;
+  height: 100svh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 18px 14px;
   border: 1px solid #dbe3ee !important;
-  border-radius: 18px !important;
+  border-radius: 0 !important;
   background: #ffffff !important;
   box-shadow: 0 14px 34px rgba(15, 23, 42, 0.08) !important;
-  transition: transform 0.2s ease;
+  transition: width 0.2s ease, transform 0.2s ease;
   z-index: 80;
 }
 
@@ -237,6 +238,8 @@ function isRouteMatch(currentPath, targetPath) {
   align-items: flex-start;
   justify-content: space-between;
   gap: 10px;
+  flex-shrink: 0;
+  padding-bottom: 8px;
 }
 
 .admin-brand-block {
@@ -312,7 +315,13 @@ function isRouteMatch(currentPath, targetPath) {
 }
 
 .scholar-nav {
-  gap: 8px;
+  margin-top: 16px;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 12px;
+  overflow-y: auto;
+  padding-right: 4px;
 }
 
 .scholar-nav__icon {
@@ -323,9 +332,10 @@ function isRouteMatch(currentPath, targetPath) {
 }
 
 .scholar-sidebar--admin .scholar-nav__item {
-  min-height: 40px;
-  padding: 9px 12px;
-  border-radius: 10px;
+  min-height: 48px;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 12px;
   border: 1px solid #dbe3ee !important;
   background: #ffffff !important;
   color: #334155 !important;
@@ -355,6 +365,7 @@ function isRouteMatch(currentPath, targetPath) {
 .scholar-sidebar--admin .scholar-nav__item .scholar-nav__label {
   color: inherit !important;
   font-size: 13px;
+  line-height: 1.4;
 }
 
 .scholar-topbar__meta {
@@ -362,6 +373,13 @@ function isRouteMatch(currentPath, targetPath) {
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
   gap: 14px;
+}
+
+.scholar-main {
+  margin-left: var(--admin-sidebar-width);
+  min-height: 100vh;
+  min-height: 100svh;
+  transition: margin-left 0.2s ease;
 }
 
 .scholar-topbar__left {
@@ -420,11 +438,13 @@ function isRouteMatch(currentPath, targetPath) {
 .scholar-shell--collapsed .scholar-nav__item {
   justify-content: center;
   gap: 0;
-  padding-inline: 8px;
+  min-height: 44px;
+  padding-inline: 10px;
 }
 
 @media (max-width: 1023px) {
   .scholar-shell--admin {
+    display: grid;
     grid-template-columns: 1fr;
     padding: 14px 12px calc(18px + env(safe-area-inset-bottom, 0px));
   }
@@ -436,6 +456,7 @@ function isRouteMatch(currentPath, targetPath) {
     max-height: none;
     height: 100vh;
     height: 100svh;
+    padding: 18px 14px;
     border-radius: 0 16px 16px 0 !important;
     transform: translateX(-104%);
     box-shadow: 0 20px 38px rgba(15, 23, 42, 0.2) !important;
@@ -450,6 +471,11 @@ function isRouteMatch(currentPath, targetPath) {
     top: 0;
     z-index: 70;
     padding: calc(18px + env(safe-area-inset-top, 0px)) 16px 18px;
+  }
+
+  .scholar-main {
+    margin-left: 0;
+    min-height: auto;
   }
 
   .scholar-topbar__meta {

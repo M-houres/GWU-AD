@@ -112,7 +112,6 @@ const sending = ref(false)
 const countdown = ref(0)
 const errorText = ref("")
 const hintText = ref("")
-const referrerCode = ref("")
 
 const wxKey = ref("")
 const wxQrcodeDataUrl = ref("")
@@ -140,7 +139,6 @@ const hasWechatEntry = computed(() => wechatLoginEnabled.value)
 watch(
   () => route.fullPath,
   () => {
-    syncRouteParams()
   }
 )
 
@@ -156,7 +154,6 @@ watch([phoneLoginEnabled, wechatLoginEnabled], ([phoneEnabled, wxEnabled]) => {
 
 onMounted(async () => {
   await loadAuthOptions()
-  syncRouteParams()
   if (String(route.query.mode || "").toLowerCase() === "wx" && wechatLoginEnabled.value) {
     await switchMode("wx")
   }
@@ -166,17 +163,6 @@ onUnmounted(() => {
   stopSmsCountdown()
   stopWxTimers()
 })
-
-function syncRouteParams() {
-  const queryRef = route.query.ref
-  if (typeof queryRef === "string" && queryRef.trim()) {
-    referrerCode.value = queryRef.trim().toUpperCase()
-    localStorage.setItem("wuhong_referrer_code", referrerCode.value)
-  } else {
-    const cachedRef = localStorage.getItem("wuhong_referrer_code")
-    referrerCode.value = cachedRef ? cachedRef.toUpperCase() : ""
-  }
-}
 
 function stopSmsCountdown() {
   if (smsCountdownTimer) {
@@ -297,7 +283,6 @@ async function submitPhoneAuth() {
     const data = await userHttp.post("/auth/login", {
       phone: phone.value,
       code: code.value,
-      referrer_code: referrerCode.value || undefined,
       device_fingerprint: getDeviceFingerprint(),
     })
     completeLogin(data.token, data.user, data.refresh_token)
@@ -372,7 +357,6 @@ function completeLogin(token, user, refreshToken) {
   setUserToken(token)
   setUserRefreshToken(refreshToken)
   setUserInfo(user)
-  localStorage.removeItem("wuhong_referrer_code")
   router.push(resolveUserRedirect(route.query.redirect, "/app/detect"))
 }
 

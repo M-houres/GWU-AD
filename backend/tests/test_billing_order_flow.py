@@ -5,6 +5,7 @@ from app.constants import DEFAULT_BILLING_PACKAGES
 from app.deps import current_user, db_dep
 from app.exceptions import BizError
 from app.main import app
+from app.money import cny_to_fen
 from app.models import Order, SystemConfig, User
 from app.services.payment_service import create_payment_session
 
@@ -14,14 +15,14 @@ def test_create_order_poll_and_pay_with_remote_provider(
     db_session: Session,
     monkeypatch,
 ) -> None:
-    monkeypatch.setattr("app.worker_tasks.grant_order_referral_rewards_async.delay", lambda *_args, **_kwargs: None)
+    default_package_amount = float(DEFAULT_BILLING_PACKAGES[0]["price"])
     monkeypatch.setattr(
         "app.api.billing.create_payment_session",
         lambda *_args, **_kwargs: {"provider": "wechat", "pay_url": "weixin://wxpay/mock"},
     )
     monkeypatch.setattr(
         "app.api.billing.query_remote_order_status",
-        lambda *_args, **_kwargs: {"status": "paid", "amount_cny": 9.9},
+        lambda *_args, **_kwargs: {"status": "paid", "amount_cny": default_package_amount},
     )
 
     package_name = DEFAULT_BILLING_PACKAGES[0]["name"]
@@ -454,9 +455,9 @@ def test_billing_packages_comes_from_admin_billing_config(
             category="system",
             config_key="billing",
             config_value={
-                "aigc_rate": 1,
-                "dedup_rate": 2,
-                "rewrite_rate": 2,
+                "aigc_points_per_char": 1,
+                "dedup_points_per_char": 2,
+                "rewrite_points_per_char": 2,
                 "packages": [
                     {
                         "name": "ops_pack",
@@ -495,6 +496,7 @@ def test_billing_packages_comes_from_admin_billing_config(
         items = pkg_resp.json()["data"]["items"]
         assert len(items) == 1
         assert items[0]["name"] == "ops_pack"
+        assert items[0]["credits"] == 28000
         assert items[0]["description"] == "campaign package"
 
         order_resp = client.post(
@@ -504,7 +506,40 @@ def test_billing_packages_comes_from_admin_billing_config(
         assert order_resp.status_code == 200
         data = order_resp.json()["data"]
         assert data["amount_cny"] == 19.9
-        assert data["credits"] == 28000
+        assert data["recharge_fen"] == 28000
+        assert data["recharge_cny"] == 19.9
+        assert data["credits"] == data["recharge_fen"]
+    finally:
+        app.dependency_overrides.pop(current_user, None)
+
+
+def test_create_order_rejects_custom_amount_recharge(
+    client: TestClient,
+    db_session: Session,
+) -> None:
+    user = User(phone="13800008889", nickname="u7", credits=0)
+    db_session.add(user)
+    db_session.add(
+        SystemConfig(
+            category="system",
+            config_key="payment",
+            config_value={"provider": "mock", "test_mode": True},
+            updated_by=1,
+        )
+    )
+    db_session.commit()
+    db_session.refresh(user)
+
+    app.dependency_overrides[current_user] = lambda: user
+    try:
+        resp = client.post(
+            "/api/v1/billing/create-order",
+            json={"amount_cny": 29.9, "provider": "mock"},
+        )
+        assert resp.status_code == 422
+        body = resp.json()
+        assert body["code"] == 4221
+        assert body["message"] == "当前仅支持按通用点数套餐充值"
     finally:
         app.dependency_overrides.pop(current_user, None)
 

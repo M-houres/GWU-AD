@@ -2,8 +2,9 @@
   <UserShell
     title="降重复率"
     subtitle="任务按时间倒序展示，最新提交优先在顶部显示。"
-    :credits="userCredits"
+    :credits="userBalanceFen"
     :hide-topbar="true"
+    :disable-notice-dialog="true"
     @buy="showBuy = !showBuy"
   >
     <section class="aigc-record-head">
@@ -48,7 +49,7 @@
       </button>
     </section>
 
-    <p class="aigc-record-retain">报告将保留 30 天，请及时下载与归档。</p>
+    <p class="aigc-record-retain">结果文件将保留 30 天，请及时下载与归档。</p>
 
     <section v-if="loading" class="scholar-note">正在加载记录...</section>
 
@@ -77,8 +78,7 @@
             <div>提交时间：{{ formatTime(item.created_at) }}</div>
             <div>平台：{{ mapTaskPlatform(item.platform, item.task_type) }}</div>
             <div>文档字数：{{ item.char_count || 0 }}</div>
-            <div>消耗积分：{{ item.cost_credits || 0 }} 积分</div>
-            <div>查重报告：{{ item.has_report ? "已上传" : "未上传" }}</div>
+            <div>消耗通用点数：{{ formatCredits(taskCostFen(item)) }}</div>
           </div>
         </div>
 
@@ -93,7 +93,7 @@
           </template>
           <template v-else>
             <span class="service-status-tag service-status-tag--failed">处理异常</span>
-            <div class="aigc-record-item__score-note">{{ taskFailureHint(item) }}</div>
+            <div class="aigc-record-item__score-note">{{ refundHint(item) }}</div>
           </template>
         </div>
 
@@ -115,7 +115,7 @@
           </template>
           <template v-else>
             <p class="aigc-record-item__waiting">
-              {{ item.status === "failed" ? taskFailureHint(item) : "处理完成后可下载" }}
+              {{ item.status === "failed" ? refundHint(item) : "处理完成后可下载" }}
             </p>
           </template>
         </div>
@@ -149,7 +149,7 @@ import UserShell from "../../components/UserShell.vue"
 import { useUserProfile } from "../../composables/useUserProfile"
 import { downloadAxiosBlobResponse } from "../../lib/download"
 import { userHttp } from "../../lib/http"
-import { fetchAllUserTasks } from "../../lib/userRecords"
+import { fetchUserTasksFast, shouldPollTaskRecords } from "../../lib/userRecords"
 import { getUserToken } from "../../lib/session"
 import { mapTaskPlatform } from "../../lib/taskPlatform"
 import { isTaskProcessingStatus } from "../../lib/taskStatus"
@@ -165,16 +165,18 @@ const page = ref(1)
 const pageSize = 8
 const tasks = ref([])
 const pollTimer = ref(null)
+let loadToken = 0
 
 const { user, refreshUser } = useUserProfile()
-const userCredits = computed(() => {
-  const value = user.value && user.value.credits
+const userBalanceFen = computed(() => {
+  const value = user.value && (user.value.balance_fen ?? user.value.credits)
   return typeof value === "number" ? value : null
 })
 const focusTaskId = computed(() => {
   const raw = Number(route.query.focus)
   return Number.isFinite(raw) && raw > 0 ? raw : null
 })
+const justSubmitted = computed(() => String(route.query.submitted || "").trim() === "1")
 
 const counts = computed(() => {
   const all = tasks.value.length
@@ -263,15 +265,23 @@ async function loadTasks() {
     tasks.value = []
     return
   }
+  const token = ++loadToken
   loading.value = true
   try {
-    const data = await fetchAllUserTasks(
+    const { items, restPromise } = await fetchUserTasksFast(
       { task_type: "dedup" },
-      { pageSize: 100, maxPages: 20 }
+      { focusTaskId: focusTaskId.value, pageSize: 100, maxPages: 20 }
     )
-    tasks.value = [...data].sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))
-  } finally {
+    if (token !== loadToken) return
+    tasks.value = items
     loading.value = false
+    const mergedItems = await restPromise
+    if (token !== loadToken) return
+    tasks.value = mergedItems
+  } finally {
+    if (token === loadToken) {
+      loading.value = false
+    }
   }
 }
 
@@ -281,7 +291,7 @@ function startPolling() {
     return
   }
   pollTimer.value = window.setInterval(() => {
-    if (tasks.value.some((item) => isTaskProcessingStatus(item.status))) {
+    if (shouldPollTaskRecords({ tasks: tasks.value, focusTaskId: focusTaskId.value, submitted: justSubmitted.value })) {
       loadTasks()
     }
   }, 4000)
@@ -313,6 +323,17 @@ function formatTime(value) {
   return value ? String(value).slice(0, 19).replace("T", " ") : "-"
 }
 
+function taskCostFen(item) {
+  if (typeof item?.cost_fen === "number") return item.cost_fen
+  if (typeof item?.cost_points === "number") return item.cost_points
+  if (typeof item?.cost_credits === "number") return item.cost_credits
+  return 0
+}
+
+function formatCredits(value) {
+  return `${Number(value || 0).toLocaleString()} 通用点数`
+}
+
 function reportDeadline(value) {
   if (!value) {
     return "-"
@@ -334,6 +355,11 @@ function taskFailureMessage(item) {
 function taskFailureHint(item) {
   const message = taskFailureMessage(item)
   return message.length > 22 ? `${message.slice(0, 22)}...` : message
+}
+
+function refundHint(item) {
+  if (item?.refund_done) return "处理失败，已退回通用点数"
+  return taskFailureHint(item)
 }
 
 function goUpload() {

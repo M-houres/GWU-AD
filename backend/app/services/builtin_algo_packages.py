@@ -247,45 +247,6 @@ BUILTIN_PACKAGE_SPECS = (
             ],
         ),
     ),
-    BuiltinPackageSpec(
-        platform="paperpass",
-        function_type="aigc_detect",
-        name="paperpass_aigc_detect",
-        version=_VERSION,
-        main_py=_aigc_detect_code(profile="paperpass_like", score_offset=0.03),
-    ),
-    BuiltinPackageSpec(
-        platform="paperpass",
-        function_type="dedup",
-        name="paperpass_dedup",
-        version=_VERSION,
-        main_py=_dedup_code(
-            profile="paperpass_like",
-            replacements=[
-                ("首先", "首要的是"),
-                ("其次", "进一步看"),
-                ("此外", "同时还需注意"),
-                ("因此", "由此能够发现"),
-                ("总之", "综合来看"),
-                ("可以看出", "据此可以发现"),
-            ],
-        ),
-    ),
-    BuiltinPackageSpec(
-        platform="paperpass",
-        function_type="rewrite",
-        name="paperpass_rewrite",
-        version=_VERSION,
-        main_py=_rewrite_code(
-            profile="paperpass_like",
-            replacements=[
-                ("研究表明", "从现有研究来看"),
-                ("我们发现", "分析结果显示"),
-                ("可以看出", "据此可以发现"),
-                ("非常重要", "具有核心作用"),
-            ],
-        ),
-    ),
 )
 
 
@@ -372,13 +333,6 @@ def _legacy_aigc_detect_code_v2(*, profile: str, score_offset: float) -> str:
                     "paragraph_weight": 0.54,
                     "peak_weight": 0.22,
                     "segment_weight": 0.24,
-                }},
-                "paperpass_like": {{
-                    "high": 0.60,
-                    "medium": 0.38,
-                    "paragraph_weight": 0.50,
-                    "peak_weight": 0.20,
-                    "segment_weight": 0.30,
                 }},
             }}
             TEMPLATE_PHRASES = [
@@ -714,7 +668,6 @@ def _aigc_detect_code_v3(*, profile: str, score_offset: float) -> str:
             PROFILE_SETTINGS = {{
                 "cnki_like": {{"high": 0.67, "medium": 0.42, "coverage_weight": 0.06, "streak_weight": 0.03}},
                 "vip_like": {{"high": 0.64, "medium": 0.40, "coverage_weight": 0.08, "streak_weight": 0.03}},
-                "paperpass_like": {{"high": 0.60, "medium": 0.38, "coverage_weight": 0.05, "streak_weight": 0.05}},
             }}
             TEMPLATE_PHRASES = [
                 "研究表明", "本研究旨在", "本文基于", "在此背景下", "可以看出", "由此可见", "综上所述",
@@ -2032,7 +1985,6 @@ def _upgrade_builtin_specs() -> tuple[BuiltinPackageSpec, ...]:
     profile_offsets = {
         "cnki": ("cnki_like", 0.0),
         "vip": ("vip_like", -0.02),
-        "paperpass": ("paperpass_like", 0.03),
     }
     upgraded: list[BuiltinPackageSpec] = []
     for spec in BUILTIN_PACKAGE_SPECS:
@@ -2296,7 +2248,7 @@ def _runtime_contract_doc() -> str:
 
             - `name` 正则：`^[A-Za-z0-9_-]{2,64}$`
             - `version` 正则：`^[0-9]+(?:\\.[0-9]+){2}(?:[-+._A-Za-z0-9]*)?$`
-            - `platform` 只能是 `cnki` / `vip` / `paperpass`
+            - `platform` 只能是 `cnki` / `vip`
             - `function_type` 只能是 `aigc_detect` / `dedup` / `rewrite`
             - `entry` 默认 `main.py`
             - `entry` 只能是相对路径，不能包含 `..`
@@ -2372,7 +2324,7 @@ def _function_spec_doc(function_type: str) -> str:
             {
               "ai_score": 0.42,
               "label": "medium",
-              "algorithm": "paperpass_aigc_detect_custom",
+              "algorithm": "cnki_aigc_detect_custom",
               "text_stats": {
                 "chars": 1280
               }
@@ -2500,7 +2452,7 @@ def build_authoring_spec_bundle() -> tuple[str, bytes]:
         zf.writestr("docs/02_dedup_spec.md", _function_spec_doc("dedup"))
         zf.writestr("docs/03_rewrite_spec.md", _function_spec_doc("rewrite"))
 
-        for platform in ("cnki", "vip", "paperpass"):
+        for platform in ("cnki", "vip"):
             for function_type in ("aigc_detect", "dedup", "rewrite"):
                 base = f"blank_packages/{platform}/{function_type}"
                 manifest = _blank_package_manifest(platform=platform, function_type=function_type)

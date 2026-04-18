@@ -110,7 +110,7 @@ def test_aigc_detect_platform_profiles_are_close_but_not_identical(
 
     engine = ProcessingEngine(db_session)
     results = {}
-    for platform in ("cnki", "vip", "paperpass"):
+    for platform in ("cnki", "vip"):
         output_path = tmp_path / f"{platform}.pdf"
         result = engine.process(TaskType.AIGC_DETECT, platform, source_path, output_path, task_id=100)
         results[platform] = float(result.result_json["score_pct"])
@@ -179,7 +179,7 @@ def test_aigc_detect_full_text_pdf_report_is_parseable(tmp_path: Path, db_sessio
     monkeypatch.setattr(ProcessingEngine, "_run_algo_package", lambda self, *_args, **_kwargs: None)
 
     engine = ProcessingEngine(db_session)
-    result = engine.process(TaskType.AIGC_DETECT, "paperpass", source_path, output_path, task_id=8)
+    result = engine.process(TaskType.AIGC_DETECT, "vip", source_path, output_path, task_id=8)
 
     assert output_path.exists()
     assert len(result.result_json["paragraph_details"]) == 18

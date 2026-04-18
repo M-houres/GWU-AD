@@ -6,17 +6,24 @@ import uuid
 
 from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile
 from fastapi.responses import FileResponse
+from redis import RedisError
 from sqlalchemy import desc
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
-from app.constants import ALLOWED_EXTENSIONS, MAX_FILE_SIZE_MB, TASK_RATES
+from app.constants import ALLOWED_EXTENSIONS, MAX_FILE_SIZE_MB
 from app.deps import client_source_dep, current_user, db_dep, get_redis
 from app.exceptions import BizError
-from app.models import CreditType, SystemConfig, Task, TaskStatus, TaskType, User
+from app.models import CreditType, Task, TaskStatus, TaskType, User
+from app.money import cny_to_api, fen_to_cny
 from app.pagination import paginate
 from app.responses import ok
 from app.schemas import APIResp
+from app.services.billing_rules_service import (
+    build_task_rate_payload,
+    calc_task_cost_fen,
+    resolve_task_points_per_char,
+)
 from app.services.credit_service import change_credits
 from app.services.aigc_quota_service import get_aigc_daily_quota
 from app.services.process_strategy_service import (
@@ -105,7 +112,6 @@ def _guard_stale_tasks_for_user(db: Session, *, user_id: int) -> int:
     rows = (
         db.query(Task)
         .filter(Task.user_id == user_id, Task.status.in_(TASK_CHAIN_GUARD_STATUSES))
-        .with_for_update()
         .all()
     )
     if not rows:
@@ -296,41 +302,53 @@ def _check_submit_limits(redis_conn, *, user_id: int, client_ip: str) -> None:
             raise BizError(code=4116, message=message, http_status=429)
 
 
-def _check_submit_backlog(redis_conn, *, user_id: int) -> None:
-    if settings.app_env == "test":
-        return
-    user_limit = max(int(settings.task_submit_user_inflight_limit or 0), 0)
-    if user_limit > 0:
-        inflight = int(
-            redis_conn.get(f"task:submit:inflight:user:{user_id}") or 0
-        )
-        if inflight >= user_limit:
-            raise BizError(code=4117, message="当前处理中任务较多，请稍后再提交", http_status=429)
+def _submit_backlog_keys(user_id: int) -> tuple[str, str]:
+    return ("task:submit:backlog", f"task:submit:inflight:user:{user_id}")
 
+
+def _acquire_submit_backlog(redis_conn, *, user_id: int) -> bool:
+    if settings.app_env == "test":
+        return False
+    backlog_key, user_key = _submit_backlog_keys(user_id)
+    user_limit = max(int(settings.task_submit_user_inflight_limit or 0), 0)
     backlog_limit = max(int(settings.task_submit_queue_backlog_limit or 0), 0)
-    if backlog_limit > 0:
-        backlog = int(redis_conn.get("task:submit:backlog") or 0)
-        if backlog >= backlog_limit:
+    try:
+        backlog = int(redis_conn.incr(backlog_key))
+        if backlog == 1:
+            redis_conn.expire(backlog_key, 3600)
+        if backlog_limit > 0 and backlog > backlog_limit:
+            _decrement_submit_backlog(redis_conn, user_id=user_id)
             raise BizError(code=4118, message="系统繁忙，请稍后再试", http_status=503)
+
+        inflight = int(redis_conn.incr(user_key))
+        if inflight == 1:
+            redis_conn.expire(user_key, 3600)
+        if user_limit > 0 and inflight > user_limit:
+            _decrement_submit_backlog(redis_conn, user_id=user_id)
+            raise BizError(code=4117, message="当前处理中任务较多，请稍后再提交", http_status=429)
+        return True
+    except BizError:
+        raise
+    except RedisError as exc:
+        if settings.is_prod:
+            raise BizError(code=4118, message="系统繁忙，请稍后再试", http_status=503) from exc
+        logger.warning("task_submit_backlog_acquire_failed", exc_info=True, extra={"user_id": user_id})
+        return False
 
 
 def _increment_submit_backlog(redis_conn, *, user_id: int) -> None:
-    if settings.app_env == "test":
+    acquired = _acquire_submit_backlog(redis_conn, user_id=user_id)
+    if not acquired:
         return
-    backlog_key = "task:submit:backlog"
-    user_key = f"task:submit:inflight:user:{user_id}"
-    redis_conn.incr(backlog_key)
-    redis_conn.expire(backlog_key, 3600)
-    current = redis_conn.incr(user_key)
-    if current == 1:
+    _, user_key = _submit_backlog_keys(user_id)
+    if int(redis_conn.get(user_key) or 0) <= 0:
         redis_conn.expire(user_key, 3600)
 
 
 def _decrement_submit_backlog(redis_conn, *, user_id: int) -> None:
     if settings.app_env == "test":
         return
-    backlog_key = "task:submit:backlog"
-    user_key = f"task:submit:inflight:user:{user_id}"
+    backlog_key, user_key = _submit_backlog_keys(user_id)
     try:
         backlog = int(redis_conn.get(backlog_key) or 0)
         user_inflight = int(redis_conn.get(user_key) or 0)
@@ -369,25 +387,6 @@ def _build_idempotency_key(request: Request, *, user_id: int, task_type: TaskTyp
     return hashed_key[:IDEMPOTENCY_KEY_MAX_LEN]
 
 
-def _resolve_task_rate(db: Session, task_type: TaskType) -> int:
-    row = (
-        db.query(SystemConfig)
-        .filter(SystemConfig.category == "system", SystemConfig.config_key == "billing")
-        .first()
-    )
-    cfg = row.config_value if row and isinstance(row.config_value, dict) else {}
-    key_map = {
-        TaskType.AIGC_DETECT: "aigc_rate",
-        TaskType.DEDUP: "dedup_rate",
-        TaskType.REWRITE: "rewrite_rate",
-    }
-    key = key_map[task_type]
-    value = cfg.get(key)
-    if isinstance(value, int) and value > 0:
-        return value
-    return TASK_RATES[task_type]
-
-
 def _prepare_task_for_processing(db: Session, *, task: Task) -> dict:
     if task.report_path:
         _validate_report_content(task.task_type, Path(task.report_path))
@@ -397,14 +396,14 @@ def _prepare_task_for_processing(db: Session, *, task: Task) -> dict:
     if char_count <= 0:
         raise BizError(code=4102, message="上传文件为空")
 
-    rate = _resolve_task_rate(db, task.task_type)
+    points_per_char = resolve_task_points_per_char(db, task.task_type)
     quota_before = (
         get_aigc_daily_quota(db, user_id=task.user_id, submitted_delta=-1)
         if task.task_type == TaskType.AIGC_DETECT
         else None
     )
     free_applied = bool(quota_before and quota_before["free_remaining_today"] > 0)
-    cost = 0 if free_applied else rate * char_count
+    cost_fen = 0 if free_applied else calc_task_cost_fen(char_count, points_per_char)
 
     user = db.query(User).filter(User.id == task.user_id).with_for_update().first()
     if user is None:
@@ -414,7 +413,7 @@ def _prepare_task_for_processing(db: Session, *, task: Task) -> dict:
         db,
         user,
         tx_type=CreditType.TASK_CONSUME,
-        delta=-cost,
+        delta=-cost_fen,
         reason="AIGC每日免费额度抵扣" if free_applied else f"{task.task_type.value}任务提交扣费",
         related_id=f"task:{task.id}",
         source=task.source,
@@ -422,41 +421,96 @@ def _prepare_task_for_processing(db: Session, *, task: Task) -> dict:
 
     result_json = dict(task.result_json or {})
     billing = {
-        "rate_per_char": rate,
+        "points_per_char": float(points_per_char),
         "free_applied": free_applied,
         "quota_before": quota_before,
+        "cost_fen": int(cost_fen),
+        "cost_points": int(cost_fen),
     }
     result_json["billing"] = billing
     task.char_count = char_count
-    task.cost_credits = cost
+    task.cost_credits = cost_fen
     task.result_json = result_json
     task.status = TaskStatus.PENDING
     task.updated_at = datetime.utcnow()
     db.flush()
 
     return {
-        "rate_per_char": rate,
+        "points_per_char": float(points_per_char),
         "free_applied": free_applied,
         "quota": quota_before,
+        "cost_fen": int(cost_fen),
+        "cost_points": int(cost_fen),
     }
 
 
 def _initial_billing_payload(db: Session, *, user_id: int, task_type: TaskType) -> dict:
     quota = get_aigc_daily_quota(db, user_id=user_id) if task_type == TaskType.AIGC_DETECT else None
     return {
-        "rate_per_char": _resolve_task_rate(db, task_type),
+        "points_per_char": float(resolve_task_points_per_char(db, task_type)),
         "free_applied": bool(quota and quota["free_remaining_today"] > 0),
         "quota": quota,
     }
 
 
+def _task_submit_payload(
+    db: Session,
+    *,
+    task: Task,
+    strategy: dict | None = None,
+    billing_payload: dict | None = None,
+    idempotent: bool = False,
+    dispatch_mode: str | None = None,
+    balance_after: int | None = None,
+) -> dict:
+    result_json = dict(task.result_json or {})
+    billing = billing_payload or result_json.get("billing")
+    if not isinstance(billing, dict):
+        billing = {
+            "points_per_char": float(resolve_task_points_per_char(db, task.task_type)),
+            "free_applied": False,
+            "quota": None,
+            "cost_fen": int(task.cost_credits or 0),
+            "cost_points": int(task.cost_credits or 0),
+        }
+    if balance_after is None:
+        user_row = db.get(User, task.user_id)
+        balance_after = int(user_row.credits) if user_row is not None else None
+    payload = {
+        "id": task.id,
+        "task_type": task.task_type.value,
+        "platform": task.platform,
+        "source": task.source,
+        "status": task.status.value,
+        "source_filename": task.source_filename,
+        "has_report": bool(task.report_path),
+        "char_count": int(task.char_count or 0),
+        "cost_credits": int(task.cost_credits or 0),
+        "cost_fen": int(task.cost_credits or 0),
+        "cost_points": int(task.cost_credits or 0),
+        "refund_done": bool(task.refund_done),
+        "result_json": sanitize_user_result_json(task.result_json),
+        "billing": billing,
+        "balance_after": balance_after,
+        "balance_after_fen": balance_after,
+        "idempotent": bool(idempotent),
+        "error_message": task.error_message,
+        "created_at": task.created_at,
+        "updated_at": task.updated_at,
+    }
+    if strategy is not None:
+        payload["estimated_time"] = int(strategy.get("timeout_sec", 300))
+    if dispatch_mode is not None:
+        payload["dispatch_mode"] = dispatch_mode
+    return payload
+
+
 @router.get("/rates", response_model=APIResp)
 def task_rates(db: Session = Depends(db_dep)) -> APIResp:
+    payload = build_task_rate_payload(db)
     return ok(
         data={
-            "aigc_rate": _resolve_task_rate(db, TaskType.AIGC_DETECT),
-            "dedup_rate": _resolve_task_rate(db, TaskType.DEDUP),
-            "rewrite_rate": _resolve_task_rate(db, TaskType.REWRITE),
+            **payload,
             "aigc_daily_free_limit": max(int(settings.aigc_daily_free_limit or 0), 0),
         }
     )
@@ -478,7 +532,7 @@ def submit_task(
 ) -> APIResp:
     client_ip = _request_client_ip(request)
     _check_submit_limits(redis_conn, user_id=user.id, client_ip=client_ip)
-    _check_submit_backlog(redis_conn, user_id=user.id)
+    submit_slot_acquired = _acquire_submit_backlog(redis_conn, user_id=user.id)
 
     t = _parse_task_type(task_type)
     normalized_platform = normalize_platform(platform)
@@ -502,6 +556,18 @@ def submit_task(
         platform=normalized_platform,
         filename=src_name,
     )
+    logger.info(
+        "task_submit_checkpoint_in",
+        extra={
+            "user_id": user.id,
+            "task_type": t.value,
+            "platform": normalized_platform,
+            "client_source": client_source,
+            "source_filename": src_name,
+            "has_report": bool(report and report.filename),
+            "idempotency_key_present": bool(idempotency_key),
+        },
+    )
 
     existing_task = None
     task: Task | None = None
@@ -513,20 +579,18 @@ def submit_task(
             .first()
         )
         if existing_task is not None:
-            return ok(
-                data={
-                    "id": existing_task.id,
-                    "status": existing_task.status.value,
-                    "cost_credits": existing_task.cost_credits,
-                    "estimated_time": int(strategy.get("timeout_sec", 300)),
-                    "billing": {
-                        "rate_per_char": _resolve_task_rate(db, t),
-                        "free_applied": False,
-                        "quota": None,
-                    },
-                    "idempotent": True,
-                }
+            if submit_slot_acquired:
+                _decrement_submit_backlog(redis_conn, user_id=user.id)
+            logger.info(
+                "task_submit_checkpoint_idempotent_hit",
+                extra={
+                    "user_id": user.id,
+                    "task_id": existing_task.id,
+                    "task_type": t.value,
+                    "platform": normalized_platform,
+                },
             )
+            return ok(data=_task_submit_payload(db, task=existing_task, strategy=strategy, idempotent=True))
 
     try:
         _save_upload_to(src_path, paper, max_bytes)
@@ -582,6 +646,8 @@ def submit_task(
         db.commit()
     except Exception:
         db.rollback()
+        if submit_slot_acquired:
+            _decrement_submit_backlog(redis_conn, user_id=user.id)
         _remove_uploads(src_path, report_file_path)
         raise
     logger.info(
@@ -592,6 +658,9 @@ def submit_task(
             "task_type": t.value,
             "strategy_mode": strategy.get("process_mode"),
             "engine_mode": internal_processing_mode,
+            "cost_fen": int(task.cost_credits or 0),
+            "cost_points": int(task.cost_credits or 0),
+            "billing_free_applied": bool((billing_payload or {}).get("free_applied")),
         },
     )
 
@@ -599,11 +668,21 @@ def submit_task(
     if settings.app_env != "test":
         from app.worker_tasks import dispatch_background_task, preprocess_submission_async
 
-        _increment_submit_backlog(redis_conn, user_id=user.id)
         try:
             dispatch_mode = dispatch_background_task(preprocess_submission_async, task.id, queue="submission")
+            logger.info(
+                "task_dispatch_checkpoint",
+                extra={
+                    "task_id": task.id,
+                    "user_id": user.id,
+                    "task_type": t.value,
+                    "dispatch_mode": dispatch_mode,
+                },
+            )
         except Exception as exc:
-            _decrement_submit_backlog(redis_conn, user_id=user.id)
+            if submit_slot_acquired:
+                _decrement_submit_backlog(redis_conn, user_id=user.id)
+                submit_slot_acquired = False
             logger.exception(
                 "task_dispatch_failed_after_submit",
                 extra={
@@ -620,18 +699,29 @@ def submit_task(
                 failed_task.updated_at = datetime.utcnow()
                 db.commit()
             dispatch_mode = "failed"
+    elif submit_slot_acquired:
+        _decrement_submit_backlog(redis_conn, user_id=user.id)
+        submit_slot_acquired = False
     final_task = db.get(Task, task.id) or task
-    return ok(
-        data={
-            "id": task.id,
+    logger.info(
+        "task_submit_checkpoint_out",
+        extra={
+            "task_id": task.id,
+            "user_id": user.id,
+            "task_type": t.value,
             "status": final_task.status.value,
-            "cost_credits": task.cost_credits,
-            "estimated_time": int(strategy.get("timeout_sec", 300)),
-            "billing": billing_payload,
-            "idempotent": False,
             "dispatch_mode": dispatch_mode,
-            "error_message": final_task.error_message,
-        }
+        },
+    )
+    return ok(
+        data=_task_submit_payload(
+            db,
+            task=final_task,
+            strategy=strategy,
+            billing_payload=billing_payload,
+            idempotent=False,
+            dispatch_mode=dispatch_mode,
+        )
     )
 
 
@@ -672,6 +762,9 @@ def recover_submitted_task(
             "status": row.status.value,
             "source_filename": row.source_filename,
             "cost_credits": row.cost_credits,
+            "cost_fen": int(row.cost_credits or 0),
+            "cost_points": int(row.cost_credits or 0),
+            "refund_done": bool(row.refund_done),
             "created_at": row.created_at,
             "updated_at": row.updated_at,
         }
@@ -736,6 +829,9 @@ def my_tasks(
             "has_report": bool(row.report_path),
             "char_count": row.char_count,
             "cost_credits": row.cost_credits,
+            "cost_fen": int(row.cost_credits or 0),
+            "cost_points": int(row.cost_credits or 0),
+            "refund_done": bool(row.refund_done),
             "result_json": sanitize_user_result_json(row.result_json),
             "error_message": row.error_message,
             "created_at": row.created_at,
@@ -763,6 +859,9 @@ def task_detail(task_id: int, user: User = Depends(current_user), db: Session = 
             "has_report": bool(row.report_path),
             "char_count": row.char_count,
             "cost_credits": row.cost_credits,
+            "cost_fen": int(row.cost_credits or 0),
+            "cost_points": int(row.cost_credits or 0),
+            "refund_done": bool(row.refund_done),
             "result_json": sanitize_user_result_json(row.result_json),
             "error_message": row.error_message,
             "download_ready": bool(row.status == TaskStatus.COMPLETED and row.output_path),

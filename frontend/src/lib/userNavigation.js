@@ -1,17 +1,25 @@
 export const USER_NAV_GROUP_LABELS = {
   core: "核心功能",
-  lab: "拓展功能",
-  account: "账户功能",
 }
 
 export const USER_NAV_PRESETS = [
+  {
+    key: "detect",
+    label: "AIGC检测",
+    path: "/app/detect",
+    group: "core",
+    visible: true,
+    order: 1,
+    disabled: false,
+    badge: "",
+  },
   {
     key: "rewrite",
     label: "降AIGC率",
     path: "/app/rewrite",
     group: "core",
     visible: true,
-    order: 1,
+    order: 2,
     disabled: false,
     badge: "",
   },
@@ -21,47 +29,7 @@ export const USER_NAV_PRESETS = [
     path: "/app/dedup",
     group: "core",
     visible: true,
-    order: 2,
-    disabled: false,
-    badge: "",
-  },
-  {
-    key: "detect",
-    label: "AIGC检测",
-    path: "/app/detect",
-    group: "core",
-    visible: true,
     order: 3,
-    disabled: false,
-    badge: "",
-  },
-  {
-    key: "review",
-    label: "智能审稿",
-    path: "/app/review",
-    group: "lab",
-    visible: true,
-    order: 4,
-    disabled: true,
-    badge: "开发中",
-  },
-  {
-    key: "defense",
-    label: "答辩服务",
-    path: "/app/defense",
-    group: "lab",
-    visible: true,
-    order: 5,
-    disabled: true,
-    badge: "开发中",
-  },
-  {
-    key: "referral",
-    label: "推广福利",
-    path: "/app/referral",
-    group: "account",
-    visible: true,
-    order: 6,
     disabled: false,
     badge: "",
   },
@@ -103,7 +71,9 @@ export function normalizeUserNavigationConfig(raw) {
     return {
       ...preset,
       visible: asBool(current.visible, preset.visible !== false),
-      order: asInt(current.order, preset.order || index + 1),
+      order: preset.group === "core"
+        ? (preset.order || index + 1)
+        : asInt(current.order, preset.order || index + 1),
     }
   })
     .sort((left, right) => {

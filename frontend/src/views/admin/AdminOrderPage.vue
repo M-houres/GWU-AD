@@ -57,7 +57,7 @@
               <th class="px-2 py-2">订单号</th>
               <th class="px-2 py-2">用户ID</th>
               <th class="px-2 py-2">金额</th>
-              <th class="px-2 py-2">积分</th>
+              <th class="px-2 py-2">到账通用点数</th>
               <th class="px-2 py-2">支付方式</th>
               <th class="px-2 py-2">来源</th>
               <th class="px-2 py-2">状态</th>
@@ -70,8 +70,8 @@
             <tr v-for="row in rows" :key="row.order_no" class="border-b border-[#eef2f5]">
               <td class="px-2 py-2">{{ row.order_no }}</td>
               <td class="px-2 py-2">{{ row.user_id }}</td>
-              <td class="px-2 py-2">{{ row.amount_cny }}</td>
-              <td class="px-2 py-2">{{ row.credits }}</td>
+              <td class="px-2 py-2">¥{{ Number(row.amount_cny || 0).toFixed(2) }}</td>
+              <td class="px-2 py-2">{{ formatCredits(rowRechargeFen(row)) }}</td>
               <td class="px-2 py-2">{{ mapProvider(row.provider) }}</td>
               <td class="px-2 py-2">{{ mapSource(row.source) }}</td>
               <td class="px-2 py-2">
@@ -106,7 +106,7 @@
           <div class="admin-order-card__grid">
             <div><span>用户</span><strong>#{{ row.user_id }}</strong></div>
             <div><span>金额</span><strong>¥{{ row.amount_cny }}</strong></div>
-            <div><span>积分</span><strong>{{ row.credits }}</strong></div>
+            <div><span>到账通用点数</span><strong>{{ formatCredits(rowRechargeFen(row)) }}</strong></div>
             <div><span>支付方式</span><strong>{{ mapProvider(row.provider) }}</strong></div>
             <div><span>来源</span><strong>{{ mapSource(row.source) }}</strong></div>
             <div><span>首充</span><strong>{{ row.is_first_pay ? '是' : '否' }}</strong></div>
@@ -129,8 +129,8 @@
       </div>
       <div class="grid gap-2 md:grid-cols-2">
         <div>用户：{{ detail.user_id }} {{ detail.user_phone ? `(${detail.user_phone})` : '' }}</div>
-        <div>金额：{{ detail.amount_cny }}</div>
-        <div>积分：{{ detail.credits }}</div>
+        <div>金额：¥{{ Number(detail.amount_cny || 0).toFixed(2) }}</div>
+        <div>到账通用点数：{{ formatCredits(rowRechargeFen(detail)) }}</div>
         <div>支付方式：{{ mapProvider(detail.provider) }}</div>
         <div>来源：{{ mapSource(detail.source) }}</div>
         <div>状态：{{ mapStatus(detail.status) }}</div>
@@ -256,6 +256,16 @@ function mapStatus(status) {
     refunded: "已退款",
   }
   return mapping[status] || status
+}
+
+function rowRechargeFen(row) {
+  if (typeof row?.recharge_fen === "number") return row.recharge_fen
+  if (typeof row?.credits === "number") return row.credits
+  return 0
+}
+
+function formatCredits(value) {
+  return `${Number(value || 0).toLocaleString()} 通用点数`
 }
 
 function statusClass(status) {

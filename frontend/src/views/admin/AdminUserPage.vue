@@ -1,5 +1,5 @@
 ﻿<template>
-  <AdminShell title="用户管理" subtitle="查询用户、封禁状态与积分调整。">
+  <AdminShell title="用户管理" subtitle="查询用户、封禁状态与通用点数调整。">
     <section class="scholar-panel">
       <div class="scholar-panel__header">
         <div class="scholar-kicker">用户搜索</div>
@@ -64,7 +64,7 @@
                 <th>用户 ID</th>
                 <th>手机号</th>
                 <th>昵称</th>
-                <th>积分</th>
+                <th>通用点数</th>
                 <th>状态</th>
                 <th>来源</th>
                 <th>创建时间</th>
@@ -76,7 +76,7 @@
                 <td>{{ row.id }}</td>
                 <td>{{ row.phone }}</td>
                 <td>{{ row.nickname }}</td>
-                <td>{{ row.credits }}</td>
+                <td>{{ formatCredits(userBalanceFen(row)) }}</td>
                 <td>
                   <span class="scholar-badge" :class="row.is_banned ? 'scholar-badge--danger' : 'scholar-badge--success'">
                     {{ row.is_banned ? "已封禁" : "正常" }}
@@ -93,7 +93,7 @@
                       {{ row.is_banned ? "解封" : "封禁" }}
                     </button>
                     <button v-if="canManageUsers" class="gw-admin-btn" type="button" @click="openAdjust(row)">
-                      调整积分
+                      调整点数
                     </button>
                   </div>
                 </td>
@@ -121,7 +121,7 @@
             </div>
 
             <div class="gw-admin-user-card__grid">
-              <div><span>积分</span><strong>{{ row.credits }}</strong></div>
+              <div><span>通用点数</span><strong>{{ formatCredits(userBalanceFen(row)) }}</strong></div>
               <div><span>来源</span><strong>{{ mapSource(row.source) }}</strong></div>
               <div><span>创建时间</span><strong>{{ formatTime(row.created_at) }}</strong></div>
             </div>
@@ -131,7 +131,7 @@
               <button v-if="canManageUsers" class="gw-admin-btn" type="button" @click="toggleBan(row)">
                 {{ row.is_banned ? "解封" : "封禁" }}
               </button>
-              <button v-if="canManageUsers" class="gw-admin-btn" type="button" @click="openAdjust(row)">调整积分</button>
+              <button v-if="canManageUsers" class="gw-admin-btn" type="button" @click="openAdjust(row)">调整点数</button>
             </div>
           </article>
           <div v-if="displayRows.length === 0" class="scholar-empty">暂无用户数据</div>
@@ -141,10 +141,10 @@
 
     <section v-if="editing && canManageUsers" class="scholar-panel scholar-panel--soft">
       <div class="scholar-panel__body">
-        <div class="scholar-kicker">积分调整</div>
-        <h3 class="scholar-subtitle">调整用户积分：{{ editing.phone }}</h3>
+        <div class="scholar-kicker">点数调整</div>
+        <h3 class="scholar-subtitle">调整用户通用点数：{{ editing.phone }}</h3>
         <div class="scholar-grid md:grid-cols-3" style="margin-top: 18px">
-          <input v-model.number="delta" class="scholar-input" placeholder="输入正负积分" />
+          <input v-model.number="delta" class="scholar-input" placeholder="输入正负点数，例如 200 或 -200" />
           <input v-model.trim="reason" class="scholar-input" placeholder="调整原因" />
           <button class="gw-admin-btn" type="button" @click="submitAdjust">确认调整</button>
         </div>
@@ -234,7 +234,7 @@ async function submitAdjust() {
     delta: delta.value,
     reason: reason.value,
   })
-  hintText.value = `已调整成功，当前积分 ${data.credits}`
+  hintText.value = `已调整成功，当前通用点数 ${formatCredits(userBalanceFen(data))}`
   await loadData()
 }
 
@@ -254,6 +254,16 @@ async function toggleBan(row) {
 
 function formatTime(value) {
   return value ? String(value).slice(0, 19).replace("T", " ") : "-"
+}
+
+function userBalanceFen(row) {
+  if (typeof row?.balance_fen === "number") return row.balance_fen
+  if (typeof row?.credits === "number") return row.credits
+  return 0
+}
+
+function formatCredits(value) {
+  return `${Number(value || 0).toLocaleString()} 通用点数`
 }
 
 function mapSource(value) {

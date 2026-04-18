@@ -365,13 +365,13 @@ def test_admin_download_algorithm_package_authoring_bundle(
         readme = zf.read("README.md").decode("utf-8")
         runtime_doc = zf.read("docs/00_runtime_contract.md").decode("utf-8")
         blank_manifest = json.loads(zf.read("blank_packages/cnki/dedup/manifest.json").decode("utf-8"))
-        blank_main = zf.read("blank_packages/paperpass/rewrite/main.py").decode("utf-8")
+        blank_main = zf.read("blank_packages/vip/rewrite/main.py").decode("utf-8")
 
     assert "docs/01_aigc_detect_spec.md" in names
     assert "docs/02_dedup_spec.md" in names
     assert "docs/03_rewrite_spec.md" in names
     assert "blank_packages/vip/aigc_detect/main.py" in names
-    assert "blank_packages/paperpass/rewrite/README.md" in names
+    assert "blank_packages/vip/rewrite/README.md" in names
     assert "真实运行契约" in readme
     assert "smoke test" in runtime_doc
     assert blank_manifest["platform"] == "cnki"
@@ -386,18 +386,18 @@ def test_admin_download_algorithm_package_template(
 ) -> None:
     resp = client.get(
         "/api/v1/admin/algo-packages/template",
-        params={"platform": "paperpass", "function_type": "rewrite"},
+        params={"platform": "vip", "function_type": "rewrite"},
     )
     assert resp.status_code == 200
     assert "application/zip" in (resp.headers.get("content-type") or "")
     disposition = resp.headers.get("content-disposition") or ""
-    assert "algo_package_template_paperpass_rewrite" in disposition
+    assert "algo_package_template_vip_rewrite" in disposition
 
     with zipfile.ZipFile(io.BytesIO(resp.content), "r") as zf:
         manifest = json.loads(zf.read("manifest.json").decode("utf-8"))
         readme = zf.read("README.md").decode("utf-8")
 
-    assert manifest["platform"] == "paperpass"
+    assert manifest["platform"] == "vip"
     assert manifest["function_type"] == "rewrite"
     assert manifest["entry"] == "main.py"
     assert "当前机器的 Python" not in readme
@@ -487,18 +487,16 @@ def test_admin_bootstrap_builtin_algorithm_packages(
     assert resp.status_code == 200
     body = resp.json()
     assert body["code"] == 0
-    assert body["data"]["count"] == 9
+    assert body["data"]["count"] == 6
     items = body["data"]["items"]
     assert any(item["platform"] == "cnki" and item["function_type"] == "aigc_detect" for item in items)
     assert any(item["platform"] == "vip" and item["function_type"] == "rewrite" for item in items)
-    assert any(item["platform"] == "paperpass" and item["function_type"] == "dedup" for item in items)
 
     list_resp = client.get("/api/v1/admin/algo-packages")
     assert list_resp.status_code == 200
     rows = list_resp.json()["data"]["items"]
     assert any(row["platform"] == "cnki" and row["function_type"] == "dedup" for row in rows)
     assert any(row["platform"] == "vip" and row["function_type"] == "aigc_detect" for row in rows)
-    assert any(row["platform"] == "paperpass" and row["function_type"] == "rewrite" for row in rows)
 
 
 def test_builtin_aigc_package_returns_full_text_payload(

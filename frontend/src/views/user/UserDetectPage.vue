@@ -1,10 +1,11 @@
-﻿<template>
+<template>
   <UserShell
     title="AIGC检测"
-    subtitle="上传文档后提交检测，系统将按模拟知网、模拟维普、模拟PaperPass规则生成一份全文报告。"
+    subtitle="上传文档后提交检测，系统将按模拟知网、模拟维普规则生成一份全文报告。"
     :credits="userCredits"
     :hide-topbar="true"
     :hide-header-title="true"
+    :disable-notice-dialog="true"
     @buy="showBuy = !showBuy"
   >
     <section class="uploadPage_content">
@@ -16,6 +17,7 @@
         <p class="aigc-page-head__quota">{{ pageHeadQuotaText }}</p>
       </section>
       <div class="aigc-page-head__divider" aria-hidden="true"></div>
+      <TaskJourneyPanel :credits="userCredits" />
 
       <div class="uploadLiterature_content">
         <div class="uploadLit_content panels-container">
@@ -164,35 +166,28 @@ import { computed, onMounted, onUnmounted, reactive, ref } from "vue"
 import { useRoute, useRouter } from "vue-router"
 
 import BuyCreditsPanel from "../../components/BuyCreditsPanel.vue"
+import TaskJourneyPanel from "../../components/TaskJourneyPanel.vue"
 import UserShell from "../../components/UserShell.vue"
 import WorkbenchTaskFeed from "../../components/WorkbenchTaskFeed.vue"
 import { useUserProfile } from "../../composables/useUserProfile"
+import { createTaskSubmitHandler } from "../../lib/taskSubmitFlow"
 import { userHttp } from "../../lib/http"
-import {
-  buildTaskSubmitNetworkHint,
-  createTaskSubmitIdempotencyKey,
-  isTaskSubmitCanceledError,
-  isTaskSubmitNetworkError,
-  isTaskSubmitTimeoutError,
-  recoverSubmittedTaskByIdempotency,
-  recoverSubmittedTask,
-  submitTaskWithRetry,
-} from "../../lib/taskSubmitRecovery"
+import { createTaskSubmitIdempotencyKey } from "../../lib/taskSubmitRecovery"
 import { derivePaperTitleFromFilename, shouldAutoFillPaperTitle } from "../../lib/paperTitle"
 import { AIGC_PLATFORM_OPTIONS } from "../../lib/taskPlatform"
 import { ensureUserLogin } from "../../lib/requireLogin"
-import { getUserToken } from "../../lib/session"
+import { getUserToken, setUserInfo } from "../../lib/session"
 
 const router = useRouter()
 const route = useRoute()
 const showBuy = ref(false)
 const { user, refreshUser } = useUserProfile()
 const userCredits = computed(() => {
-  const value = user.value && user.value.credits
+  const value = user.value && (user.value.balance_fen ?? user.value.credits)
   return typeof value === "number" ? value : null
 })
 const pageHeadQuotaText = "多平台仿真检测，提交后自动生成全文报告并可在记录页持续查看进度。"
-const submitQuotaHint = "提交后可在检测记录页查看进度、回看结果并下载报告。"
+const submitQuotaHint = "AIGC 检测每天前 6 篇可按免费额度抵扣；超出后按字符数直接扣点，当前默认 1 字符 = 1 点数。提交后可在检测记录页查看进度、回看结果并下载报告。"
 
 const form = reactive({
   platform: "cnki",
@@ -212,7 +207,7 @@ const features = [
   {
     icon: "1",
     title: "多平台仿真检测",
-    desc: "按模拟知网、模拟维普、模拟PaperPass三套口径输出结果，重点覆盖常见学术论文与课程作业场景。",
+    desc: "按模拟知网、模拟维普两套口径输出结果，重点覆盖常见学术论文与课程作业场景。",
   },
   {
     icon: "2",
@@ -344,171 +339,69 @@ function validateForm() {
 }
 
 async function submitTask() {
-  if (!ensureUserLogin(router, route, "/app/detect")) return
-  if (submitting.value) return
-
   if (!validateForm()) {
     errorText.value = "请先完成必填项后再提交"
     return
   }
+  await runSubmitTask()
+}
 
-  const snapshot = {
+const runSubmitTask = createTaskSubmitHandler({
+  ensureAuthenticated: () => ensureUserLogin(router, route, "/app/detect"),
+  submittingRef: submitting,
+  errorTextRef: errorText,
+  successTextRef: successText,
+  beginSubmitGuard,
+  isActiveSubmit,
+  finishSubmitGuard,
+  refreshUser,
+  applyUserBalance: (balanceAfter) => {
+    const current = user.value && typeof user.value === "object" ? user.value : {}
+    const next = { ...current, credits: balanceAfter, balance_fen: balanceAfter }
+    user.value = next
+    setUserInfo(next)
+  },
+  router,
+  recordPath: "/app/detect/records",
+  recordLabel: "检测记录页",
+  onInsufficientCredits: () => {
+    showBuy.value = true
+  },
+  buildSnapshot: () => ({
     taskType: "aigc_detect",
     platform: String(form.platform || "cnki"),
     paper: paperFile.value,
     paperTitle: form.title.trim(),
     authors: form.authors.trim(),
     sourceFilename: paperFile.value?.name || "",
-  }
-  const submittedAt = Date.now()
-  const idempotencyKey = createTaskSubmitIdempotencyKey({
-    taskType: snapshot.taskType,
-    platform: snapshot.platform,
-    paperTitle: snapshot.paperTitle,
-    authors: snapshot.authors,
-    sourceFilename: snapshot.sourceFilename,
-    submittedAt,
-  })
-  const { token, signal } = beginSubmitGuard()
-  submitting.value = true
-  errorText.value = ""
-  successText.value = ""
-  const submitOnce = () => {
-    const payload = new FormData()
-    payload.append("task_type", snapshot.taskType)
-    payload.append("platform", snapshot.platform)
-    payload.append("paper", snapshot.paper)
-    payload.append("paper_title", snapshot.paperTitle)
-    payload.append("authors", snapshot.authors)
-    return userHttp.post("/tasks/submit", payload, {
-      timeout: 120000,
-      signal,
-      headers: {
-        "X-Idempotency-Key": idempotencyKey,
-      },
+    userHttp,
+  }),
+  buildSubmitOnce: ({ snapshot, submittedAt, signal }) => {
+    snapshot.idempotencyKey = createTaskSubmitIdempotencyKey({
+      taskType: snapshot.taskType,
+      platform: snapshot.platform,
+      paperTitle: snapshot.paperTitle,
+      authors: snapshot.authors,
+      sourceFilename: snapshot.sourceFilename,
+      submittedAt,
     })
-  }
-
-  try {
-    const data = await submitTaskWithRetry({
-      signal,
-      maxAttempts: 4,
-      retryDelayMs: 1200,
-      submitOnce,
-    })
-    if (!isActiveSubmit(token)) return
-
-    const status = String(data?.status || "").trim().toLowerCase()
-    if (status === "failed") {
-      const reason = String(data?.error_message || "").trim()
-      errorText.value = reason
-        ? `任务 #${data.id} 处理失败：${reason}`
-        : `任务 #${data.id} 排队失败，请到检测记录页查看失败原因后重试`
-      try {
-        await refreshUser()
-      } catch (refreshError) {
-        console.warn("task_submit_refresh_user_failed", refreshError)
-      }
-      if (!isActiveSubmit(token)) return
-      router.push({ path: "/app/detect/records", query: { focus: String(data.id) } })
-      return
-    }
-
-    successText.value = `提交成功，任务 #${data.id} 已进入处理队列`
-    try {
-      await refreshUser()
-    } catch (refreshError) {
-      console.warn("task_submit_refresh_user_failed", refreshError)
-    }
-    if (!isActiveSubmit(token)) return
-    router.push({ path: "/app/detect/records", query: { focus: String(data.id) } })
-  } catch (error) {
-    if (isTaskSubmitCanceledError(error) || !isActiveSubmit(token)) {
-      return
-    }
-    if (isTaskSubmitTimeoutError(error) || isTaskSubmitNetworkError(error)) {
-      const idempotentTask = await recoverSubmittedTaskByIdempotency({
-        userHttp,
-        taskType: snapshot.taskType,
-        platform: snapshot.platform,
-        sourceFilename: snapshot.sourceFilename,
-        idempotencyKey,
+    return () => {
+      const payload = new FormData()
+      payload.append("task_type", snapshot.taskType)
+      payload.append("platform", snapshot.platform)
+      payload.append("paper", snapshot.paper)
+      payload.append("paper_title", snapshot.paperTitle)
+      payload.append("authors", snapshot.authors)
+      return userHttp.post("/tasks/submit", payload, {
+        timeout: 120000,
         signal,
+        headers: {
+          "X-Idempotency-Key": snapshot.idempotencyKey,
+        },
       })
-      if (!isActiveSubmit(token)) return
-      if (idempotentTask?.id) {
-        successText.value = `任务已找回：#${idempotentTask.id}，正在跳转记录页`
-        try {
-          await refreshUser()
-        } catch (refreshError) {
-          console.warn("task_submit_refresh_user_failed", refreshError)
-        }
-        if (!isActiveSubmit(token)) return
-        router.push({ path: "/app/detect/records", query: { focus: String(idempotentTask.id) } })
-        return
-      }
-      const recoveredTask = await recoverSubmittedTask({
-        taskType: snapshot.taskType,
-        paperTitle: snapshot.paperTitle,
-        authors: snapshot.authors,
-        sourceFilename: snapshot.sourceFilename,
-        submittedAt,
-        attempts: 6,
-        retryDelayMs: 1200,
-        signal,
-      })
-      if (!isActiveSubmit(token)) return
-      if (recoveredTask?.id) {
-        successText.value = `提交响应中断，但任务 #${recoveredTask.id} 已进入处理队列，正在跳转记录页`
-        try {
-          await refreshUser()
-        } catch (refreshError) {
-          console.warn("task_submit_refresh_user_failed", refreshError)
-        }
-        if (!isActiveSubmit(token)) return
-        router.push({ path: "/app/detect/records", query: { focus: String(recoveredTask.id) } })
-        return
-      }
-      try {
-        const rescueData = await submitTaskWithRetry({
-          signal,
-          maxAttempts: 6,
-          retryDelayMs: 1500,
-          submitOnce,
-        })
-        if (!isActiveSubmit(token)) return
-        successText.value = `网络恢复后已补交成功，任务 #${rescueData.id} 已进入处理队列`
-        try {
-          await refreshUser()
-        } catch (refreshError) {
-          console.warn("task_submit_refresh_user_failed", refreshError)
-        }
-        if (!isActiveSubmit(token)) return
-        router.push({ path: "/app/detect/records", query: { focus: String(rescueData.id) } })
-        return
-      } catch (rescueError) {
-        if (isTaskSubmitCanceledError(rescueError) || !isActiveSubmit(token)) {
-          return
-        }
-      }
     }
-    const message = String(error?.message || "").trim()
-    if (isTaskSubmitTimeoutError(error)) {
-      errorText.value = "提交耗时较长，请稍后到检测记录页确认任务是否已创建"
-      return
-    }
-    if (isTaskSubmitNetworkError(error)) {
-      errorText.value = await buildTaskSubmitNetworkHint({ signal })
-      return
-    }
-    errorText.value = message || "提交失败，请稍后重试"
-  } finally {
-    if (isActiveSubmit(token)) {
-      submitting.value = false
-    }
-    finishSubmitGuard(token)
-  }
-}
+  },
+})
 
 async function afterPaid() {
   await refreshUser()
@@ -517,4 +410,5 @@ async function afterPaid() {
 
 <style scoped>
 </style>
+
 
