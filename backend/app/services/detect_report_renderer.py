@@ -1,18 +1,24 @@
 import math
 import re
 from io import BytesIO
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from app.config import get_settings
-
-if TYPE_CHECKING:
-    from app.services.processing_engine import ProcessingEngine
 
 
 settings = get_settings()
 
 
-def render_detect_report_pdf_reportlab(engine: "ProcessingEngine", result: dict[str, Any]) -> bytes:
+def render_detect_report_pdf_reportlab(
+    result: dict[str, Any],
+    *,
+    meta: dict[str, Any],
+    source_text: str,
+    build_detect_band_rows,
+    split_detect_paragraphs,
+    escape_pdf_text,
+    detect_outline_heading,
+) -> bytes:
     from reportlab.lib import colors
     from reportlab.lib.pagesizes import A4
     from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
@@ -150,16 +156,15 @@ def render_detect_report_pdf_reportlab(engine: "ProcessingEngine", result: dict[
         wordWrap="CJK",
     )
 
-    meta = engine._current_task_report_meta()
     stats = result.get("source_stats") or {}
     fragment_distribution = result.get("fragment_distribution") or {}
     paragraph_details = result.get("paragraph_details") or []
     suspicious_segments = result.get("suspicious_segments") or []
-    band_rows = engine._build_detect_band_rows(paragraph_details)
+    band_rows = build_detect_band_rows(paragraph_details)
     detail_map = {int(item.get("index") or 0): item for item in paragraph_details}
 
-    source_text = str(getattr(engine, "_current_detect_source_text", "") or "").strip()
-    source_paragraphs = engine._split_detect_paragraphs(source_text)
+    source_text = str(source_text or "").strip()
+    source_paragraphs = split_detect_paragraphs(source_text)
     if not source_paragraphs:
         source_paragraphs = [str(item.get("excerpt") or "").strip() for item in paragraph_details if item.get("excerpt")]
 
@@ -170,7 +175,21 @@ def render_detect_report_pdf_reportlab(engine: "ProcessingEngine", result: dict[
     paper_title = meta.get("paper_title") or inferred_title or "未填写"
     authors = meta.get("authors") or "未填写"
     source_filename = meta.get("source_filename") or "未记录"
-    domain = re.sub(r"^https?://", "", str(settings.frontend_base_url or "").strip()).rstrip("/") or "www.restin.top"
+    platform = str(result.get("platform") or "").strip().lower()
+    fallback_domain = str(settings.frontend_base_url or "").strip() or "https://www.restin.top"
+    if platform == "cnki":
+        service_name = "格物模拟知网AIGC检测服务"
+        detect_badge = "模拟知网AIGC检测"
+        domain_url = fallback_domain
+    elif platform == "vip":
+        service_name = "格物模拟维普AIGC检测服务"
+        detect_badge = "模拟维普AIGC检测"
+        domain_url = fallback_domain
+    else:
+        service_name = "格物AIGC检测服务"
+        detect_badge = str(result.get("provider_label") or "AIGC检测")
+        domain_url = fallback_domain
+    domain = re.sub(r"^https?://", "", domain_url).rstrip("/") or "www.restin.top"
 
     score_pct = round(float(result.get("score_pct") or 0.0), 2)
     total_chars = int(stats.get("char_count") or 0)
@@ -181,7 +200,7 @@ def render_detect_report_pdf_reportlab(engine: "ProcessingEngine", result: dict[
     clear_pct = max(0.0, 100.0 - significant_pct - suspected_pct)
 
     def para(text: str, style: ParagraphStyle) -> Paragraph:
-        return Paragraph(engine._escape_pdf_text(text), style)
+        return Paragraph(escape_pdf_text(text), style)
 
     def para_markup(text: str, style: ParagraphStyle) -> Paragraph:
         return Paragraph(text, style)
@@ -233,63 +252,113 @@ def render_detect_report_pdf_reportlab(engine: "ProcessingEngine", result: dict[
 
     def build_meta_table() -> Table:
         rows = [
-            [para("NO", meta_label_style), para(str(result.get("report_no") or "-"), meta_value_style)],
-            [para("检测时间", meta_label_style), para(str(result.get("generated_at") or "-"), meta_value_style)],
-            [para("篇名", meta_label_style), para(paper_title, meta_value_style)],
-            [para("作者", meta_label_style), para(authors, meta_value_style)],
-            [para("单位", meta_label_style), para("未填写", meta_value_style)],
-            [para("文件名", meta_label_style), para(source_filename, meta_value_style)],
+            [
+                para(f"NO:{str(result.get('report_no') or '-')}", meta_value_style),
+                para(f"检测时间：{str(result.get('generated_at') or '-')}", meta_value_style),
+            ],
+            [para(f"篇名：{paper_title}", meta_value_style), ""],
+            [para(f"作者：{authors}", meta_value_style), ""],
+            [para("单位：未填写", meta_value_style), ""],
+            [para(f"文件名：{source_filename}", meta_value_style), ""],
         ]
-        table = Table(rows, colWidths=[22 * mm, doc.width - 22 * mm])
+        table = Table(rows, colWidths=[doc.width * 0.66, doc.width * 0.34])
         table.setStyle(
             TableStyle(
                 [
                     ("FONTNAME", (0, 0), (-1, -1), "STSong-Light"),
-                    ("FONTSIZE", (0, 0), (-1, -1), 10.5),
-                    ("LEADING", (0, 0), (-1, -1), 15),
+                    ("FONTSIZE", (0, 0), (-1, -1), 9.5),
+                    ("LEADING", (0, 0), (-1, -1), 14),
                     ("TEXTCOLOR", (0, 0), (-1, -1), body_text),
-                    ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
                     ("TOPPADDING", (0, 0), (-1, -1), 2),
                     ("LEFTPADDING", (0, 0), (-1, -1), 0),
                     ("RIGHTPADDING", (0, 0), (-1, -1), 0),
                     ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                    ("SPAN", (0, 1), (1, 1)),
+                    ("SPAN", (0, 2), (1, 2)),
+                    ("SPAN", (0, 3), (1, 3)),
+                    ("SPAN", (0, 4), (1, 4)),
                 ]
             )
         )
         return table
 
-    def build_fragment_table() -> Table:
+    def build_section_result_table() -> Table:
+        document_outline = result.get("document_outline") or []
+        section_distribution = result.get("section_distribution") or []
         rows = [
             [
                 para("序号", table_header_style),
-                para("片段名称", table_header_style),
-                para("字符数", table_header_style),
-                para("AI特征", table_header_style),
+                para("AI特征值", table_header_style),
+                para("AI特征字符数 / 章节(部分)字符数", table_header_style),
+                para("章节(部分)名称", table_header_style),
             ]
         ]
         row_styles: list[tuple[int, Any]] = []
-        for idx, item in enumerate(suspicious_segments[:6], start=1):
-            score_value = float(item.get("score") or 0.0)
-            feature_label = "显著" if score_value >= 65 else "疑似"
-            rows.append(
-                [
-                    para(str(idx), meta_value_style),
-                    para(f"片段{idx}", meta_value_style),
-                    para(str(len(str(item.get("text") or ""))), meta_value_style),
-                    para(feature_label, meta_value_style),
-                ]
-            )
-            row_styles.append((idx, significant_bg if feature_label == "显著" else suspected_bg))
+        if document_outline:
+            section_map = {str(item.get("section") or ""): item for item in section_distribution}
+            for idx, outline_item in enumerate(document_outline[:12], start=1):
+                section_name = str(outline_item.get("section") or "-")
+                section_row = section_map.get(section_name, {})
+                section_score = float(section_row.get("avg_score") or 0.0)
+                section_chars = int(section_row.get("char_count") or 0)
+                ai_chars = int(round(section_chars * section_score / 100.0))
+                rows.append(
+                    [
+                        para(str(idx), meta_value_style),
+                        para(f"{section_score:.1f}%", meta_value_style),
+                        para(f"{ai_chars} / {section_chars}", meta_value_style),
+                        para(section_name, meta_value_style),
+                    ]
+                )
+                if section_score >= 30:
+                    row_styles.append((idx, significant_bg))
+                elif section_score >= 15:
+                    row_styles.append((idx, suspected_bg))
+        elif section_distribution:
+            for idx, section_row in enumerate(section_distribution[:12], start=1):
+                section_name = str(section_row.get("section") or "-")
+                section_score = float(section_row.get("avg_score") or 0.0)
+                section_chars = int(section_row.get("char_count") or 0)
+                ai_chars = int(round(section_chars * section_score / 100.0))
+                rows.append(
+                    [
+                        para(str(idx), meta_value_style),
+                        para(f"{section_score:.1f}%", meta_value_style),
+                        para(f"{ai_chars} / {section_chars}", meta_value_style),
+                        para(section_name, meta_value_style),
+                    ]
+                )
+                if section_score >= 30:
+                    row_styles.append((idx, significant_bg))
+                elif section_score >= 15:
+                    row_styles.append((idx, suspected_bg))
+        else:
+            for idx, item in enumerate(suspicious_segments[:6], start=1):
+                score_value = float(item.get("score") or 0.0)
+                char_count = len(str(item.get("text") or ""))
+                rows.append(
+                    [
+                        para(str(idx), meta_value_style),
+                        para(f"{score_value:.1f}%", meta_value_style),
+                        para(f"{int(round(char_count * score_value / 100.0))} / {char_count}", meta_value_style),
+                        para(f"片段{idx}", meta_value_style),
+                    ]
+                )
+                if score_value >= 30:
+                    row_styles.append((idx, significant_bg))
+                elif score_value >= 15:
+                    row_styles.append((idx, suspected_bg))
         if len(rows) == 1:
             rows.append(
                 [
                     para("-", meta_value_style),
-                    para("-", meta_value_style),
-                    para("0", meta_value_style),
-                    para("未识别", meta_value_style),
+                    para("0.0%", meta_value_style),
+                    para("0 / 0", meta_value_style),
+                    para("未识别到章节信息", meta_value_style),
                 ]
             )
-        table = build_table(rows, col_widths=[18 * mm, 74 * mm, 34 * mm, 48 * mm], header=True, font_size=10)
+        table = build_table(rows, col_widths=[18 * mm, 30 * mm, 56 * mm, 70 * mm], header=True, font_size=10)
         if row_styles:
             table.setStyle(TableStyle([("BACKGROUND", (0, row_index), (-1, row_index), row_color) for row_index, row_color in row_styles]))
         return table
@@ -319,20 +388,20 @@ def render_detect_report_pdf_reportlab(engine: "ProcessingEngine", result: dict[
     def paragraph_markup(paragraph: str, segments: list[dict[str, Any]]) -> str:
         spans = segment_spans(paragraph, segments)
         if not spans:
-            return engine._escape_pdf_text(paragraph)
+            return escape_pdf_text(paragraph)
         parts: list[str] = []
         cursor = 0
         for start, end, severity in spans:
             if start > cursor:
-                parts.append(engine._escape_pdf_text(paragraph[cursor:start]))
+                parts.append(escape_pdf_text(paragraph[cursor:start]))
             color = "#C83A2A" if severity == "high" else "#9A6734"
             back_color = "#FDEDEC" if severity == "high" else "#FAF1E6"
             parts.append(
-                f'<font color="{color}" backColor="{back_color}">{engine._escape_pdf_text(paragraph[start:end])}</font>'
+                f'<font color="{color}" backColor="{back_color}">{escape_pdf_text(paragraph[start:end])}</font>'
             )
             cursor = end
         if cursor < len(paragraph):
-            parts.append(engine._escape_pdf_text(paragraph[cursor:]))
+            parts.append(escape_pdf_text(paragraph[cursor:]))
         return "".join(parts)
 
     class OverviewPanel(Flowable):
@@ -353,10 +422,10 @@ def render_detect_report_pdf_reportlab(engine: "ProcessingEngine", result: dict[
 
             canv.setFont("STSong-Light", 10)
             canv.setFillColor(primary)
-            canv.drawString(10, self.height - 16, "格物AIGC检测")
+            canv.drawString(10, self.height - 16, detect_badge)
             canv.setFont("STSong-Light", 9)
             canv.setFillColor(muted_text)
-            canv.drawRightString(self.width - 10, self.height - 16, domain)
+            canv.drawRightString(self.width - 10, self.height - 16, domain_url)
 
             center_x = 34 * mm
             center_y = self.height / 2 + 2 * mm
@@ -495,10 +564,11 @@ def render_detect_report_pdf_reportlab(engine: "ProcessingEngine", result: dict[
 
     story: list[Any] = [para("AIGC检测 · 全文报告单", title_style), build_meta_table(), Spacer(1, 3)]
 
-    story.append(KeepTogether([para("全文检测结果", section_style), OverviewPanel(doc.width), Spacer(1, 5)]))
+    story.append(para(f"全文检测结果  {detect_badge}  {domain_url}", section_style))
+    story.append(KeepTogether([OverviewPanel(doc.width), Spacer(1, 5)]))
     story.append(KeepTogether([para("AIGC片段分布图", section_style), DistributionPanel(doc.width), Spacer(1, 5)]))
-    story.append(para("片段指标列表", section_style))
-    story.append(build_fragment_table())
+    story.append(para("分段检测结果", section_style))
+    story.append(build_section_result_table())
     story.append(Spacer(1, 6))
     story.append(para("原文内容", section_style))
 
@@ -508,7 +578,7 @@ def render_detect_report_pdf_reportlab(engine: "ProcessingEngine", result: dict[
     if source_paragraphs:
         for paragraph_index, paragraph in enumerate(source_paragraphs, start=1):
             detail = detail_map.get(paragraph_index, {})
-            heading_level, _heading = engine._detect_outline_heading(paragraph)
+            heading_level, _heading = detect_outline_heading(paragraph)
             if heading_level is not None and len(paragraph) <= 48:
                 heading_style = heading_level_1_style if heading_level <= 1 else heading_level_2_style
                 story.append(para(paragraph, heading_style))
@@ -545,10 +615,11 @@ def render_detect_report_pdf_reportlab(engine: "ProcessingEngine", result: dict[
         canvas.line(_doc.leftMargin, 11 * mm, width - _doc.rightMargin, 11 * mm)
         canvas.setFont("STSong-Light", 9)
         canvas.setFillColor(muted_text)
-        canvas.drawString(_doc.leftMargin, height - 8.2 * mm, "格物AIGC检测服务")
-        canvas.drawRightString(width - _doc.rightMargin, height - 8.2 * mm, domain)
+        canvas.drawString(_doc.leftMargin, height - 8.2 * mm, service_name)
+        canvas.drawRightString(width - _doc.rightMargin, height - 8.2 * mm, domain_url)
         canvas.drawCentredString(width / 2.0, 7.8 * mm, f"— {_doc.page} —")
-        canvas.drawRightString(width - _doc.rightMargin, 7.8 * mm, domain)
+        canvas.drawString(_doc.leftMargin, 7.8 * mm, service_name)
+        canvas.drawRightString(width - _doc.rightMargin, 7.8 * mm, domain_url)
         canvas.restoreState()
 
     doc.build(story, onFirstPage=draw_page, onLaterPages=draw_page)

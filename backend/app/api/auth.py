@@ -266,6 +266,51 @@ def _get_user_navigation_config(db: Session) -> dict:
     return normalize_user_navigation_config(raw)
 
 
+def _get_promo_center_config(db: Session) -> dict:
+    raw = _read_system_config_raw(db, "promo_center")
+    defaults = {
+        "enabled": True,
+        "invite_reward_points": 2000,
+        "contacts": {
+            "phone": [],
+            "wechat": [],
+            "email": [],
+        },
+    }
+    merged = dict(defaults)
+    merged["enabled"] = bool(raw.get("enabled", defaults["enabled"])) if isinstance(raw, dict) else defaults["enabled"]
+    if isinstance(raw, dict):
+        try:
+            points = int(raw.get("invite_reward_points", defaults["invite_reward_points"]))
+        except Exception:
+            points = defaults["invite_reward_points"]
+        merged["invite_reward_points"] = max(0, min(points, 100_000))
+        raw_contacts = raw.get("contacts") if isinstance(raw.get("contacts"), dict) else {}
+    else:
+        raw_contacts = {}
+    contacts: dict[str, list[str]] = {"phone": [], "wechat": [], "email": []}
+    for key in ("phone", "wechat", "email"):
+        values = raw_contacts.get(key)
+        if not isinstance(values, list):
+            values = []
+        normalized = []
+        seen = set()
+        for item in values:
+            text = str(item or "").strip()
+            if not text:
+                continue
+            dedup_key = text.lower()
+            if dedup_key in seen:
+                continue
+            seen.add(dedup_key)
+            normalized.append(text[:128])
+            if len(normalized) >= 20:
+                break
+        contacts[key] = normalized
+    merged["contacts"] = contacts
+    return merged
+
+
 def _normalize_notice_level(value) -> str:
     level = str(value or "info").strip().lower()
     if level not in {"info", "important", "success", "warning"}:
@@ -815,6 +860,7 @@ def auth_options(db: Session = Depends(db_dep)) -> APIResp:
     phone_login_enabled = _sms_provider_ready(login_cfg) or (settings.app_env != "prod" and debug_enabled)
     notice = _build_notice_payload(login_cfg)
     user_navigation = _get_user_navigation_config(db)
+    promo_center = _get_promo_center_config(db)
     return ok(
         data={
             "wechat_login_enabled": _wechat_login_enabled(login_cfg),
@@ -829,6 +875,7 @@ def auth_options(db: Session = Depends(db_dep)) -> APIResp:
             "header_notice_text": notice["header_text"],
             "notice": notice,
             "user_navigation": user_navigation,
+            "promo_center": promo_center,
         }
     )
 

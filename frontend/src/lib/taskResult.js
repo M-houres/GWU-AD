@@ -28,7 +28,6 @@ export function taskResultMetrics(task) {
   }
   if (result.mode) metrics.push({ label: "处理模式", value: mapProcessingMode(result.mode) })
   if (typeof result.llm_used === "boolean") metrics.push({ label: "LLM", value: result.llm_used ? "已使用" : "未使用" })
-  if (typeof result.algo_package_used === "boolean") metrics.push({ label: "算法包", value: result.algo_package_used ? "已使用" : "未使用" })
   return metrics
 }
 

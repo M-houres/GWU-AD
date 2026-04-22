@@ -26,6 +26,9 @@ from app.services.payment_service import (
     query_remote_order_status,
     verify_payload_signature,
 )
+from app.services.partner_rebate_service import (
+    attach_order_attribution_from_request,
+)
 from app.utils import make_order_no
 from app.utils_qrcode import build_qrcode_data_url
 
@@ -531,6 +534,16 @@ def create_order(
         reused_open_order = True
         order_no = order.order_no
 
+    attach_order_attribution_from_request(
+        db,
+        request=request,
+        user_id=user.id,
+        order=order,
+        package_name=package_name,
+        explicit_channel_code=req.channel_code,
+        explicit_channel_token=req.channel_token,
+    )
+
     pay_url = _default_mock_pay_url(order_no, request)
     payment_params: dict | None = None
     if provider != "mock":
@@ -844,6 +857,15 @@ def mock_pay(
             amount_cny=amount_cny,
             recharge_credits=recharge_credits,
             source=get_client_source(request),
+        )
+        attach_order_attribution_from_request(
+            db,
+            request=request,
+            user_id=user.id,
+            order=order,
+            package_name=package_name,
+            explicit_channel_code=None,
+            explicit_channel_token=None,
         )
         db.commit()
     except Exception:

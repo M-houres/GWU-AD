@@ -17,7 +17,6 @@
         <p class="aigc-page-head__quota">围绕高重复风险内容进行表达重构与语序优化，兼顾原意保留与查重率控制。</p>
       </section>
       <div class="aigc-page-head__divider" aria-hidden="true"></div>
-      <TaskJourneyPanel :credits="userCredits" />
 
       <div class="uploadLiterature_content">
         <div class="uploadLit_content panels-container">
@@ -25,42 +24,6 @@
             <div class="uploadLit_tabCon">
               <div class="uploadFormContent">
                 <div class="uploadForm_con">
-                  <section class="aigc-group">
-                    <h3 class="aigc-group__title"><span class="aigc-required">*</span>主文稿</h3>
-                    <label
-                      class="aigc-upload"
-                      :class="{ 'is-dragging': dragMain, 'is-error': fieldErrors.paper }"
-                      @dragenter.prevent="dragMain = true"
-                      @dragover.prevent="dragMain = true"
-                      @dragleave.prevent="dragMain = false"
-                      @drop.prevent="onMainDrop"
-                    >
-                      <input class="hidden" type="file" accept=".docx" @change="onPaperInput" />
-                      <div class="aigc-upload__inner">
-                        <div class="aigc-upload__icon" aria-hidden="true">
-                          <svg viewBox="0 0 24 24">
-                            <path
-                              d="M6 2h8l4 4v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2Zm7 1.5V7h3.5L13 3.5ZM8.5 12.5h7M8.5 16h7"
-                              fill="none"
-                              stroke="currentColor"
-                              stroke-linecap="round"
-                              stroke-linejoin="round"
-                              stroke-width="1.6"
-                            />
-                          </svg>
-                        </div>
-                        <p class="aigc-upload__title">请上传待处理主文稿，或<span>点击上传</span></p>
-                        <p class="aigc-upload__subtitle">主文稿仅支持 .docx</p>
-                      </div>
-                    </label>
-                    <p class="aigc-upload__ext">单文件上限 20MB</p>
-                    <p v-if="paperFile" class="aigc-upload__file">
-                      {{ paperFile.name }}（{{ humanSize(paperFile.size) }}）
-                      <button type="button" @click="clearPaper">移除</button>
-                    </p>
-                    <p v-if="fieldErrors.paper" class="aigc-field-error">{{ fieldErrors.paper }}</p>
-                  </section>
-
                   <section class="aigc-group">
                     <div class="aigc-field-row aigc-field-row--platform">
                       <label class="aigc-field-row__label"><span class="aigc-required">*</span>平台选择</label>
@@ -82,42 +45,87 @@
                   </section>
 
                   <section class="aigc-group">
-                    <div class="aigc-field-row">
-                      <label class="aigc-field-row__label"><span class="aigc-required">*</span>篇名</label>
-                      <div class="aigc-field-row__body">
-                        <input
-                          v-model="form.title"
-                          class="aigc-input aigc-input--required"
-                          :class="{ 'is-error': fieldErrors.title }"
-                          type="text"
-                          maxlength="300"
-                          placeholder="请输入准确的文章篇名，信息将显示在处理报告中"
-                        />
-                        <div class="aigc-counter">{{ form.title.length }}/300</div>
-                      </div>
+                    <div class="aigc-group__title-row">
+                      <h3 class="aigc-group__title"><span class="aigc-required">*</span>上传文件</h3>
+                      <button
+                        class="aigc-mode-switch"
+                        type="button"
+                        @click="switchInputMode(inputMode === 'file' ? 'paste' : 'file')"
+                      >
+                        {{ inputMode === "file" ? "粘贴文本" : "返回上传" }}
+                      </button>
                     </div>
-                    <p v-if="fieldErrors.title" class="aigc-field-error">{{ fieldErrors.title }}</p>
+
+                    <template v-if="inputMode === 'file'">
+                      <label
+                        class="aigc-upload"
+                        :class="{ 'is-dragging': dragMain, 'is-error': fieldErrors.paper }"
+                        @dragenter.prevent="dragMain = true"
+                        @dragover.prevent="dragMain = true"
+                        @dragleave.prevent="dragMain = false"
+                        @drop.prevent="onMainDrop"
+                      >
+                        <input class="hidden" type="file" accept=".docx" @change="onPaperInput" />
+                        <div class="aigc-upload__inner">
+                          <div class="aigc-upload__icon" aria-hidden="true">
+                            <svg viewBox="0 0 24 24">
+                              <path
+                                d="M6 2h8l4 4v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2Zm7 1.5V7h3.5L13 3.5ZM8.5 12.5h7M8.5 16h7"
+                                fill="none"
+                                stroke="currentColor"
+                                stroke-linecap="round"
+                                stroke-linejoin="round"
+                                stroke-width="1.6"
+                              />
+                            </svg>
+                          </div>
+                          <p class="aigc-upload__title">请上传待处理文件，或<span>点击上传</span></p>
+                          <p class="aigc-upload__subtitle">仅支持 .docx</p>
+                        </div>
+                      </label>
+                      <p class="aigc-upload__ext">单文件上限 20MB</p>
+                      <p v-if="paperFile" class="aigc-upload__file">
+                        {{ paperFile.name }}（{{ humanSize(paperFile.size) }}）
+                        <button type="button" @click="clearPaper">移除</button>
+                      </p>
+                      <p v-if="fieldErrors.paper" class="aigc-field-error">{{ fieldErrors.paper }}</p>
+                    </template>
+
+                    <template v-else>
+                      <div class="aigc-snippet-workspace">
+                        <article class="aigc-snippet-pane">
+                          <h4>粘贴片段原文</h4>
+                          <textarea
+                            v-model="snippetInput"
+                            class="aigc-input aigc-input--snippet"
+                            placeholder="请粘贴需要降重复率的文本片段（至少10个字符）"
+                          />
+                          <p v-if="fieldErrors.snippet" class="aigc-field-error">{{ fieldErrors.snippet }}</p>
+                          <div class="aigc-snippet-actions">
+                            <button
+                              class="aigc-submit-action__button"
+                              type="button"
+                              :disabled="snippetSubmitting"
+                              @click="submitSnippetTask"
+                            >
+                              {{ snippetSubmitting ? "生成中..." : "一键生成" }}
+                            </button>
+                          </div>
+                        </article>
+                        <article class="aigc-snippet-pane">
+                          <h4>降后结果</h4>
+                          <textarea
+                            :value="snippetOutput"
+                            class="aigc-input aigc-input--snippet"
+                            readonly
+                            placeholder="生成完成后会在这里展示结果"
+                          />
+                        </article>
+                      </div>
+                    </template>
                   </section>
 
-                  <section class="aigc-group">
-                    <div class="aigc-field-row">
-                      <label class="aigc-field-row__label"><span class="aigc-required">*</span>作者</label>
-                      <div class="aigc-field-row__body">
-                        <input
-                          v-model="form.authors"
-                          class="aigc-input aigc-input--required"
-                          :class="{ 'is-error': fieldErrors.authors }"
-                          type="text"
-                          maxlength="200"
-                          placeholder='多位作者请使用 ";" 分隔'
-                        />
-                        <div class="aigc-counter">{{ form.authors.length }}/200</div>
-                      </div>
-                    </div>
-                    <p v-if="fieldErrors.authors" class="aigc-field-error">{{ fieldErrors.authors }}</p>
-                  </section>
-
-                  <div class="submitBtnCon">
+                  <div v-if="inputMode === 'file'" class="submitBtnCon">
                     <button class="aigc-submit-action__button" type="button" :disabled="submitting" @click="submitTask">
                       {{ submitting ? "提交中..." : "提交降重" }}
                     </button>
@@ -166,14 +174,12 @@ import { computed, onMounted, onUnmounted, reactive, ref } from "vue"
 import { useRoute, useRouter } from "vue-router"
 
 import BuyCreditsPanel from "../../components/BuyCreditsPanel.vue"
-import TaskJourneyPanel from "../../components/TaskJourneyPanel.vue"
 import UserShell from "../../components/UserShell.vue"
 import WorkbenchTaskFeed from "../../components/WorkbenchTaskFeed.vue"
 import { useUserProfile } from "../../composables/useUserProfile"
 import { createTaskSubmitHandler } from "../../lib/taskSubmitFlow"
 import { userHttp } from "../../lib/http"
 import { createTaskSubmitIdempotencyKey } from "../../lib/taskSubmitRecovery"
-import { derivePaperTitleFromFilename, shouldAutoFillPaperTitle } from "../../lib/paperTitle"
 import { TASK_PLATFORM_OPTIONS } from "../../lib/taskPlatform"
 import { ensureUserLogin } from "../../lib/requireLogin"
 import { getUserToken, setUserInfo } from "../../lib/session"
@@ -190,8 +196,6 @@ const userCredits = computed(() => {
 
 const form = reactive({
   platform: "cnki",
-  title: "",
-  authors: "",
 })
 
 const platformCards = TASK_PLATFORM_OPTIONS
@@ -222,21 +226,21 @@ const features = [
 
 const fieldErrors = reactive({
   paper: "",
-  report: "",
-  title: "",
-  authors: "",
+  snippet: "",
 })
 
 const dragMain = ref(false)
-const dragReport = ref(false)
 const paperFile = ref(null)
-const reportFile = ref(null)
-const autoFilledTitle = ref("")
+const inputMode = ref("file")
+const snippetInput = ref("")
+const snippetOutput = ref("")
+const snippetSubmitting = ref(false)
 const submitting = ref(false)
 const errorText = ref("")
 const successText = ref("")
 const activeSubmitToken = ref(0)
 let activeSubmitController = null
+let disposed = false
 
 onMounted(async () => {
   const jobs = []
@@ -249,6 +253,7 @@ onMounted(async () => {
 })
 
 onUnmounted(() => {
+  disposed = true
   activeSubmitToken.value += 1
   activeSubmitController?.abort()
   activeSubmitController = null
@@ -285,9 +290,17 @@ function clearPaper() {
   fieldErrors.paper = ""
 }
 
-function clearReport() {
-  reportFile.value = null
-  fieldErrors.report = ""
+function switchInputMode(mode) {
+  inputMode.value = mode === "paste" ? "paste" : "file"
+  fieldErrors.paper = ""
+  fieldErrors.snippet = ""
+  errorText.value = ""
+  successText.value = ""
+  if (inputMode.value === "paste") {
+    clearPaper()
+  } else {
+    snippetOutput.value = ""
+  }
 }
 
 function onPaperInput(event) {
@@ -302,25 +315,13 @@ function onMainDrop(event) {
   setMainFile(file)
 }
 
-function onReportInput(event) {
-  const file = event.target.files?.[0] || null
-  setReportFile(file)
-  event.target.value = ""
-}
-
-function onReportDrop(event) {
-  dragReport.value = false
-  const file = event.dataTransfer?.files?.[0] || null
-  setReportFile(file)
-}
-
 function setMainFile(file) {
   fieldErrors.paper = ""
   if (!file) return
 
   const ext = file.name.includes(".") ? file.name.slice(file.name.lastIndexOf(".")).toLowerCase() : ""
   if (ext !== ".docx") {
-    fieldErrors.paper = "主文稿仅支持 .docx"
+    fieldErrors.paper = "上传文件仅支持 .docx"
     return
   }
   if (file.size > 20 * 1024 * 1024) {
@@ -328,58 +329,138 @@ function setMainFile(file) {
     return
   }
   paperFile.value = file
-  const detectedTitle = derivePaperTitleFromFilename(file.name)
-  if (detectedTitle && shouldAutoFillPaperTitle(form.title, autoFilledTitle.value)) {
-    form.title = detectedTitle
-    autoFilledTitle.value = detectedTitle
-    fieldErrors.title = ""
-  }
 }
 
-function setReportFile(file) {
-  fieldErrors.report = ""
-  if (!file) return
-
-  const ext = file.name.includes(".") ? file.name.slice(file.name.lastIndexOf(".")).toLowerCase() : ""
-  if (![".docx", ".pdf"].includes(ext)) {
-    fieldErrors.report = "全文查重报告仅支持 .docx / .pdf"
-    return
-  }
-  if (file.size > 20 * 1024 * 1024) {
-    fieldErrors.report = "文件超过 20MB 限制"
-    return
-  }
-  reportFile.value = file
-}
-
-function validateForm() {
+function validateFileForm() {
   fieldErrors.paper = ""
-  fieldErrors.report = ""
-  fieldErrors.title = ""
-  fieldErrors.authors = ""
-
   let valid = true
   if (!paperFile.value) {
-    fieldErrors.paper = "请先上传主文稿"
-    valid = false
-  }
-  if (!form.title.trim()) {
-    fieldErrors.title = "请填写篇名"
-    valid = false
-  }
-  if (!form.authors.trim()) {
-    fieldErrors.authors = "请填写作者"
+    fieldErrors.paper = "请先上传文件"
     valid = false
   }
   return valid
 }
 
+function validateSnippetForm() {
+  fieldErrors.snippet = ""
+  const content = String(snippetInput.value || "").trim()
+  if (!content) {
+    fieldErrors.snippet = "请先粘贴需要处理的片段文字"
+    return false
+  }
+  if (content.length < 10) {
+    fieldErrors.snippet = "文本过短，请至少输入10个字符"
+    return false
+  }
+  return true
+}
+
 async function submitTask() {
-  if (!validateForm()) {
+  if (inputMode.value === "paste") {
+    await submitSnippetTask()
+    return
+  }
+  if (!validateFileForm()) {
     errorText.value = "请先完成必填项后再提交"
     return
   }
   await runSubmitTask()
+}
+
+async function submitSnippetTask() {
+  if (!ensureUserLogin(router, route, "/app/dedup")) return
+  if (snippetSubmitting.value) return
+  if (!validateSnippetForm()) {
+    errorText.value = "请先完成必填项后再生成"
+    return
+  }
+  const sourceFilename = "pasted_text.txt"
+  const submittedAt = Date.now()
+  const idempotencyKey = createTaskSubmitIdempotencyKey({
+    taskType: "dedup",
+    platform: String(form.platform || "cnki"),
+    paperTitle: "",
+    authors: "",
+    sourceFilename,
+    submittedAt,
+  })
+
+  snippetSubmitting.value = true
+  errorText.value = ""
+  successText.value = ""
+  snippetOutput.value = "正在处理，请稍候..."
+
+  try {
+    const payload = new FormData()
+    payload.append("task_type", "dedup")
+    payload.append("platform", String(form.platform || "cnki"))
+    payload.append("pasted_text", String(snippetInput.value || "").trim())
+    payload.append("source_filename", sourceFilename)
+    const submitData = await userHttp.post("/tasks/submit", payload, {
+      timeout: 120000,
+      headers: { "X-Idempotency-Key": idempotencyKey },
+    })
+    applyUserBalanceFromSubmit(submitData)
+    const output = await waitForTaskOutputText(submitData.id)
+    if (disposed) return
+    snippetOutput.value = output || "处理完成，但结果为空。"
+    successText.value = `片段处理完成，任务 #${submitData.id}`
+    await refreshUser()
+  } catch (error) {
+    if (disposed) return
+    snippetOutput.value = ""
+    errorText.value = String(error?.message || "片段处理失败，请稍后重试")
+  } finally {
+    snippetSubmitting.value = false
+  }
+}
+
+async function waitForTaskOutputText(taskId) {
+  const timeoutMs = 180000
+  const intervalMs = 1200
+  const startedAt = Date.now()
+  while (!disposed) {
+    const detail = await userHttp.get(`/tasks/${taskId}`)
+    const status = String(detail?.status || "").trim().toLowerCase()
+    if (status === "completed") {
+      try {
+        const response = await userHttp.get(`/tasks/${taskId}/download`, { responseType: "blob" })
+        const text = await response.data.text()
+        return String(text || "").trim()
+      } catch {
+        return String(detail?.result_json?.output_preview || "").trim()
+      }
+    }
+    if (status === "failed") {
+      const reason = String(detail?.error_message || "").trim()
+      throw new Error(reason || "任务处理失败")
+    }
+    if (Date.now() - startedAt > timeoutMs) {
+      throw new Error("任务处理超时，请到记录页查看任务状态")
+    }
+    await sleep(intervalMs)
+  }
+  return ""
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, ms)
+  })
+}
+
+function applyUserBalanceFromSubmit(data) {
+  const balance =
+    typeof data?.balance_after_fen === "number"
+      ? data.balance_after_fen
+      : typeof data?.balance_after === "number"
+        ? data.balance_after
+        : null
+  if (typeof balance !== "number") return
+  const current = user.value && typeof user.value === "object" ? user.value : {}
+  const next = { ...current, credits: balance, balance_fen: balance }
+  user.value = next
+  setUserInfo(next)
 }
 
 const runSubmitTask = createTaskSubmitHandler({
@@ -407,9 +488,8 @@ const runSubmitTask = createTaskSubmitHandler({
     taskType: "dedup",
     platform: String(form.platform || "cnki"),
     paper: paperFile.value,
-    report: reportFile.value,
-    paperTitle: form.title.trim(),
-    authors: form.authors.trim(),
+    paperTitle: "",
+    authors: "",
     sourceFilename: paperFile.value?.name || "",
     userHttp,
   }),
@@ -417,8 +497,8 @@ const runSubmitTask = createTaskSubmitHandler({
     snapshot.idempotencyKey = createTaskSubmitIdempotencyKey({
       taskType: snapshot.taskType,
       platform: snapshot.platform,
-      paperTitle: snapshot.paperTitle,
-      authors: snapshot.authors,
+      paperTitle: "",
+      authors: "",
       sourceFilename: snapshot.sourceFilename,
       submittedAt,
     })
@@ -427,11 +507,6 @@ const runSubmitTask = createTaskSubmitHandler({
       payload.append("task_type", snapshot.taskType)
       payload.append("platform", snapshot.platform)
       payload.append("paper", snapshot.paper)
-      if (snapshot.report) {
-        payload.append("report", snapshot.report)
-      }
-      payload.append("paper_title", snapshot.paperTitle)
-      payload.append("authors", snapshot.authors)
       return userHttp.post("/tasks/submit", payload, {
         timeout: 120000,
         signal,
@@ -447,4 +522,3 @@ async function afterPaid() {
   await refreshUser()
 }
 </script>
-

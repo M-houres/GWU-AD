@@ -17,7 +17,6 @@
         <p class="aigc-page-head__quota">{{ pageHeadQuotaText }}</p>
       </section>
       <div class="aigc-page-head__divider" aria-hidden="true"></div>
-      <TaskJourneyPanel :credits="userCredits" />
 
       <div class="uploadLiterature_content">
         <div class="uploadLit_content panels-container">
@@ -65,17 +64,30 @@
                     <div class="aigc-field-row aigc-field-row--platform">
                       <label class="aigc-field-row__label"><span class="aigc-required">*</span>平台选择</label>
                       <div class="aigc-field-row__body">
-                        <div class="aigc-platform-grid aigc-platform-grid--inline">
-                          <button
-                            v-for="item in platformCards"
-                            :key="item.value"
-                            type="button"
-                            class="aigc-platform-card"
-                            :class="{ 'is-active': form.platform === item.value }"
-                            @click="form.platform = item.value"
-                          >
-                            <div class="aigc-platform-card__name">{{ item.label }}</div>
-                          </button>
+                        <div class="aigc-platform-row">
+                          <div class="aigc-platform-grid aigc-platform-grid--inline">
+                            <button
+                              v-for="item in platformCards"
+                              :key="item.value"
+                              type="button"
+                              class="aigc-platform-card"
+                              :class="{ 'is-active': form.platform === item.value }"
+                              @click="form.platform = item.value"
+                            >
+                              <div class="aigc-platform-card__name">{{ item.label }}</div>
+                            </button>
+                          </div>
+                          <div class="aigc-official-links">
+                            <a
+                              v-for="entry in officialAigcLinks"
+                              :key="entry.label"
+                              :href="entry.url"
+                              target="_blank"
+                              rel="noopener noreferrer"
+                            >
+                              {{ entry.label }}
+                            </a>
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -166,7 +178,6 @@ import { computed, onMounted, onUnmounted, reactive, ref } from "vue"
 import { useRoute, useRouter } from "vue-router"
 
 import BuyCreditsPanel from "../../components/BuyCreditsPanel.vue"
-import TaskJourneyPanel from "../../components/TaskJourneyPanel.vue"
 import UserShell from "../../components/UserShell.vue"
 import WorkbenchTaskFeed from "../../components/WorkbenchTaskFeed.vue"
 import { useUserProfile } from "../../composables/useUserProfile"
@@ -202,6 +213,10 @@ const fieldErrors = reactive({
 })
 
 const platformCards = AIGC_PLATFORM_OPTIONS
+const officialAigcLinks = [
+  { label: "知网官方查AIGC率", url: "https://cx.cnki.net/" },
+  { label: "维普官方查AIGC率", url: "https://aigc.cqvip.com/" },
+]
 
 const features = [
   {

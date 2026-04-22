@@ -1,6 +1,5 @@
 from datetime import datetime, timedelta
-from pathlib import Path
-
+import secrets
 from fastapi import APIRouter, Depends, Query, Response
 from sqlalchemy import desc, func
 from sqlalchemy.orm import Session
@@ -9,12 +8,13 @@ from app.config import get_settings
 from app.deps import current_user, db_dep, get_redis
 from app.exceptions import BizError
 from app.money import cny_to_api, fen_to_cny
-from app.models import CreditTransaction, Notification, Task, TaskStatus, TaskType, User
+from app.models import CreditTransaction, Notification, Task, TaskStatus, TaskType, User, UserInviteCode
 from app.pagination import paginate
 from app.responses import ok
 from app.schemas import APIResp
 from app.services.aigc_quota_service import get_aigc_daily_quota
 from app.services.process_strategy_service import sanitize_user_result_json
+from app.services.task_artifacts import safe_remove_task_artifact
 from app.security import auth_session_key
 
 router = APIRouter()
@@ -33,21 +33,18 @@ def _mask_phone(phone: str) -> str:
     return raw
 
 
-def _safe_remove_user_artifact(raw_path: str | None) -> None:
-    if not raw_path:
-        return
-    try:
-        path = Path(raw_path).resolve()
-        allowed_roots = [settings.upload_dir.resolve(), settings.output_dir.resolve()]
-        if not any(path == root or root in path.parents for root in allowed_roots):
-            return
-        path.unlink(missing_ok=True)
-    except Exception:
-        return
-
-
 def _build_deleted_phone(user_id: int) -> str:
     return f"del{int(user_id):09d}"
+
+
+def _generate_invite_code(db: Session) -> str:
+    alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+    for _ in range(30):
+        candidate = "".join(secrets.choice(alphabet) for _ in range(8))
+        exists = db.query(UserInviteCode.user_id).filter(UserInviteCode.invite_code == candidate).first()
+        if not exists:
+            return candidate
+    raise BizError(code=4401, message="邀请码生成失败，请稍后重试")
 
 
 @router.get("/me", response_model=APIResp)
@@ -64,6 +61,20 @@ def me(user: User = Depends(current_user)) -> APIResp:
             "created_at": user.created_at,
         }
     )
+
+
+@router.get("/me/invite", response_model=APIResp)
+def my_invite_info(
+    user: User = Depends(current_user),
+    db: Session = Depends(db_dep),
+) -> APIResp:
+    row = db.query(UserInviteCode).filter(UserInviteCode.user_id == user.id).with_for_update().first()
+    if row is None:
+        row = UserInviteCode(user_id=user.id, invite_code=_generate_invite_code(db))
+        db.add(row)
+        db.commit()
+        db.refresh(row)
+    return ok(data={"invite_code": row.invite_code, "invite_url_code": row.invite_code})
 
 
 @router.patch("/me", response_model=APIResp)
@@ -102,9 +113,9 @@ def delete_me(
 
     tasks = db.query(Task).filter(Task.user_id == locked_user.id).all()
     for task in tasks:
-        _safe_remove_user_artifact(task.source_path)
-        _safe_remove_user_artifact(task.report_path)
-        _safe_remove_user_artifact(task.output_path)
+        safe_remove_task_artifact(task.source_path, warn_on_untrusted=False)
+        safe_remove_task_artifact(task.report_path, warn_on_untrusted=False)
+        safe_remove_task_artifact(task.output_path, warn_on_untrusted=False)
         db.delete(task)
 
     notifications = db.query(Notification).filter(Notification.user_id == locked_user.id).all()

@@ -77,6 +77,8 @@ class CreateOrderReq(BaseModel):
     amount_cny: Decimal | None = Field(default=None, gt=0)
     provider: str = Field(default="wechat")
     scene: str = Field(default="web")
+    channel_code: str | None = Field(default=None, max_length=32)
+    channel_token: str | None = Field(default=None, max_length=128)
 
 
 class PayCallbackReq(BaseModel):
@@ -89,14 +91,3 @@ class PayCallbackReq(BaseModel):
     provider: str = Field(default="wechat")
     nonce: str = Field(min_length=4, max_length=64)
     sign: str = Field(min_length=32, max_length=128)
-
-
-class AlgoPackageActivateReq(BaseModel):
-    platform: str = Field(min_length=2, max_length=32)
-    function_type: str = Field(min_length=2, max_length=32)
-    version: str = Field(min_length=3, max_length=64)
-
-
-class AlgoPackageUploadReq(BaseModel):
-    platform: str = Field(min_length=2, max_length=32)
-    function_type: str = Field(min_length=2, max_length=32)

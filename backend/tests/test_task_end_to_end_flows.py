@@ -1,9 +1,6 @@
 from contextlib import contextmanager
-import io
-import json
 from io import BytesIO
 from pathlib import Path
-import zipfile
 
 from docx import Document
 from sqlalchemy.orm import Session
@@ -13,7 +10,6 @@ from app.config import get_settings
 from app.deps import current_user
 from app.main import app
 from app.models import CreditTransaction, CreditType, SystemConfig, Task, TaskStatus, User
-from app.services.algo_package_service import install_algorithm_package
 
 
 def _make_docx_bytes(paragraphs: list[str]) -> BytesIO:
@@ -24,45 +20,6 @@ def _make_docx_bytes(paragraphs: list[str]) -> BytesIO:
     doc.save(buffer)
     buffer.seek(0)
     return buffer
-
-
-def _build_package_zip(*, platform: str, function_type: str, name: str) -> bytes:
-    manifest = {
-        "name": name,
-        "version": "1.0.0",
-        "platform": platform,
-        "function_type": function_type,
-        "entry": "main.py",
-    }
-    buf = io.BytesIO()
-    with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_DEFLATED) as zf:
-        zf.writestr("manifest.json", json.dumps(manifest, ensure_ascii=False))
-        zf.writestr(
-            "main.py",
-            "def process(text):\n"
-            "    value = str(text)\n"
-            "    if value.strip().startswith('{'):\n"
-            "        return {'text': value}\n"
-            "    return {'text': value}\n",
-        )
-    return buf.getvalue()
-
-
-def _activate_slot(db_session: Session, *, platform: str, function_type: str) -> None:
-    install_algorithm_package(
-        db_session,
-        file_bytes=_build_package_zip(
-            platform=platform,
-            function_type=function_type,
-            name=f"{platform}_{function_type}_engine",
-        ),
-        platform=platform,
-        function_type=function_type,
-        uploaded_by=1,
-        activate_after_upload=True,
-    )
-    db_session.commit()
-
 
 def test_user_can_submit_and_finish_all_three_task_flows(
     client,
@@ -85,9 +42,6 @@ def test_user_can_submit_and_finish_all_three_task_flows(
     )
     db_session.commit()
     db_session.refresh(user)
-
-    for function_type in ("aigc_detect", "dedup", "rewrite"):
-        _activate_slot(db_session, platform="cnki", function_type=function_type)
 
     monkeypatch.setattr("app.worker_tasks.dispatch_background_task", lambda *_args, **_kwargs: "test-noop")
     app.dependency_overrides[current_user] = lambda: user

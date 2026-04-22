@@ -1,12 +1,12 @@
 ﻿from datetime import date, datetime, timedelta
 from copy import deepcopy
 import ipaddress
+from pathlib import Path
 import re
 import secrets
-from pathlib import Path
 from urllib.parse import urlparse
 
-from fastapi import APIRouter, Body, Cookie, Depends, File, Form, Query, Request, Response, UploadFile
+from fastapi import APIRouter, Body, Cookie, Depends, Query, Request, Response
 from fastapi.responses import FileResponse
 from sqlalchemy import desc, func
 from sqlalchemy.orm import Session
@@ -43,8 +43,6 @@ from app.schemas import (
     APIResp,
     AdminAdjustCreditReq,
     AdminLoginReq,
-    AlgoPackageActivateReq,
-    AlgoPackageUploadReq,
 )
 from app.security import (
     REFRESH_TOKEN_TYPE,
@@ -56,35 +54,38 @@ from app.security import (
     new_session_version,
     verify_password,
 )
-from app.services.algo_package_service import (
-    activate_algorithm_package,
-    deactivate_algorithm_package,
-    get_active_slot_config,
-    get_algorithm_package_archive_path,
-    install_algorithm_package,
-    list_algorithm_packages,
-)
-from app.services.builtin_algo_packages import (
-    bootstrap_builtin_algo_packages,
-    build_authoring_spec_bundle,
-    build_builtin_template_package,
-)
 from app.services.credit_service import change_credits
 from app.services.llm_service import LLM_PROVIDER_PRESETS, SUPPORTED_LLM_PROVIDERS, normalize_llm_provider
 from app.money import cny_to_api, cny_sum, cny_to_fen, fen_to_cny, to_cny_decimal
 from app.services.payment_service import DEFAULT_PAYMENT_CONFIG, normalize_payment_provider
 from app.services.process_strategy_service import (
     get_process_strategy,
+    is_independent_strategy_config,
     list_process_strategies,
     normalize_platform,
     normalize_process_mode,
     normalize_task_type,
     platform_label,
-    update_execution_config,
     update_process_strategy,
 )
 from app.services.platform_registry import list_platforms, upsert_platform, validate_platform_payload
+from app.services.aigc_detect_strategies.config import (
+    DEFAULT_AIGC_DETECT_STRATEGY_CONFIG,
+    aigc_detect_strategy_readiness,
+    normalize_aigc_detect_strategy_config,
+)
+from app.services.dedup_strategies.config import (
+    DEFAULT_DEDUP_STRATEGY_CONFIG,
+    dedup_strategy_readiness,
+    normalize_dedup_strategy_config,
+)
+from app.services.rewrite_strategies.config import (
+    DEFAULT_REWRITE_STRATEGY_CONFIG,
+    normalize_rewrite_strategy_config,
+    rewrite_strategy_readiness,
+)
 from app.services.user_navigation_service import default_user_navigation_config, normalize_user_navigation_config
+from app.services.partner_rebate_service import record_refund_order_rebate
 
 router = APIRouter()
 settings = get_settings()
@@ -96,7 +97,19 @@ SOURCE_BUCKETS = ("web", "miniapp", "other")
 _SOURCE_WEB_ALIASES = {"web", "h5", "site"}
 _SOURCE_MINIAPP_ALIASES = {"miniapp", "miniprogram", "mini_program", "wxapp", "wechat_miniprogram", "wechat_mini_program"}
 
-CONFIG_CATEGORIES = {"llm", "payment", "billing", "login", "notice", "miniapp", "user_navigation"}
+CONFIG_CATEGORIES = {
+    "llm",
+    "payment",
+    "billing",
+    "login",
+    "notice",
+    "miniapp",
+    "user_navigation",
+    "promo_center",
+    "aigc_detect_strategy",
+    "rewrite_strategy",
+    "dedup_strategy",
+}
 CONFIG_LABELS = {
     "llm": "大模型配置",
     "payment": "支付配置",
@@ -105,6 +118,10 @@ CONFIG_LABELS = {
     "notice": "公告配置",
     "miniapp": "小程序配置",
     "user_navigation": "前台导航",
+    "promo_center": "推广中心",
+    "aigc_detect_strategy": "AIGC检测策略",
+    "rewrite_strategy": "降AIGC率策略",
+    "dedup_strategy": "降重复率策略",
 }
 CONFIG_FIELD_LABELS = {
     "llm": {
@@ -208,6 +225,23 @@ CONFIG_FIELD_LABELS = {
     "user_navigation": {
         "items": "前台导航编排",
     },
+    "promo_center": {
+        "enabled": "推广中心开关",
+        "invite_reward_points": "邀请奖励积分",
+        "contacts": "机构合作联系方式",
+    },
+    "aigc_detect_strategy": {
+        "cnki": "知网AIGC检测策略",
+        "vip": "维普AIGC检测策略",
+    },
+    "rewrite_strategy": {
+        "cnki": "知网降AIGC率策略",
+        "vip": "维普降AIGC率策略",
+    },
+    "dedup_strategy": {
+        "cnki": "知网降重复率策略",
+        "vip": "维普降重复率策略",
+    },
 }
 CONFIG_DEFAULTS = {
     "llm": {
@@ -294,6 +328,18 @@ CONFIG_DEFAULTS = {
         "payment_notify_url": "",
     },
     "user_navigation": default_user_navigation_config(),
+    "promo_center": {
+        "enabled": True,
+        "invite_reward_points": 2000,
+        "contacts": {
+            "phone": [],
+            "wechat": [],
+            "email": [],
+        },
+    },
+    "aigc_detect_strategy": deepcopy(DEFAULT_AIGC_DETECT_STRATEGY_CONFIG),
+    "rewrite_strategy": deepcopy(DEFAULT_REWRITE_STRATEGY_CONFIG),
+    "dedup_strategy": deepcopy(DEFAULT_DEDUP_STRATEGY_CONFIG),
 }
 
 _LLM_PROVIDERS = set(SUPPORTED_LLM_PROVIDERS)
@@ -308,8 +354,6 @@ ADMIN_PERMISSION_CATALOG = [
     {"key": "orders:refund", "label": "执行订单退款", "group": "订单"},
     {"key": "logs:view", "label": "查看系统日志", "group": "日志"},
     {"key": "credits:view", "label": "查看点数流水", "group": "点数"},
-    {"key": "algo:view", "label": "查看算法包列表", "group": "算法包"},
-    {"key": "algo:manage", "label": "上传/启停算法包", "group": "算法包"},
     {"key": "configs:view", "label": "查看系统配置", "group": "系统配置"},
     {"key": "configs:manage", "label": "修改系统配置", "group": "系统配置"},
     {"key": "system:manage", "label": "切换系统运行模式", "group": "系统模式"},
@@ -326,7 +370,6 @@ DEFAULT_OPERATOR_PERMISSIONS = {
     "orders:refund",
     "logs:view",
     "credits:view",
-    "algo:view",
 }
 ADMIN_PERMISSION_TEMPLATES = [
     {
@@ -368,7 +411,6 @@ ADMIN_PERMISSION_TEMPLATES = [
             "orders:view",
             "logs:view",
             "credits:view",
-            "algo:view",
             "configs:view",
             "admins:view",
         ],
@@ -380,8 +422,6 @@ ADMIN_PERMISSION_TEMPLATES = [
         "permissions": [
             "dashboard:view",
             "tasks:view",
-            "algo:view",
-            "algo:manage",
             "configs:view",
             "configs:manage",
             "system:manage",
@@ -1096,6 +1136,47 @@ def _normalize_category_payload(category: str, payload: dict) -> dict:
     if category == "user_navigation":
         return normalize_user_navigation_config(raw)
 
+    if category == "promo_center":
+        base["enabled"] = _as_bool(raw.get("enabled", base["enabled"]), default=True)
+        base["invite_reward_points"] = _as_int(
+            raw.get("invite_reward_points", base.get("invite_reward_points", 2000)),
+            default=2000,
+            min_value=0,
+            max_value=100_000,
+            field="invite_reward_points",
+        )
+        contacts = raw.get("contacts") if isinstance(raw.get("contacts"), dict) else {}
+        normalized_contacts: dict[str, list[str]] = {"phone": [], "wechat": [], "email": []}
+        for key in ("phone", "wechat", "email"):
+            values = contacts.get(key)
+            if not isinstance(values, list):
+                values = []
+            bucket: list[str] = []
+            seen = set()
+            for item in values:
+                text = _as_text(item, default="", max_len=128)
+                if not text:
+                    continue
+                dedup_key = text.lower()
+                if dedup_key in seen:
+                    continue
+                seen.add(dedup_key)
+                bucket.append(text)
+                if len(bucket) >= 20:
+                    break
+            normalized_contacts[key] = bucket
+        base["contacts"] = normalized_contacts
+        return base
+
+    if category == "aigc_detect_strategy":
+        return normalize_aigc_detect_strategy_config(raw)
+
+    if category == "rewrite_strategy":
+        return normalize_rewrite_strategy_config(raw)
+
+    if category == "dedup_strategy":
+        return normalize_dedup_strategy_config(raw)
+
     if category == "llm":
         base["enabled"] = _as_bool(raw.get("enabled", base["enabled"]), default=False)
         provider = normalize_llm_provider(_as_text(raw.get("provider", base["provider"]), default="openai", max_len=64))
@@ -1373,6 +1454,26 @@ def _category_readiness(category: str, value: dict) -> dict:
         if visible_count <= 0:
             return {"category": category, "status": "error", "message": "前台导航至少需展示 1 个功能"}
         return {"category": category, "status": "ready", "message": f"前台导航已编排（展示 {visible_count} 个功能）"}
+    if category == "promo_center":
+        enabled = bool(value.get("enabled", True))
+        if not enabled:
+            return {"category": category, "status": "warning", "message": "推广中心已关闭"}
+        reward_points = int(value.get("invite_reward_points") or 0)
+        if reward_points <= 0:
+            return {"category": category, "status": "warning", "message": "邀请奖励积分未设置，页面仅展示联系方式"}
+        contacts = value.get("contacts") if isinstance(value.get("contacts"), dict) else {}
+        contact_count = 0
+        for key in ("phone", "wechat", "email"):
+            values = contacts.get(key)
+            if isinstance(values, list):
+                contact_count += len([item for item in values if str(item or "").strip()])
+        if contact_count <= 0:
+            return {"category": category, "status": "warning", "message": "机构合作联系方式未配置"}
+        return {
+            "category": category,
+            "status": "ready",
+            "message": f"邀请奖励 {reward_points} 点，已配置 {contact_count} 条机构联系方式",
+        }
     if category == "llm":
         enabled = bool(value.get("enabled"))
         if not enabled:
@@ -1434,6 +1535,15 @@ def _category_readiness(category: str, value: dict) -> dict:
         if not notice["title"] or not notice["content"]:
             return {"category": category, "status": "error", "message": "公告标题或内容为空"}
         return {"category": category, "status": "ready", "message": f"公告已发布（v{notice['version']}）"}
+    if category == "aigc_detect_strategy":
+        readiness = aigc_detect_strategy_readiness(value)
+        return {"category": category, "status": readiness["status"], "message": readiness["message"]}
+    if category == "rewrite_strategy":
+        readiness = rewrite_strategy_readiness(value)
+        return {"category": category, "status": readiness["status"], "message": readiness["message"]}
+    if category == "dedup_strategy":
+        readiness = dedup_strategy_readiness(value)
+        return {"category": category, "status": readiness["status"], "message": readiness["message"]}
     if category == "miniapp":
         miniapp = _extract_miniapp_payload(value)
         if not miniapp["enabled"]:
@@ -1523,6 +1633,12 @@ def _get_category_config(db: Session, category: str, *, redact: bool = False) ->
     source = _read_system_config_raw(db, category)
     if category == "user_navigation":
         return normalize_user_navigation_config(source)
+    if category == "aigc_detect_strategy":
+        source = normalize_aigc_detect_strategy_config(source)
+    if category == "rewrite_strategy":
+        source = normalize_rewrite_strategy_config(source)
+    if category == "dedup_strategy":
+        source = normalize_dedup_strategy_config(source)
     if category == "notice" and (not source):
         source = _notice_to_notice_fields(_extract_notice_payload(_read_system_config_raw(db, "login")))
     if category == "miniapp" and (not source):
@@ -2111,12 +2227,11 @@ def dashboard(_: AdminUser = Depends(require_admin_permission("dashboard:view"))
     )
     platform_items = [{"platform": p, "count": int(c)} for p, c in platform_dist]
     readiness_map = {}
-    for category in ("login", "payment", "billing", "llm", "miniapp"):
+    for category in ("login", "payment", "billing", "llm", "miniapp", "aigc_detect_strategy", "rewrite_strategy", "dedup_strategy"):
         readiness_map[category] = _category_readiness(category, _get_category_config(db, category, redact=False))
     strategy_rows = list_process_strategies(db).get("items", [])
     strategy_total = len(strategy_rows)
     strategy_enabled = sum(1 for item in strategy_rows if bool(item.get("is_enabled")))
-    strategy_with_active_slot = sum(1 for item in strategy_rows if item.get("active_slot"))
     task_status_rows = db.query(Task.status, func.count(Task.id)).group_by(Task.status).all()
     task_status_map = {
         (status.value if hasattr(status, "value") else str(status)): int(count)
@@ -2146,9 +2261,6 @@ def dashboard(_: AdminUser = Depends(require_admin_permission("dashboard:view"))
     if strategy_enabled <= 0:
         baseline_status = "error"
         baseline_reasons.append("任务策略未启用")
-    elif strategy_with_active_slot < strategy_enabled and baseline_status != "error":
-        baseline_status = "warning"
-        baseline_reasons.append("部分任务策略缺少激活算法包")
     operational_alerts = []
     if task_status_map.get("failed", 0) > 0:
         operational_alerts.append({"level": "warning", "key": "failed_tasks", "message": f"当前有 {task_status_map.get('failed', 0)} 个失败任务，请及时复核。"})
@@ -2212,7 +2324,7 @@ def dashboard(_: AdminUser = Depends(require_admin_permission("dashboard:view"))
                         "key": "tasks",
                         "label": "任务处理",
                         "status": "ready" if strategy_enabled > 0 else "error",
-                        "message": f"已启用 {strategy_enabled}/{strategy_total} 条任务策略，激活算法包覆盖 {strategy_with_active_slot}/{strategy_total} 条",
+                        "message": f"已启用 {strategy_enabled}/{strategy_total} 条任务策略",
                     },
                     {
                         "key": "llm",
@@ -2828,6 +2940,7 @@ def refund_order(
         source="admin",
     )
     order.status = "refunded"
+    record_refund_order_rebate(db, order=order, operator=f"admin:{admin.username}")
     db.add(
         AdminAuditLog(
             admin_id=admin.id,
@@ -2888,7 +3001,7 @@ def get_config_readiness(
     db: Session = Depends(db_dep),
 ) -> APIResp:
     items = []
-    for c in ("llm", "payment", "billing", "login", "notice", "miniapp", "user_navigation"):
+    for c in ("llm", "payment", "billing", "login", "notice", "miniapp", "user_navigation", "promo_center", "aigc_detect_strategy", "rewrite_strategy", "dedup_strategy"):
         value = _get_category_config(db, c)
         items.append(_category_readiness(c, value))
     return ok(data={"items": items})
@@ -2932,7 +3045,7 @@ def update_config(
 
 @router.get("/strategies", response_model=APIResp)
 def admin_process_strategies(
-    _: AdminUser = Depends(require_admin_permission("algo:view")),
+    _: AdminUser = Depends(require_admin_permission("configs:view")),
     db: Session = Depends(db_dep),
 ) -> APIResp:
     data = list_process_strategies(db)
@@ -2940,19 +3053,9 @@ def admin_process_strategies(
     for row in data.get("items", []):
         platform = str(row.get("platform", ""))
         task_type = str(row.get("task_type", ""))
-        active_slot = get_active_slot_config(db, platform=platform, function_type=task_type)
         item = dict(row)
         item["platform_label"] = platform_label(platform, db=db)
         item["task_type_label"] = _task_type_label(task_type)
-        item["active_package"] = (
-            {
-                "name": active_slot.get("name"),
-                "version": active_slot.get("version"),
-                "entry": active_slot.get("entry"),
-            }
-            if isinstance(active_slot, dict)
-            else None
-        )
         items.append(item)
     return ok(
         data={
@@ -2964,17 +3067,9 @@ def admin_process_strategies(
     )
 
 
-@router.get("/execution-configs", response_model=APIResp)
-def admin_execution_configs(
-    _: AdminUser = Depends(require_admin_permission("algo:view")),
-    db: Session = Depends(db_dep),
-) -> APIResp:
-    return admin_process_strategies(_, db)
-
-
 @router.get("/algo-config/table", response_model=APIResp)
 def admin_algo_config_table(
-    _: AdminUser = Depends(require_admin_permission("algo:view")),
+    _: AdminUser = Depends(require_admin_permission("configs:view")),
     db: Session = Depends(db_dep),
 ) -> APIResp:
     platform_rows = list_platforms(db, enabled_only=False)
@@ -2991,7 +3086,7 @@ def admin_algo_config_table(
 @router.post("/algo-config/platforms", response_model=APIResp)
 def admin_create_or_update_platform(
     payload: dict,
-    admin: AdminUser = Depends(require_admin_permission("algo:manage")),
+    admin: AdminUser = Depends(require_admin_permission("configs:manage")),
     db: Session = Depends(db_dep),
 ) -> APIResp:
     if not isinstance(payload, dict):
@@ -3030,7 +3125,7 @@ def admin_update_process_strategy(
     task_type: str,
     platform: str,
     payload: dict,
-    admin: AdminUser = Depends(require_admin_permission("algo:manage")),
+    admin: AdminUser = Depends(require_admin_permission("configs:manage")),
     db: Session = Depends(db_dep),
 ) -> APIResp:
     if not isinstance(payload, dict):
@@ -3047,15 +3142,6 @@ def admin_update_process_strategy(
         process_mode = normalize_process_mode(process_mode)
     is_enabled = _as_bool(payload.get("is_enabled"), default=False) if "is_enabled" in payload else None
     timeout_sec = payload.get("timeout_sec") if "timeout_sec" in payload else None
-
-    if is_enabled:
-        active_slot = get_active_slot_config(
-            db,
-            platform=normalized_platform,
-            function_type=normalized_task_type.value,
-        )
-        if not active_slot:
-            raise BizError(code=4118, message="该平台功能尚未激活算法包，无法启用")
 
     try:
         result = update_process_strategy(
@@ -3082,79 +3168,12 @@ def admin_update_process_strategy(
         db.rollback()
         raise
 
-    active_slot = get_active_slot_config(db, platform=normalized_platform, function_type=normalized_task_type.value)
     result_payload = dict(result)
     result_payload["platform_label"] = _platform_label(normalized_platform)
     result_payload["task_type_label"] = _task_type_label(normalized_task_type.value)
-    result_payload["active_package"] = (
-        {
-            "name": active_slot.get("name"),
-            "version": active_slot.get("version"),
-            "entry": active_slot.get("entry"),
-        }
-        if isinstance(active_slot, dict)
-        else None
-    )
-    return ok(data=result_payload)
-
-
-@router.put("/execution-configs/{task_type}/{platform}", response_model=APIResp)
-def admin_update_execution_config(
-    task_type: str,
-    platform: str,
-    payload: dict,
-    admin: AdminUser = Depends(require_admin_permission("algo:manage")),
-    db: Session = Depends(db_dep),
-) -> APIResp:
-    if not isinstance(payload, dict):
-        raise BizError(code=4302, message="请求体必须为 JSON 对象")
-    if not any(key in payload for key in ("process_mode", "is_enabled", "timeout_sec", "active_version")):
-        raise BizError(code=4341, message="至少需要提供 process_mode / is_enabled / timeout_sec / active_version 其中之一")
-
-    normalized_task_type = normalize_task_type(task_type)
-    normalized_platform = normalize_platform(platform, task_type=normalized_task_type, db=db)
-    before = get_process_strategy(db, task_type=normalized_task_type, platform=normalized_platform)
-    process_mode = payload.get("process_mode") if "process_mode" in payload else None
-    if process_mode is not None:
-        process_mode = normalize_process_mode(process_mode)
-    is_enabled = _as_bool(payload.get("is_enabled"), default=False) if "is_enabled" in payload else None
-    timeout_sec = payload.get("timeout_sec") if "timeout_sec" in payload else None
-    active_version = payload.get("active_version") if "active_version" in payload else None
-
-    if is_enabled:
-        active_slot = get_active_slot_config(db, platform=normalized_platform, function_type=normalized_task_type.value)
-        if not active_slot and not active_version:
-            raise BizError(code=4118, message="该平台功能尚未激活算法包，无法启用")
-
-    try:
-        result = update_execution_config(
-            db,
-            task_type=normalized_task_type,
-            platform=normalized_platform,
-            process_mode=process_mode,
-            is_enabled=is_enabled,
-            timeout_sec=timeout_sec,
-            active_version=active_version,
-            updated_by=admin.id,
-        )
-        db.add(
-            AdminAuditLog(
-                admin_id=admin.id,
-                action="execution_config_update",
-                target_type="execution_config",
-                target_id=f"{normalized_task_type.value}:{normalized_platform}",
-                before_json=before,
-                after_json=result,
-            )
-        )
-        db.commit()
-    except Exception:
-        db.rollback()
-        raise
-
-    result_payload = dict(result)
-    result_payload["platform_label"] = platform_label(normalized_platform, db=db)
-    result_payload["task_type_label"] = _task_type_label(normalized_task_type.value)
+    if is_independent_strategy_config(normalized_task_type, normalized_platform):
+        result_payload["current_version"] = None
+        result_payload["latest_version"] = None
     return ok(data=result_payload)
 
 
@@ -3196,216 +3215,6 @@ def credit_transactions(
     return ok(data={"items": items, "pagination": paginate(total, page, page_size)})
 
 
-@router.get("/algo-packages", response_model=APIResp)
-def get_algo_packages(_: AdminUser = Depends(require_admin_permission("algo:view")), db: Session = Depends(db_dep)) -> APIResp:
-    data = list_algorithm_packages(db)
-    return ok(data=data)
-
-
-@router.get("/algo-packages/history", response_model=APIResp)
-def get_algo_package_history(
-    platform: str = Query(...),
-    function_type: str = Query(...),
-    _: AdminUser = Depends(require_admin_permission("algo:view")),
-    db: Session = Depends(db_dep),
-) -> APIResp:
-    normalized_platform = normalize_platform(platform, task_type=function_type, db=db)
-    normalized_task_type = normalize_task_type(function_type).value
-    data = list_algorithm_packages(db)
-    items = [
-        item
-        for item in data.get("items", [])
-        if item.get("platform") == normalized_platform and item.get("function_type") == normalized_task_type
-    ]
-    items.sort(
-        key=lambda item: (
-            str(item.get("uploaded_at") or ""),
-            str(item.get("version") or ""),
-        ),
-        reverse=True,
-    )
-    return ok(
-        data={
-            "platform": normalized_platform,
-            "function_type": normalized_task_type,
-            "items": items,
-        }
-    )
-
-
-@router.get("/algo-packages/guide")
-@router.get("/algo-package-guide")
-def download_algo_package_guide(_: AdminUser = Depends(require_admin_permission("algo:view"))) -> Response:
-    guide_path = Path(__file__).resolve().parents[2] / "docs" / "ALGO_PACKAGE_AUTHORING_GUIDE.md"
-    if not guide_path.exists():
-        raise BizError(code=4501, message="算法包撰写说明不存在", http_status=404)
-    return FileResponse(
-        path=guide_path,
-        filename=guide_path.name,
-        media_type="application/octet-stream",
-        headers={"Cache-Control": "no-store"},
-    )
-
-
-@router.get("/algo-packages/authoring-bundle")
-def download_algo_package_authoring_bundle(_: AdminUser = Depends(require_admin_permission("algo:view"))) -> Response:
-    filename, content = build_authoring_spec_bundle()
-    headers = {
-        "Content-Disposition": f'attachment; filename="{filename}"; filename*=UTF-8\'\'{filename}',
-        "Cache-Control": "no-store",
-    }
-    return Response(content=content, media_type="application/zip", headers=headers)
-
-
-@router.get("/algo-packages/template")
-def download_algo_package_template(
-    platform: str = Query(...),
-    function_type: str = Query(...),
-    _: AdminUser = Depends(require_admin_permission("algo:view")),
-) -> Response:
-    filename, content = build_builtin_template_package(platform=platform, function_type=function_type)
-    headers = {
-        "Content-Disposition": f'attachment; filename="{filename}"; filename*=UTF-8\'\'{filename}',
-        "Cache-Control": "no-store",
-    }
-    return Response(content=content, media_type="application/zip", headers=headers)
-
-
-@router.get("/algo-packages/download")
-def download_algo_package_archive(
-    platform: str = Query(...),
-    function_type: str = Query(...),
-    version: str = Query(...),
-    _: AdminUser = Depends(require_admin_permission("algo:view")),
-    db: Session = Depends(db_dep),
-) -> Response:
-    package_path = get_algorithm_package_archive_path(
-        platform=platform,
-        function_type=function_type,
-        version=version,
-        db=db,
-    )
-    filename = f"algo_package_{platform}_{function_type}_{version}.zip"
-    return FileResponse(
-        path=package_path,
-        filename=filename,
-        media_type="application/zip",
-        headers={"Cache-Control": "no-store"},
-    )
-
-
-@router.post("/algo-packages/bootstrap", response_model=APIResp)
-def bootstrap_algo_packages(
-    activate: bool = Query(default=True),
-    admin: AdminUser = Depends(require_admin_permission("algo:manage")),
-    db: Session = Depends(db_dep),
-) -> APIResp:
-    try:
-        data = bootstrap_builtin_algo_packages(
-            db,
-            uploaded_by=admin.id,
-            activate_after_upload=activate,
-        )
-        db.commit()
-        return ok(data=data)
-    except Exception:
-        db.rollback()
-        raise
-
-
-@router.post("/algo-packages/upload", response_model=APIResp)
-def upload_algo_package(
-    platform: str = Form(...),
-    function_type: str = Form(...),
-    activate: bool = Form(default=True),
-    admin: AdminUser = Depends(require_admin_permission("algo:manage")),
-    db: Session = Depends(db_dep),
-    file: UploadFile = File(...),
-) -> APIResp:
-    if not file.filename or not file.filename.lower().endswith(".zip"):
-        raise BizError(code=4500, message="仅支持 zip 文件")
-
-    def _read_limited_upload_bytes(upload: UploadFile, *, max_bytes: int) -> bytes:
-        total = 0
-        chunks: list[bytes] = []
-        while True:
-            chunk = upload.file.read(1024 * 1024)
-            if not chunk:
-                break
-            total += len(chunk)
-            if total > max_bytes:
-                raise BizError(code=4502, message=f"算法包大小超过{settings.algorithm_package_max_mb}MB")
-            chunks.append(chunk)
-        if total <= 0:
-            raise BizError(code=4501, message="算法包文件为空")
-        data = b"".join(chunks)
-        if not data.startswith(b"PK\x03\x04"):
-            raise BizError(code=4513, message="上传文件不是有效 zip")
-        content_type = str(upload.content_type or "").split(";")[0].strip().lower()
-        if content_type not in {"application/zip", "application/x-zip-compressed", "application/octet-stream"}:
-            raise BizError(code=4500, message="zip 文件 MIME 类型不支持")
-        return data
-
-    file_bytes = _read_limited_upload_bytes(
-        file,
-        max_bytes=int(settings.algorithm_package_max_mb) * 1024 * 1024,
-    )
-    req = AlgoPackageUploadReq(platform=platform, function_type=function_type)
-    try:
-        result = install_algorithm_package(
-            db,
-            file_bytes=file_bytes,
-            platform=req.platform,
-            function_type=req.function_type,
-            uploaded_by=admin.id,
-            activate_after_upload=activate,
-        )
-        db.commit()
-        return ok(data=result)
-    except Exception:
-        db.rollback()
-        raise
-
-
-@router.post("/algo-packages/activate", response_model=APIResp)
-def activate_algo_package(
-    req: AlgoPackageActivateReq,
-    admin: AdminUser = Depends(require_admin_permission("algo:manage")),
-    db: Session = Depends(db_dep),
-) -> APIResp:
-    try:
-        result = activate_algorithm_package(
-            db,
-            platform=req.platform,
-            function_type=req.function_type,
-            version=req.version,
-            updated_by=admin.id,
-        )
-        db.commit()
-        return ok(data=result)
-    except Exception:
-        db.rollback()
-        raise
-
-
-@router.post("/algo-packages/deactivate", response_model=APIResp)
-def deactivate_algo_package_slot(
-    req: AlgoPackageUploadReq,
-    admin: AdminUser = Depends(require_admin_permission("algo:manage")),
-    db: Session = Depends(db_dep),
-) -> APIResp:
-    try:
-        result = deactivate_algorithm_package(
-            db,
-            platform=req.platform,
-            function_type=req.function_type,
-            updated_by=admin.id,
-        )
-        db.commit()
-        return ok(data=result)
-    except Exception:
-        db.rollback()
-        raise
 
 
 

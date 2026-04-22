@@ -148,7 +148,7 @@ const menuDefs = [
   { path: "/admin/users", label: "用户管理", permission: "users:view", icon: Users },
   { path: "/admin/tasks", label: "任务管理", permission: "tasks:view", icon: ListTodo },
   { path: "/admin/orders", label: "订单管理", permission: "orders:view", icon: ReceiptText },
-  { path: "/admin/algo-packages", label: "算法配置", permission: "algo:view", icon: Boxes },
+  { path: "/admin/partners", label: "渠道返佣", permission: "orders:view", icon: Boxes },
   { path: "/admin/configs", label: "配置中心", permission: "configs:view", icon: Settings2 },
 ]
 

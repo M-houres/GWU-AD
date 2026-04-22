@@ -183,10 +183,13 @@
 </template>
 
 <script setup>
-import { computed, onMounted, onUnmounted, ref } from "vue"
+import { computed, onMounted, ref } from "vue"
 import { useRoute, useRouter } from "vue-router"
 
+import { useBuyCreditsCheckout } from "../composables/useBuyCreditsCheckout"
 import { userHttp } from "../lib/http"
+import { getPartnerTracking } from "../lib/partnerTracking"
+import { normalizePackageOption, resolvePaymentError, resolveProviderOptions } from "../lib/buyCredits"
 import { ensureUserLogin } from "../lib/requireLogin"
 import { getUserToken } from "../lib/session"
 
@@ -194,7 +197,6 @@ const emit = defineEmits(["paid"])
 const router = useRouter()
 const route = useRoute()
 
-const loading = ref(false)
 const errorText = ref("")
 const okText = ref("")
 const paymentTestMode = ref(false)
@@ -204,71 +206,39 @@ const packageOptions = ref([])
 const selectedPackage = ref(null)
 const paymentModalOpen = ref(false)
 const provider = ref("mock")
-const orderNo = ref("")
-const qrCodeDataUrl = ref("")
-const remainSeconds = ref(0)
-const expireSecondsTotal = ref(300)
-const orderStatus = ref("created")
-
-let countdownTimer = null
-let pollTimer = null
-
-const PACKAGE_PRESENTATION = {
-  "入门版": {
-    audienceText: "适合首次提交或轻量试用",
-    descriptionText: "适合首次提交或轻量试用，先完成一篇文稿的真实处理体验。",
-    toneClass: "is-slate",
+const tracking = computed(() => getPartnerTracking())
+const channelCode = computed(() => {
+  const queryValue = normalizeQueryValue(route.query.ch).toUpperCase().slice(0, 32)
+  if (queryValue) return queryValue
+  return String(tracking.value?.channel_code || "")
+})
+const channelToken = computed(() => {
+  const queryValue = normalizeQueryValue(route.query.ck).slice(0, 128)
+  if (queryValue) return queryValue
+  return String(tracking.value?.channel_token || "")
+})
+const {
+  loading,
+  orderNo,
+  qrCodeDataUrl,
+  orderStatus,
+  orderStatusText,
+  formattedRemain,
+  countdownProgress,
+  resetOrderState,
+  createOrder,
+  mockPay: runMockPay,
+} = useBuyCreditsCheckout({
+  userHttp,
+  resolvePaymentError,
+  onPaid(data, currentOrderNo) {
+    okText.value = `支付成功，通用点数已到账（订单号 ${currentOrderNo}）`
+    emit("paid", data)
   },
-  "基础版": {
-    audienceText: "适合常规单人使用",
-    descriptionText: "适合常规单人使用，覆盖日常检测、降重和降 AIGC 需求。",
-    toneClass: "is-azure",
-  },
-  "专业版": {
-    audienceText: "适合多篇文稿反复修改",
-    descriptionText: "适合多篇文稿反复修改，在定稿阶段更从容地做多轮处理。",
-    toneClass: "is-amber",
-  },
-  "增强版": {
-    audienceText: "适合连续提交和批量处理",
-    descriptionText: "适合连续提交和批量处理，兼顾批量任务与点数储备。",
-    toneClass: "is-graphite",
-  },
-  "高级版": {
-    audienceText: "适合中高频长期使用",
-    descriptionText: "适合中高频长期使用，在较长周期内保持稳定处理能力。",
-    toneClass: "is-azure",
-  },
-  "旗舰版": {
-    audienceText: "适合团队或高频大规模使用",
-    descriptionText: "适合团队或高频大规模使用，满足持续批量提交场景。",
-    toneClass: "is-graphite",
-  },
-}
+})
 
 const isGuest = computed(() => !getUserToken())
-const allProviders = [
-  { value: "mock", label: "测试支付" },
-  { value: "wechat", label: "微信支付" },
-]
-const providers = computed(() => {
-  if (supportedProviderValues.value.length > 0) {
-    return allProviders.filter((item) => supportedProviderValues.value.includes(item.value))
-  }
-  return paymentTestMode.value
-    ? allProviders.filter((item) => item.value === "mock")
-    : allProviders.filter((item) => item.value === "wechat")
-})
-
-const orderStatusText = computed(() => {
-  const map = {
-    created: "待支付",
-    paid: "已支付",
-    closed: "已过期",
-    refunded: "已退款",
-  }
-  return map[orderStatus.value] || orderStatus.value
-})
+const providers = computed(() => resolveProviderOptions(supportedProviderValues.value, paymentTestMode.value))
 
 const paymentTipText = computed(() => (paymentTestMode.value ? "联调支付模式" : "微信支付已开通"))
 
@@ -286,21 +256,14 @@ const providerMeta = computed(() => {
   return map[provider.value] || map.wechat
 })
 
-const formattedRemain = computed(() => {
-  const total = Math.max(0, Number(remainSeconds.value || 0))
-  const minutes = Math.floor(total / 60)
-  const seconds = total % 60
-  return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`
-})
-
-const countdownProgress = computed(() => {
-  const total = Math.max(1, Number(expireSecondsTotal.value || 300))
-  const remain = Math.max(0, Math.min(total, Number(remainSeconds.value || 0)))
-  return Math.round((remain / total) * 100)
-})
+function normalizeQueryValue(value) {
+  if (Array.isArray(value)) {
+    return String(value[0] || "").trim()
+  }
+  return String(value || "").trim()
+}
 
 onMounted(loadPackages)
-onUnmounted(stopTimers)
 
 async function loadPackages() {
   errorText.value = ""
@@ -333,34 +296,6 @@ async function loadPackages() {
   }
 }
 
-function normalizePackageOption(item, index) {
-  const packageName = String(item?.name || "").trim()
-  const amountCny = Number(item?.amount_cny ?? item?.price ?? 0)
-  const credits = Number(item?.credits ?? item?.recharge_fen ?? 0)
-  if (!packageName || !Number.isFinite(amountCny) || amountCny <= 0 || !Number.isFinite(credits) || credits <= 0) {
-    return null
-  }
-
-  const presentation = PACKAGE_PRESENTATION[packageName] || {}
-  const estimatedArticles = Math.max(1, Math.floor(credits / 8000))
-
-  return {
-    key: packageName || `package_${index}`,
-    packageName,
-    displayName: packageName,
-    priceLabel: amountCny.toFixed(2),
-    priceHint: "一次购买，立即到账",
-    credits,
-    creditsLabel: `${credits.toLocaleString()} 通用点数`,
-    badge: String(item?.badge || "").trim(),
-    toneClass: presentation.toneClass || "is-slate",
-    audienceText: presentation.audienceText || "适合按需补充通用点数",
-    descriptionText: presentation.descriptionText || String(item?.description || "").trim() || "适合当前阶段补充点数储备。",
-    estimateHeadline: `约可处理 ${estimatedArticles} 篇 8000 字文稿`,
-    estimateText: `按当前计费口径估算，约可处理 ${estimatedArticles} 篇 8000 字文稿。`,
-  }
-}
-
 async function openPackageModal(item) {
   if (!item) return
   selectedPackage.value = item
@@ -374,7 +309,7 @@ async function openPackageModal(item) {
   if (isGuest.value || providers.value.length === 0) {
     return
   }
-  await createOrder()
+  await createCurrentOrder()
 }
 
 function closePaymentModal() {
@@ -382,20 +317,11 @@ function closePaymentModal() {
   resetOrderState()
 }
 
-function resetOrderState() {
-  stopTimers()
-  orderNo.value = ""
-  qrCodeDataUrl.value = ""
-  remainSeconds.value = 0
-  expireSecondsTotal.value = 300
-  orderStatus.value = "created"
-}
-
 async function refreshOrder() {
   if (!ensureUserLogin(router, route, "/app/buy")) {
     return
   }
-  await createOrder()
+  await createCurrentOrder()
 }
 
 async function switchProvider(nextProvider) {
@@ -404,73 +330,20 @@ async function switchProvider(nextProvider) {
   if (isGuest.value) {
     return
   }
-  await createOrder()
+  await createCurrentOrder()
 }
 
-async function createOrder() {
+async function createCurrentOrder() {
   if (!selectedPackage.value) return
-  loading.value = true
   errorText.value = ""
-  try {
-    const payload = {
-      provider: provider.value,
-      package_name: selectedPackage.value.packageName,
-    }
-    const data = await userHttp.post("/billing/create-order", payload, { timeout: 45000 })
-    orderNo.value = data.order_no
-    qrCodeDataUrl.value = data.qrcode_data_url
-    expireSecondsTotal.value = Number(data.expire_seconds || 300)
-    remainSeconds.value = expireSecondsTotal.value
-    orderStatus.value = data.status || "created"
-    startTimers()
-  } catch (error) {
-    errorText.value = resolvePaymentError(error, "创建订单失败")
-  } finally {
-    loading.value = false
-  }
-}
-
-function startTimers() {
-  stopTimers()
-  countdownTimer = window.setInterval(() => {
-    remainSeconds.value -= 1
-    if (remainSeconds.value <= 0) {
-      remainSeconds.value = 0
-      stopTimers()
-      orderStatus.value = "closed"
-    }
-  }, 1000)
-  pollTimer = window.setInterval(checkOrderStatus, 3000)
-}
-
-function stopTimers() {
-  if (countdownTimer) {
-    clearInterval(countdownTimer)
-    countdownTimer = null
-  }
-  if (pollTimer) {
-    clearInterval(pollTimer)
-    pollTimer = null
-  }
-}
-
-async function checkOrderStatus() {
-  if (!orderNo.value) return
-  try {
-    const data = await userHttp.get(`/billing/order-status/${orderNo.value}`)
-    orderStatus.value = data.status || "created"
-    const remain = Number(data.remain_seconds)
-    if (Number.isFinite(remain) && remain >= 0) {
-      remainSeconds.value = remain
-    }
-    if (orderStatus.value === "paid") {
-      onPaySuccess(data)
-    }
-    if (orderStatus.value === "closed") {
-      stopTimers()
-    }
-  } catch {
-    // Keep polling silently to avoid interrupting checkout.
+  const result = await createOrder({
+    provider: provider.value,
+    packageName: selectedPackage.value.packageName,
+    channelCode: channelCode.value,
+    channelToken: channelToken.value,
+  })
+  if (!result.ok) {
+    errorText.value = result.error
   }
 }
 
@@ -480,34 +353,10 @@ async function mockPay() {
     return
   }
   if (!orderNo.value) return
-  try {
-    const data = await userHttp.post(`/billing/order-pay/${orderNo.value}`)
-    onPaySuccess(data)
-  } catch (error) {
-    errorText.value = resolvePaymentError(error, "支付失败")
+  const result = await runMockPay()
+  if (!result.ok) {
+    errorText.value = result.error
   }
-}
-
-function resolvePaymentError(error, fallback = "操作失败") {
-  const message = String(error?.message || "").trim()
-  if (!message) return fallback
-  if (message.includes("网络连接异常")) {
-    return "支付链路连接短暂波动，请稍候重试。若订单可能已创建，请先刷新二维码，避免重复支付。"
-  }
-  if (message.includes("请求超时")) {
-    return "支付通道响应较慢，请稍候重试。若订单已创建，可直接刷新二维码继续支付。"
-  }
-  if (message.includes("服务暂时不可用")) {
-    return "支付服务暂时繁忙，请稍后再试。"
-  }
-  return message
-}
-
-function onPaySuccess(data) {
-  stopTimers()
-  orderStatus.value = "paid"
-  okText.value = `支付成功，通用点数已到账（订单号 ${orderNo.value}）`
-  emit("paid", data)
 }
 
 function goLoginForOrder() {

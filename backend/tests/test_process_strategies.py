@@ -1,7 +1,4 @@
 from contextlib import contextmanager
-import io
-import json
-import zipfile
 from io import BytesIO
 from pathlib import Path
 
@@ -13,7 +10,6 @@ from app import worker_tasks
 from app.deps import current_user
 from app.main import app
 from app.models import SystemConfig, Task, TaskStatus, TaskType, User
-from app.services.algo_package_service import install_algorithm_package
 from app.services.process_strategy_service import get_process_strategy
 
 
@@ -24,22 +20,6 @@ def _make_docx_bytes(text: str) -> BytesIO:
     doc.save(buffer)
     buffer.seek(0)
     return buffer
-
-
-def _build_package_zip(*, platform: str, function_type: str, name: str = "engine") -> bytes:
-    manifest = {
-        "name": name,
-        "version": "1.0.0",
-        "platform": platform,
-        "function_type": function_type,
-        "entry": "main.py",
-    }
-    buf = io.BytesIO()
-    with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_DEFLATED) as zf:
-        zf.writestr("manifest.json", json.dumps(manifest, ensure_ascii=False))
-        zf.writestr("main.py", "def process(text):\n    return str(text)\n")
-    return buf.getvalue()
-
 
 def test_admin_strategies_list_default_six_cells(
     client: TestClient,
@@ -62,37 +42,40 @@ def test_admin_strategies_list_default_six_cells(
         assert row["timeout_sec"] == 300
 
 
-def test_admin_enable_strategy_requires_active_package(
+def test_admin_enable_rewrite_strategy_without_active_package(
     client: TestClient,
     admin_override,
 ) -> None:
-    fail_resp = client.put(
+    resp = client.put(
         "/api/v1/admin/strategies/rewrite/cnki",
         json={"is_enabled": True},
     )
-    assert fail_resp.status_code == 400
-    fail_body = fail_resp.json()
-    assert fail_body["code"] == 4118
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["code"] == 0
+    assert body["data"]["is_enabled"] is True
 
 
-def test_admin_enable_strategy_success_after_active_package(
+def test_admin_enable_aigc_strategy_without_active_package(
     client: TestClient,
-    db_session: Session,
     admin_override,
-    settings_override,
 ) -> None:
-    install_algorithm_package(
-        db_session,
-        file_bytes=_build_package_zip(platform="cnki", function_type="rewrite", name="rewrite_engine"),
-        platform="cnki",
-        function_type="rewrite",
-        uploaded_by=1,
-        activate_after_upload=True,
-    )
-    db_session.commit()
-
     resp = client.put(
-        "/api/v1/admin/strategies/rewrite/cnki",
+        "/api/v1/admin/strategies/aigc_detect/cnki",
+        json={"is_enabled": True},
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["code"] == 0
+    assert body["data"]["is_enabled"] is True
+
+
+def test_admin_enable_aigc_strategy_without_package_activation_for_cnki(
+    client: TestClient,
+    admin_override,
+) -> None:
+    resp = client.put(
+        "/api/v1/admin/strategies/aigc_detect/cnki",
         json={
             "is_enabled": True,
             "process_mode": "algo_llm",
@@ -105,7 +88,22 @@ def test_admin_enable_strategy_success_after_active_package(
     assert body["data"]["process_mode"] == "algo_llm"
     assert body["data"]["is_enabled"] is True
     assert body["data"]["timeout_sec"] == 600
-    assert body["data"]["active_package"]["name"] == "rewrite_engine"
+
+
+def test_admin_algo_config_table_has_no_package_version_fields(
+    client: TestClient,
+    admin_override,
+) -> None:
+    resp = client.get("/api/v1/admin/algo-config/table")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["code"] == 0
+
+    row = next(item for item in body["data"]["items"] if item["platform"] == "cnki" and item["task_type"] == "aigc_detect")
+    assert "active_package" not in row
+    assert "latest_package" not in row
+    assert "current_version" not in row
+    assert "latest_version" not in row
 
 
 def test_submit_and_process_rewrite_task_with_algo_llm_strategy(
@@ -119,14 +117,6 @@ def test_submit_and_process_rewrite_task_with_algo_llm_strategy(
     db_session.add(user)
     db_session.flush()
 
-    install_algorithm_package(
-        db_session,
-        file_bytes=_build_package_zip(platform="cnki", function_type="rewrite", name="rewrite_engine"),
-        platform="cnki",
-        function_type="rewrite",
-        uploaded_by=1,
-        activate_after_upload=True,
-    )
     db_session.add(
         SystemConfig(
             category="system",
@@ -152,6 +142,28 @@ def test_submit_and_process_rewrite_task_with_algo_llm_strategy(
     assert strategy_resp.json()["data"]["process_mode"] == "algo_llm"
 
     monkeypatch.setattr("app.worker_tasks.dispatch_background_task", lambda *_args, **_kwargs: "test-inline")
+    monkeypatch.setattr(
+        "app.services.processing_engine.execute_rewrite_strategy",
+        lambda *_args, **_kwargs: {
+            "rewritten_text": (
+                "This paragraph validates the combined pipeline where the rewrite task runs the "
+                "internal strategy first and then the local mock LLM, while retaining the task metadata."
+            ),
+            "strategy": "llm",
+            "platform": "cnki",
+            "task_type": TaskType.REWRITE.value,
+            "length_before": 110,
+            "length_after": 117,
+            "change_ratio": 0.0636,
+            "quality_flags": {
+                "length_ok": True,
+                "protected_content_ok": True,
+                "basic_legality_ok": True,
+            },
+            "warnings": [],
+            "rule_trace": {"provider": "stubbed-llm"},
+        },
+    )
     app.dependency_overrides[current_user] = lambda: user
     try:
         submit_resp = client.post(
@@ -167,7 +179,7 @@ def test_submit_and_process_rewrite_task_with_algo_llm_strategy(
                     "sample.docx",
                     _make_docx_bytes(
                         "This paragraph validates the combined pipeline where the rewrite task "
-                        "runs the algorithm package first and then the local mock LLM."
+                        "runs the internal strategy first and then the local mock LLM."
                     ),
                     "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                 )
@@ -206,9 +218,11 @@ def test_submit_and_process_rewrite_task_with_algo_llm_strategy(
     assert task.result_json["type"] == "rewrite"
     assert task.result_json["mode"] == "LLM_PLUS_ALGO"
     assert task.result_json["llm_used"] is True
-    assert task.result_json["algo_package_used"] is True
+    assert "algo_package_used" not in task.result_json
     assert task.result_json["paper_title"] == "Algo LLM Rewrite Test"
     assert task.result_json["authors"] == "Tester"
+    assert task.result_json["rewrite_strategy"]["strategy"] == "llm"
+    assert task.result_json["rewrite_strategy"]["quality_flags"]["length_ok"] is True
 
 
 def test_task_submit_auto_bootstraps_builtin_package_when_slot_missing(
@@ -265,7 +279,6 @@ def test_user_task_result_keeps_visible_pipeline_summary_and_hides_internal_brea
             "ai_score": 0.3,
             "mode": "LLM_PLUS_ALGO",
             "llm_used": True,
-            "algo_package_used": True,
             "score_breakdown": {
                 "base_score": 0.2,
                 "llm_score": 0.6,
@@ -286,7 +299,7 @@ def test_user_task_result_keeps_visible_pipeline_summary_and_hides_internal_brea
         assert result["mode"] == "LLM_PLUS_ALGO"
         assert "processing_mode" not in result
         assert result["llm_used"] is True
-        assert result["algo_package_used"] is True
+        assert "algo_package_used" not in result
         assert "llm_score" not in result.get("score_breakdown", {})
         assert "algo_package_score" not in result.get("score_breakdown", {})
         assert "pipeline_mode" not in result.get("score_breakdown", {})
@@ -296,7 +309,7 @@ def test_user_task_result_keeps_visible_pipeline_summary_and_hides_internal_brea
         detail_result = detail_resp.json()["data"]["result_json"]
         assert detail_result["mode"] == "LLM_PLUS_ALGO"
         assert detail_result["llm_used"] is True
-        assert detail_result["algo_package_used"] is True
+        assert "algo_package_used" not in detail_result
     finally:
         app.dependency_overrides.pop(current_user, None)
 

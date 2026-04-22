@@ -1,6 +1,5 @@
 from contextlib import contextmanager
 import io
-import json
 from io import BytesIO
 from pathlib import Path
 import zipfile
@@ -13,7 +12,6 @@ from app.config import get_settings
 from app.deps import current_user
 from app.main import app
 from app.models import Task, TaskStatus, TaskType, User
-from app.services.algo_package_service import install_algorithm_package
 
 
 def _make_docx_bytes(text: str) -> BytesIO:
@@ -23,33 +21,6 @@ def _make_docx_bytes(text: str) -> BytesIO:
     doc.save(buffer)
     buffer.seek(0)
     return buffer
-
-
-def _build_package_zip(*, platform: str, function_type: str, name: str = "engine") -> bytes:
-    manifest = {
-        "name": name,
-        "version": "1.0.0",
-        "platform": platform,
-        "function_type": function_type,
-        "entry": "main.py",
-    }
-    buf = io.BytesIO()
-    with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_DEFLATED) as zf:
-        zf.writestr("manifest.json", json.dumps(manifest, ensure_ascii=False))
-        zf.writestr("main.py", "def process(text):\n    return {'text': str(text)}\n")
-    return buf.getvalue()
-
-
-def _activate_slot(db_session: Session, *, platform: str, function_type: str) -> None:
-    install_algorithm_package(
-        db_session,
-        file_bytes=_build_package_zip(platform=platform, function_type=function_type, name=f"{function_type}_engine"),
-        platform=platform,
-        function_type=function_type,
-        uploaded_by=1,
-        activate_after_upload=True,
-    )
-    db_session.commit()
 
 
 def test_user_can_download_completed_task_result(client, db_session: Session, tmp_path: Path) -> None:
@@ -175,7 +146,6 @@ def test_multiple_quick_submissions_can_all_process_and_download(
     db_session.commit()
     db_session.refresh(user)
 
-    _activate_slot(db_session, platform="cnki", function_type="dedup")
     monkeypatch.setattr("app.worker_tasks.dispatch_background_task", lambda *_args, **_kwargs: "test-noop")
 
     app.dependency_overrides[current_user] = lambda: user
@@ -249,7 +219,6 @@ def test_submit_task_rejects_generic_zip_renamed_as_docx(
     db_session.commit()
     db_session.refresh(user)
 
-    _activate_slot(db_session, platform="cnki", function_type="dedup")
     monkeypatch.setattr("app.worker_tasks.dispatch_background_task", lambda *_args, **_kwargs: "test-noop")
 
     fake_zip = io.BytesIO()

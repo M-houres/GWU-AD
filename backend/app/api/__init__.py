@@ -1,3 +1,3 @@
-from app.api import admin, auth, billing, tasks, users
+from app.api import admin, auth, billing, partners, tasks, users
 
-__all__ = ["auth", "users", "tasks", "billing", "admin"]
+__all__ = ["auth", "users", "tasks", "billing", "admin", "partners"]

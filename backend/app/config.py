@@ -63,9 +63,6 @@ class Settings(BaseSettings):
     sms_api_key: str = ""
     sms_gateway_url: str = ""
 
-    algorithm_package_root: str = ""
-    algorithm_package_max_mb: int = 200
-    algorithm_package_exec_timeout_seconds: int = 8
     docx_process_table_text: bool = True
 
     llm_enabled_default: bool = False
@@ -179,18 +176,6 @@ class Settings(BaseSettings):
         p = Path(__file__).resolve().parent.parent / self.log_dirname
         p.mkdir(parents=True, exist_ok=True)
         return p
-
-    @property
-    def algorithm_package_dir(self) -> Path:
-        if self.algorithm_package_root:
-            p = Path(self.algorithm_package_root)
-            if not p.is_absolute():
-                p = Path(__file__).resolve().parent.parent / p
-        else:
-            p = Path(__file__).resolve().parent.parent / "algorithm_packages"
-        p.mkdir(parents=True, exist_ok=True)
-        return p
-
 
 @lru_cache
 def get_settings() -> Settings:

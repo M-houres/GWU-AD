@@ -33,6 +33,46 @@ export const USER_NAV_PRESETS = [
     disabled: false,
     badge: "",
   },
+  {
+    key: "promo_center",
+    label: "推广中心",
+    path: "/app/promo-center",
+    group: "core",
+    visible: true,
+    order: 4,
+    disabled: false,
+    badge: "",
+  },
+  {
+    key: "format_correction",
+    label: "格式矫正",
+    path: "/app/format-correction",
+    group: "core",
+    visible: false,
+    order: 5,
+    disabled: true,
+    badge: "功能开发中",
+  },
+  {
+    key: "smart_review",
+    label: "智能审稿",
+    path: "/app/smart-review",
+    group: "core",
+    visible: false,
+    order: 6,
+    disabled: true,
+    badge: "功能开发中",
+  },
+  {
+    key: "defense_service",
+    label: "答辩服务",
+    path: "/app/defense-service",
+    group: "core",
+    visible: false,
+    order: 7,
+    disabled: true,
+    badge: "功能开发中",
+  },
 ]
 
 const USER_NAV_INDEX = Object.fromEntries(USER_NAV_PRESETS.map((item, index) => [item.key, index]))
@@ -71,9 +111,7 @@ export function normalizeUserNavigationConfig(raw) {
     return {
       ...preset,
       visible: asBool(current.visible, preset.visible !== false),
-      order: preset.group === "core"
-        ? (preset.order || index + 1)
-        : asInt(current.order, preset.order || index + 1),
+      order: asInt(current.order, preset.order || index + 1),
     }
   })
     .sort((left, right) => {

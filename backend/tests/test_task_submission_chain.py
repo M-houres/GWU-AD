@@ -1,10 +1,7 @@
 from contextlib import contextmanager
-import io
-import json
 from io import BytesIO
 from pathlib import Path
 from types import SimpleNamespace
-import zipfile
 
 from docx import Document
 import pytest
@@ -15,7 +12,6 @@ from app.config import get_settings
 from app.deps import current_user
 from app.main import app
 from app.models import Task, TaskStatus, TaskType, User
-from app.services.algo_package_service import install_algorithm_package
 
 
 def _make_docx_bytes(text: str) -> BytesIO:
@@ -27,31 +23,40 @@ def _make_docx_bytes(text: str) -> BytesIO:
     return buffer
 
 
-def _build_package_zip(*, platform: str, function_type: str, name: str = "engine") -> bytes:
-    manifest = {
-        "name": name,
-        "version": "1.0.0",
-        "platform": platform,
-        "function_type": function_type,
-        "entry": "main.py",
-    }
-    buf = io.BytesIO()
-    with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_DEFLATED) as zf:
-        zf.writestr("manifest.json", json.dumps(manifest, ensure_ascii=False))
-        zf.writestr("main.py", "def process(text):\n    return {'text': str(text)}\n")
-    return buf.getvalue()
-
-
-def _activate_slot(db_session: Session, *, platform: str, function_type: str) -> None:
-    install_algorithm_package(
-        db_session,
-        file_bytes=_build_package_zip(platform=platform, function_type=function_type, name=f"{function_type}_engine"),
-        platform=platform,
-        function_type=function_type,
-        uploaded_by=1,
-        activate_after_upload=True,
-    )
+def test_submit_task_accepts_pasted_text_without_file(
+    client,
+    db_session: Session,
+    monkeypatch,
+    settings_override,
+) -> None:
+    user = User(phone="13800007776", nickname="paste-user", credits=10000)
+    db_session.add(user)
     db_session.commit()
+    db_session.refresh(user)
+    monkeypatch.setattr("app.worker_tasks.process_task_async.delay", lambda *_args, **_kwargs: None)
+    app.dependency_overrides[current_user] = lambda: user
+    try:
+        resp = client.post(
+            "/api/v1/tasks/submit",
+            data={
+                "task_type": "rewrite",
+                "platform": "cnki",
+                "pasted_text": "这是用于片段粘贴模式提交测试的正文内容，长度超过十个字符。",
+                "source_filename": "片段输入",
+            },
+        )
+        assert resp.status_code == 200
+        payload = resp.json()["data"]
+        task = db_session.get(Task, payload["id"])
+        assert task is not None
+        assert task.task_type == TaskType.REWRITE
+        assert task.source_filename.endswith(".txt")
+        assert task.result_json["input_mode"] == "pasted_text"
+        assert task.report_path is None
+        assert Path(task.source_path).suffix.lower() == ".txt"
+        assert Path(task.source_path).read_text(encoding="utf-8").startswith("这是用于片段粘贴模式提交测试")
+    finally:
+        app.dependency_overrides.pop(current_user, None)
 
 
 def test_submit_task_stores_metadata_and_unique_storage_paths(
@@ -64,8 +69,6 @@ def test_submit_task_stores_metadata_and_unique_storage_paths(
     db_session.add(user)
     db_session.commit()
     db_session.refresh(user)
-    _activate_slot(db_session, platform="cnki", function_type="dedup")
-
     monkeypatch.setattr("app.worker_tasks.process_task_async.delay", lambda *_args, **_kwargs: None)
     app.dependency_overrides[current_user] = lambda: user
     try:
@@ -113,8 +116,6 @@ def test_submit_recover_by_idempotency_key(
     db_session.add(user)
     db_session.commit()
     db_session.refresh(user)
-    _activate_slot(db_session, platform="cnki", function_type="dedup")
-
     monkeypatch.setattr("app.worker_tasks.process_task_async.delay", lambda *_args, **_kwargs: None)
     app.dependency_overrides[current_user] = lambda: user
     try:
@@ -167,8 +168,6 @@ def test_submit_recover_with_long_idempotency_key_does_not_overflow_column(
     db_session.add(user)
     db_session.commit()
     db_session.refresh(user)
-    _activate_slot(db_session, platform="cnki", function_type="dedup")
-
     monkeypatch.setattr("app.worker_tasks.process_task_async.delay", lambda *_args, **_kwargs: None)
     app.dependency_overrides[current_user] = lambda: user
     try:
@@ -225,8 +224,6 @@ def test_submit_task_still_returns_success_when_dispatch_fails_after_commit(
     db_session.add(user)
     db_session.commit()
     db_session.refresh(user)
-    _activate_slot(db_session, platform="cnki", function_type="dedup")
-
     monkeypatch.setattr("app.worker_tasks.dispatch_background_task", lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("queue down")))
     app.dependency_overrides[current_user] = lambda: user
     try:

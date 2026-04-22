@@ -153,3 +153,93 @@ def test_docx_transform_only_changes_text_nodes(db_session: Session, tmp_path: P
         assert _xml_shape_signature(before_root, mask_text=mask_text) == _xml_shape_signature(after_root, mask_text=mask_text)
 
     assert before_parts["word/document.xml"] != after_parts["word/document.xml"]
+
+
+def test_docx_transform_rewrite_uses_paragraph_level_text_and_skips_references(
+    db_session: Session, tmp_path: Path, monkeypatch
+) -> None:
+    source_path = tmp_path / "paragraph_level.docx"
+    output_path = tmp_path / "paragraph_level_out.docx"
+
+    doc = Document()
+    doc.add_paragraph("一、引言")
+    paragraph = doc.add_paragraph()
+    paragraph.add_run("可视")
+    paragraph.add_run("化教学需要优化。")
+    doc.add_paragraph("参考文献")
+    doc.add_paragraph("[1] 王某. 可视化教学研究[J]. 2024.")
+    doc.save(source_path)
+
+    engine = ProcessingEngine(db_session)
+    captured: list[str] = []
+
+    def _fake_transform(text: str, *_args, **_kwargs) -> str:
+        captured.append(text)
+        return text.replace("需要优化", "有必要进一步优化")
+
+    monkeypatch.setattr(engine, "_transform_text", _fake_transform)
+
+    engine._transform_docx(source_path, output_path, TaskType.REWRITE, "cnki")
+
+    output_doc = Document(str(output_path))
+    assert captured == ["可视化教学需要优化。"]
+    assert output_doc.paragraphs[0].text == "一、引言"
+    assert output_doc.paragraphs[1].text == "可视化教学有必要进一步优化。"
+    assert output_doc.paragraphs[2].text == "参考文献"
+    assert output_doc.paragraphs[3].text == "[1] 王某. 可视化教学研究[J]. 2024."
+
+
+def test_docx_transform_preserves_superscript_citation_runs(db_session: Session, tmp_path: Path, monkeypatch) -> None:
+    source_path = tmp_path / "superscript_source.docx"
+    output_path = tmp_path / "superscript_output.docx"
+
+    doc = Document()
+    paragraph = doc.add_paragraph()
+    paragraph.add_run("如文献")
+    citation = paragraph.add_run("[1]")
+    citation.font.superscript = True
+    paragraph.add_run("所示，方法有效。")
+    doc.save(source_path)
+
+    engine = ProcessingEngine(db_session)
+    captured: list[str] = []
+
+    def _fake_transform(text: str, *_args, **_kwargs) -> str:
+        captured.append(text)
+        return text.replace("方法有效", "方法表现稳定")
+
+    monkeypatch.setattr(engine, "_transform_text", _fake_transform)
+    engine._transform_docx(source_path, output_path, TaskType.REWRITE, "cnki")
+
+    output_doc = Document(str(output_path))
+    out_para = output_doc.paragraphs[0]
+    assert captured == []
+    assert out_para.text == "如文献[1]所示，方法有效。"
+    assert out_para.runs[1].text == "[1]"
+    assert out_para.runs[1].font.superscript is True
+
+
+def test_docx_transform_preserves_abstract_first_sentence(db_session: Session, tmp_path: Path, monkeypatch) -> None:
+    source_path = tmp_path / "abstract_source.docx"
+    output_path = tmp_path / "abstract_output.docx"
+
+    doc = Document()
+    doc.add_paragraph("摘要")
+    doc.add_paragraph("本研究聚焦课堂互动模式。研究结果显示该方法能够提升学习效果。")
+    doc.save(source_path)
+
+    engine = ProcessingEngine(db_session)
+    captured: list[str] = []
+
+    def _fake_transform(text: str, *_args, **_kwargs) -> str:
+        captured.append(text)
+        return text.replace("研究结果显示", "实证结果表明")
+
+    monkeypatch.setattr(engine, "_transform_text", _fake_transform)
+    engine._transform_docx(source_path, output_path, TaskType.REWRITE, "cnki")
+
+    output_doc = Document(str(output_path))
+    assert captured == ["研究结果显示该方法能够提升学习效果。"]
+    assert output_doc.paragraphs[0].text == "摘要"
+    assert output_doc.paragraphs[1].text.startswith("本研究聚焦课堂互动模式。")
+    assert "实证结果表明该方法能够提升学习效果。" in output_doc.paragraphs[1].text

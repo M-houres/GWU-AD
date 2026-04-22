@@ -18,7 +18,7 @@
               <template v-for="item in visibleTopMenus" :key="item.path">
                 <div v-if="item.disabled" class="top-nav-link is-disabled" aria-disabled="true">
                   <i class="siderIcon">
-                    <component :is="item.icon" :size="15" />
+                    <component :is="item.icon" :size="17" />
                   </i>
                   <span class="subMenu_title_box">{{ item.label }}</span>
                   <span v-if="item.badge" class="menu-beta-badge">{{ item.badge }}</span>
@@ -26,7 +26,7 @@
                 <RouterLink v-else :to="item.path" class="menu-link">
                   <div class="top-nav-link" :class="{ 'is-active': isMenuActive(item.path) }">
                     <i class="siderIcon">
-                      <component :is="item.icon" :size="15" />
+                      <component :is="item.icon" :size="17" />
                     </i>
                     <span class="subMenu_title_box">{{ item.label }}</span>
                     <span v-if="item.badge" class="menu-beta-badge">{{ item.badge }}</span>
@@ -63,6 +63,10 @@
               </div>
             </div>
             <div class="top-nav-shortcuts">
+              <div v-if="showCreditsCard" class="top-credit-card">
+                <span>积分余额</span>
+                <strong>{{ creditsLabel }}</strong>
+              </div>
               <button
                 v-if="!hideAccountEntry"
                 type="button"
@@ -70,7 +74,10 @@
                 :class="{ 'is-active': isPrimaryAccountActionActive }"
                 @click="openAccountEntry"
               >
-                {{ accountEntryLabel }}
+                <span class="top-btn__icon" aria-hidden="true">
+                  <User :size="13" />
+                </span>
+                <span>{{ accountEntryLabel }}</span>
               </button>
             </div>
           </div>
@@ -84,7 +91,10 @@
           class="top-btn top-btn--muted"
           @click="logout()"
         >
-          退出
+          <span class="top-btn__icon" aria-hidden="true">
+            <User :size="13" />
+          </span>
+          <span>退出</span>
         </button>
       </div>
     </header>
@@ -124,12 +134,22 @@
 </template>
 
 <script setup>
-import { FilePenLine, FileSearch2, MoreHorizontal, ScanSearch, User } from "lucide-vue-next"
+import { MoreHorizontal, User } from "lucide-vue-next"
 import { computed, onMounted, onUnmounted, ref, watch } from "vue"
 import { RouterLink, useRoute, useRouter } from "vue-router"
 
 import { userHttp } from "../lib/http"
 import { clearUserSession, getUserNavigationConfig, getUserToken, setUserNavigationConfig } from "../lib/session"
+import {
+  DEFAULT_HEADER_NOTICE_TEXT,
+  NOTICE_SEEN_STORAGE_KEY,
+  USER_SHELL_GROUP_ORDER,
+  formatUserShellNoticeTime,
+  groupVisibleUserMenus,
+  mapUserShellMenuItems,
+  normalizeUserShellNotice,
+  splitTopMenus,
+} from "../lib/userShell"
 import { normalizeUserNavigationConfig } from "../lib/userNavigation"
 
 const props = defineProps({
@@ -165,16 +185,8 @@ const props = defineProps({
 
 const emit = defineEmits(["buy"])
 
-const DEFAULT_HEADER_NOTICE_TEXT = "平台系统持续优化中，任务提交后请在账户中心查看处理进度。"
-const GROUP_ORDER = ["core"]
-const MENU_ICON_MAP = {
-  rewrite: FilePenLine,
-  dedup: FileSearch2,
-  detect: ScanSearch,
-}
 const MOBILE_BREAKPOINT = 1024
 const COMPACT_BREAKPOINT = 720
-const NOTICE_SEEN_STORAGE_KEY = "wuhong_user_notice_seen_key"
 
 const router = useRouter()
 const route = useRoute()
@@ -196,18 +208,8 @@ const navMoreRef = ref(null)
 
 let noticePollTimer = null
 
-const allMenuItems = computed(() =>
-  navigationState.value.items.map((item) => ({
-    ...item,
-    icon: MENU_ICON_MAP[item.key] || FilePenLine,
-  }))
-)
-const visibleMenuGroups = computed(() =>
-  GROUP_ORDER.map((key) => ({
-    key,
-    items: allMenuItems.value.filter((item) => item.group === key && item.visible),
-  })).filter((group) => group.items.length)
-)
+const allMenuItems = computed(() => mapUserShellMenuItems(navigationState.value.items))
+const visibleMenuGroups = computed(() => groupVisibleUserMenus(allMenuItems.value, USER_SHELL_GROUP_ORDER))
 const visibleMenus = computed(() => visibleMenuGroups.value.flatMap((group) => group.items))
 const centerMenus = computed(() => visibleMenus.value)
 const matchedMenu = computed(() => allMenuItems.value.find((item) => isRouteMatch(route.path, item.path)) || null)
@@ -227,13 +229,19 @@ const noticeBodyText = computed(() => {
   }
   return String(noticeState.value.content || DEFAULT_HEADER_NOTICE_TEXT)
 })
-const noticeUpdatedLabel = computed(() => formatNoticeTime(noticeState.value.updated_at))
+const noticeUpdatedLabel = computed(() => formatUserShellNoticeTime(noticeState.value.updated_at))
 const isMobile = computed(() => viewportWidth.value < MOBILE_BREAKPOINT)
 const isCompactMobile = computed(() => viewportWidth.value < COMPACT_BREAKPOINT)
 const topMenuLimit = computed(() => (isCompactMobile.value ? 3 : Number.POSITIVE_INFINITY))
-const visibleTopMenus = computed(() => centerMenus.value.slice(0, topMenuLimit.value))
-const overflowTopMenus = computed(() => centerMenus.value.slice(topMenuLimit.value))
+const visibleTopMenus = computed(() => splitTopMenus(centerMenus.value, topMenuLimit.value).visibleTopMenus)
+const overflowTopMenus = computed(() => splitTopMenus(centerMenus.value, topMenuLimit.value).overflowTopMenus)
 const accountEntryLabel = computed(() => (hasUserToken.value ? "账户中心" : "登录"))
+const showCreditsCard = computed(() => hasUserToken.value && normalizeCredits(props.credits) !== null)
+const creditsLabel = computed(() => {
+  const value = normalizeCredits(props.credits)
+  if (value === null) return "-"
+  return value.toLocaleString()
+})
 
 onMounted(() => {
   syncTokenState()
@@ -311,30 +319,21 @@ function applyNavigation(raw) {
 }
 
 function applyNotice(raw) {
-  const content = String(raw?.content || raw?.header_text || DEFAULT_HEADER_NOTICE_TEXT).trim() || DEFAULT_HEADER_NOTICE_TEXT
-  const title = String(raw?.title || "系统公告").trim() || "系统公告"
-  const updatedAt = String(raw?.updated_at || "").trim()
-  const isEnabled = raw?.enabled !== false
-  const version = Number.parseInt(String(raw?.version ?? raw?.notice_version ?? ""), 10)
+  const normalized = normalizeUserShellNotice(raw)
   noticeState.value = {
-    enabled: isEnabled,
-    title,
-    content,
-    updated_at: updatedAt,
+    enabled: normalized.enabled,
+    title: normalized.title,
+    content: normalized.content,
+    updated_at: normalized.updated_at,
   }
-  if (!isEnabled) {
+  if (!normalized.enabled) {
     isNoticeDialogOpen.value = false
     return
   }
-
-  const hasExplicitNotice = Boolean(raw && (raw.content || raw.header_text || raw.title || raw.updated_at))
-  if (!hasExplicitNotice) {
+  if (!normalized.hasExplicitNotice) {
     return
   }
-
-  const nextNoticeKey = Number.isFinite(version) && version > 0
-    ? `notice_v_${version}`
-    : `${title}__${content}`
+  const nextNoticeKey = normalized.noticeKey
   if (nextNoticeKey !== readSeenNoticeKey()) {
     writeSeenNoticeKey(nextNoticeKey)
     isNoticeDialogOpen.value = true
@@ -364,16 +363,6 @@ function handleVisibilityChange() {
   if (!document.hidden) {
     loadAnnouncement()
   }
-}
-
-function formatNoticeTime(value) {
-  if (!value) return ""
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) {
-    return ""
-  }
-  const pad = (num) => String(num).padStart(2, "0")
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`
 }
 
 function syncTokenState() {
@@ -458,6 +447,13 @@ function isMenuActive(path) {
 
 function isRouteMatch(currentPath, targetPath) {
   return currentPath === targetPath || currentPath.startsWith(`${targetPath}/`)
+}
+
+function normalizeCredits(value) {
+  if (value === null || value === undefined || value === "") return null
+  const num = Number(value)
+  if (!Number.isFinite(num)) return null
+  return Math.max(0, Math.floor(num))
 }
 </script>
 
@@ -574,6 +570,18 @@ function isRouteMatch(currentPath, targetPath) {
   transition:
     color 0.16s ease,
     opacity 0.16s ease;
+}
+
+.top-btn__icon {
+  width: 18px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.1);
+  flex: 0 0 auto;
 }
 
 .top-btn:hover {
@@ -710,12 +718,36 @@ function isRouteMatch(currentPath, targetPath) {
   flex-shrink: 0;
 }
 
+.top-credit-card {
+  min-height: 34px;
+  padding: 0 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.34);
+  background: rgba(255, 255, 255, 0.15);
+  color: #ffffff;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  line-height: 1;
+}
+
+.top-credit-card span {
+  font-size: 12px;
+  font-weight: 600;
+  opacity: 0.92;
+}
+
+.top-credit-card strong {
+  font-size: 14px;
+  font-weight: 700;
+}
+
 .menu-link {
   text-decoration: none;
 }
 
 .top-nav-link {
-  min-height: 40px;
+  min-height: 44px;
   padding: 0 8px;
   border-radius: 0;
   border: 0;
@@ -753,8 +785,8 @@ function isRouteMatch(currentPath, targetPath) {
 }
 
 .subMenu_title_box {
-  font-size: 14px;
-  font-weight: 600;
+  font-size: 18px;
+  font-weight: 700;
   line-height: 1;
 }
 
@@ -930,6 +962,10 @@ function isRouteMatch(currentPath, targetPath) {
   .top-dropdown__item {
     min-height: 40px;
   }
+
+  .subMenu_title_box {
+    font-size: 17px;
+  }
 }
 
 @media (max-width: 720px) {
@@ -974,7 +1010,7 @@ function isRouteMatch(currentPath, targetPath) {
   }
 
   .subMenu_title_box {
-    font-size: 13px;
+    font-size: 15px;
   }
 
   .main-wrap {

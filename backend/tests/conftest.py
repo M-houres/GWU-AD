@@ -61,6 +61,17 @@ class FakeRedis:
         self._values[key] = str(value)
         return value
 
+    def decr(self, key: str) -> int:
+        self._purge_if_expired(key)
+        current = self._values.get(key, "0")
+        try:
+            value = int(current)
+        except Exception:
+            value = 0
+        value -= 1
+        self._values[key] = str(value)
+        return value
+
     def expire(self, key: str, seconds: int) -> bool:
         self._purge_if_expired(key)
         if key not in self._values:
@@ -136,20 +147,11 @@ def settings_override(tmp_path: Path) -> Generator[None, None, None]:
     settings = get_settings()
     old_secret = settings.payment_sign_secret
     old_ttl = settings.payment_callback_ttl_seconds
-    old_algo_root = settings.algorithm_package_root
-    old_algo_max_mb = settings.algorithm_package_max_mb
-    old_algo_exec_timeout = settings.algorithm_package_exec_timeout_seconds
 
     settings.payment_sign_secret = "test_sign_secret"
     settings.payment_callback_ttl_seconds = 1200
-    settings.algorithm_package_root = str(tmp_path / "algorithm_packages")
-    settings.algorithm_package_max_mb = 20
-    settings.algorithm_package_exec_timeout_seconds = 8
     try:
         yield
     finally:
         settings.payment_sign_secret = old_secret
         settings.payment_callback_ttl_seconds = old_ttl
-        settings.algorithm_package_root = old_algo_root
-        settings.algorithm_package_max_mb = old_algo_max_mb
-        settings.algorithm_package_exec_timeout_seconds = old_algo_exec_timeout

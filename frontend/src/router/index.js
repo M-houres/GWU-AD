@@ -1,6 +1,7 @@
 import { createRouter, createWebHistory } from 'vue-router'
 
 import { resolveAdminRedirect, resolveUserRedirect } from '../lib/redirect'
+import { capturePartnerTrackingFromQuery } from '../lib/partnerTracking'
 import { adminHasPermission, getAdminInfo, getAdminToken, getUserToken } from '../lib/session'
 
 const AdminLoginPage = () => import('../views/admin/AdminLoginPage.vue')
@@ -9,8 +10,8 @@ const AdminTaskPage = () => import('../views/admin/AdminTaskPage.vue')
 const AdminUserPage = () => import('../views/admin/AdminUserPage.vue')
 const AdminUserDetailPage = () => import('../views/admin/AdminUserDetailPage.vue')
 const AdminDashboardPage = () => import('../views/admin/AdminDashboardPage.vue')
-const AdminAlgoPackagePage = () => import('../views/admin/AdminAlgoPackagePage.vue')
 const AdminConfigPage = () => import('../views/admin/AdminConfigPage.vue')
+const AdminPartnerPage = () => import('../views/admin/AdminPartnerPage.vue')
 const LoginPage = () => import('../views/user/LoginPage.vue')
 const UserBuyPage = () => import('../views/user/UserBuyPage.vue')
 const UserProfilePage = () => import('../views/user/UserProfilePage.vue')
@@ -20,6 +21,8 @@ const UserRewritePage = () => import('../views/user/UserRewritePage.vue')
 const UserRewriteRecordsPage = () => import('../views/user/UserRewriteRecordsPage.vue')
 const UserDedupPage = () => import('../views/user/UserDedupPage.vue')
 const UserDedupRecordsPage = () => import('../views/user/UserDedupRecordsPage.vue')
+const UserPromoCenterPage = () => import('../views/user/UserPromoCenterPage.vue')
+const PartnerPortalPage = () => import('../views/partner/PartnerPortalPage.vue')
 const TermsPage = () => import('../views/user/TermsPage.vue')
 const PrivacyPage = () => import('../views/user/PrivacyPage.vue')
 
@@ -28,7 +31,7 @@ const adminEntryRoutes = [
   { path: '/admin/users', permission: 'users:view' },
   { path: '/admin/tasks', permission: 'tasks:view' },
   { path: '/admin/orders', permission: 'orders:view' },
-  { path: '/admin/algo-packages', permission: 'algo:view' },
+  { path: '/admin/partners', permission: 'orders:view' },
   { path: '/admin/configs', permission: 'configs:view' },
 ]
 
@@ -39,6 +42,8 @@ const userGuestBrowsablePaths = new Set([
   '/app/dedup',
   '/app/rewrite',
   '/app/buy',
+  '/app/promo-center',
+  '/app/partner',
 ])
 
 function firstAccessibleAdminRoute() {
@@ -75,6 +80,8 @@ const router = createRouter({
     { path: '/app/rewrite', component: UserRewritePage, meta: { auth: 'user', title: '降AIGC率' } },
     { path: '/app/rewrite/records', component: UserRewriteRecordsPage, meta: { auth: 'user', title: '降AIGC率记录' } },
     { path: '/app/buy', component: UserBuyPage, meta: { auth: 'user', title: '充值通用点数' } },
+    { path: '/app/promo-center', component: UserPromoCenterPage, meta: { title: '推广中心' } },
+    { path: '/app/partner', component: PartnerPortalPage, meta: { title: '渠道返佣门户' } },
     { path: '/app/profile', component: UserProfilePage, meta: { auth: 'user', title: '账户中心' } },
     { path: '/admin', redirect: '/admin/dashboard' },
     { path: '/admin/login', component: AdminLoginPage },
@@ -83,13 +90,14 @@ const router = createRouter({
     { path: '/admin/users/:id', component: AdminUserDetailPage, meta: { auth: 'admin', title: '用户详情', adminPermission: 'users:view' } },
     { path: '/admin/tasks', component: AdminTaskPage, meta: { auth: 'admin', title: '任务管理', adminPermission: 'tasks:view' } },
     { path: '/admin/orders', component: AdminOrderPage, meta: { auth: 'admin', title: '订单管理', adminPermission: 'orders:view' } },
-    { path: '/admin/algo-packages', component: AdminAlgoPackagePage, meta: { auth: 'admin', title: '算法配置', adminPermission: 'algo:view' } },
+    { path: '/admin/partners', component: AdminPartnerPage, meta: { auth: 'admin', title: '渠道返佣', adminPermission: 'orders:view' } },
     { path: '/admin/configs', component: AdminConfigPage, meta: { auth: 'admin', title: '配置中心', adminPermission: 'configs:view' } },
     { path: '/admin/configs/miniapp', redirect: '/admin/configs?tab=miniapp' },
   ],
 })
 
 router.beforeEach((to) => {
+  capturePartnerTrackingFromQuery(to.query)
   if ((to.path === '/login' || to.path === '/register') && getUserToken()) {
     return resolveUserRedirect(to.query.redirect, '/app/detect')
   }

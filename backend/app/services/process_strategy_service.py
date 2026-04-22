@@ -6,8 +6,6 @@ from sqlalchemy.orm import Session
 
 from app.exceptions import BizError
 from app.models import SystemConfig, TaskType
-from app.services.algo_package_service import activate_algorithm_package, get_active_slot_config, list_algorithm_packages
-from app.services.builtin_algo_packages import ensure_builtin_algo_package_active
 from app.services.platform_registry import list_platforms, normalize_platform, platform_label, supported_platform_keys
 
 STRATEGY_CATEGORY = "process_strategies_v1"
@@ -22,6 +20,8 @@ ENGINE_MODE_MAP = {
 }
 
 SUPPORTED_TASK_TYPES = tuple(item.value for item in TaskType)
+PACKAGELESS_STRATEGY_TASKS = {TaskType.AIGC_DETECT, TaskType.REWRITE, TaskType.DEDUP}
+PACKAGELESS_STRATEGY_PLATFORMS = {"cnki", "vip"}
 
 
 def normalize_task_type(raw: str | TaskType) -> TaskType:
@@ -42,6 +42,15 @@ def normalize_process_mode(raw: str | None) -> str:
     if value in {"algo_llm", "llm_plus_algo", "algo+llm"}:
         return PROCESS_MODE_ALGO_LLM
     raise BizError(code=4342, message="process_mode 必须是 algo_only 或 algo_llm")
+
+
+def is_independent_strategy_config(task_type: TaskType | str, platform: str) -> bool:
+    normalized_task_type = normalize_task_type(task_type)
+    normalized_platform = str(platform or "").strip().lower()
+    return (
+        normalized_task_type in PACKAGELESS_STRATEGY_TASKS
+        and normalized_platform in PACKAGELESS_STRATEGY_PLATFORMS
+    )
 
 
 def _strategy_key(task_type: TaskType | str, platform: str) -> str:
@@ -128,25 +137,12 @@ def get_process_strategy(
 def list_process_strategies(db: Session) -> dict[str, Any]:
     rows = db.query(SystemConfig).filter(SystemConfig.category == STRATEGY_CATEGORY).all()
     mapping = {str(row.config_key): row for row in rows}
-    package_rows = list_algorithm_packages(db)
-    latest_map: dict[str, dict[str, Any]] = {}
-    for item in package_rows.get("items", []):
-        key = f"{item.get('platform')}:{item.get('function_type')}"
-        current = latest_map.get(key)
-        if current is None or str(item.get("uploaded_at") or "") >= str(current.get("uploaded_at") or ""):
-            latest_map[key] = item
     items: list[dict[str, Any]] = []
     supported_platforms = supported_platform_keys(db)
     for task_type in SUPPORTED_TASK_TYPES:
         for platform in supported_platforms:
             key = f"{task_type}:{platform}"
             strategy = _merge_with_row(_default_strategy(TaskType(task_type), platform), mapping.get(key))
-            active_package = get_active_slot_config(db, platform=platform, function_type=task_type)
-            latest_package = latest_map.get(f"{platform}:{task_type}")
-            strategy["active_package"] = active_package
-            strategy["latest_package"] = latest_package
-            strategy["current_version"] = (active_package or {}).get("version")
-            strategy["latest_version"] = (latest_package or {}).get("version")
             items.append(strategy)
     return {
         "task_types": list(SUPPORTED_TASK_TYPES),
@@ -206,42 +202,6 @@ def update_process_strategy(
     return _merge_with_row(current, row)
 
 
-def update_execution_config(
-    db: Session,
-    *,
-    task_type: TaskType | str,
-    platform: str,
-    process_mode: str | None = None,
-    is_enabled: bool | None = None,
-    timeout_sec: int | None = None,
-    active_version: str | None = None,
-    updated_by: int | None = None,
-) -> dict[str, Any]:
-    result = update_process_strategy(
-        db,
-        task_type=task_type,
-        platform=platform,
-        process_mode=process_mode,
-        is_enabled=is_enabled,
-        timeout_sec=timeout_sec,
-        updated_by=updated_by,
-    )
-    normalized_task_type = normalize_task_type(task_type)
-    normalized_platform = normalize_platform(platform, task_type=normalized_task_type, db=db)
-    if active_version is not None:
-        activate_algorithm_package(
-            db,
-            platform=normalized_platform,
-            function_type=normalized_task_type.value,
-            version=str(active_version).strip(),
-            updated_by=updated_by or 0,
-        )
-    active_package = get_active_slot_config(db, platform=normalized_platform, function_type=normalized_task_type.value)
-    result["active_package"] = active_package
-    result["current_version"] = (active_package or {}).get("version")
-    return result
-
-
 def resolve_task_processing_mode(
     db: Session,
     *,
@@ -258,22 +218,10 @@ def resolve_task_processing_mode(
     if not bool(strategy.get("is_enabled", True)):
         raise BizError(code=4117, message="当前平台暂不支持该功能")
 
-    active_slot = get_active_slot_config(
-        db,
-        platform=normalized_platform,
-        function_type=normalized_task_type.value,
-    )
-    if not active_slot:
-        active_slot = ensure_builtin_algo_package_active(
-            db,
-            platform=normalized_platform,
-            function_type=normalized_task_type.value,
-            uploaded_by=1,
-        )
-    if not active_slot:
-        raise BizError(code=4118, message="当前平台功能尚未配置算法包，请联系管理员")
-
-    mode = str(strategy.get("process_mode", PROCESS_MODE_ALGO_ONLY))
+    if normalized_task_type == TaskType.AIGC_DETECT and is_independent_strategy_config(normalized_task_type, normalized_platform):
+        mode = PROCESS_MODE_ALGO_ONLY
+    else:
+        mode = str(strategy.get("process_mode", PROCESS_MODE_ALGO_ONLY))
     return ENGINE_MODE_MAP.get(mode, "ALGO_ONLY"), strategy
 
 

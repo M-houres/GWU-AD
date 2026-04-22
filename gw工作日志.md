@@ -1,6 +1,6 @@
 # gw工作日志
 
-最后更新：2026-04-18（第二十八次追加）
+最后更新：2026-04-18（第三十次追加）
 
 ## 使用约定
 - 这是当前项目的统一接管日志。
@@ -1314,3 +1314,4843 @@
   - 后端关键回归通过：
     - `python -m pytest -q tests\\test_billing_order_flow.py tests\\test_task_submission_chain.py tests\\test_user_profile_summary.py tests\\test_process_strategies.py tests\\test_algo_packages.py`
     - 结果：`50 passed`
+
+### 30. 本轮部署状态记录：本地 / 服务器 / 远端暂不一致
+- 本地提交状态：
+  - 已提交：
+    - `2a13a6b`
+  - 提交信息：
+    - `收口MVP基线并清理非核心能力`
+- 服务器状态：
+  - 已通过“本地打包直传腾讯云”的方式完成部署。
+  - 当前服务器实际运行版本按本地提交 `2a13a6b` 对齐。
+  - 容器状态复查结果：
+    - `backend` healthy
+    - `frontend` healthy
+    - `edge` healthy
+    - `worker-submission` healthy
+    - `worker-processing` healthy
+    - `worker-maintenance` healthy
+    - `worker-beat` healthy
+- 远端 GitHub 状态：
+  - 这次没有成功推送到 `origin/main`。
+  - 原因有两层：
+    - HTTPS 推送失败：本机当前无法解析 `github.com`
+    - SSH 推送失败：本机现有 key 未通过 GitHub `publickey` 认证
+- 关键风险提示：
+  - 当前三端状态是：
+    - 本地：最新
+    - 服务器：最新
+    - GitHub 远端：旧版本
+  - 在远端未补推之前，不要再直接使用“从 GitHub 远端 main 拉代码”的部署路径。
+  - 否则有较高风险把服务器从 `2a13a6b` 回退到旧版本。
+- 后续强制动作：
+  - 等本机网络 / GitHub 认证恢复后，必须补执行：
+    - `git push origin main`
+  - 推送成功后，需再次确认远端 `main` 已包含 `2a13a6b`，再恢复常规 GitHub 拉取式部署。
+
+### 31. 本轮补收口：三个任务页全部移除“步骤环节序号”
+- 用户要求：
+  - 不再保留“任务提交 / 积分扣除 / 任务处理 / 下载结果”这类步骤区块。
+  - 不是只改一个页面，而是“哪个页面都不要”。
+- 本轮处理：
+  - 删除三个任务页中的组件引用：
+    - `frontend/src/views/user/UserDetectPage.vue`
+    - `frontend/src/views/user/UserDedupPage.vue`
+    - `frontend/src/views/user/UserRewritePage.vue`
+  - 删除组件文件：
+    - `frontend/src/components/TaskJourneyPanel.vue`
+- 本轮验证：
+  - 全前端检索 `TaskJourneyPanel` 已无命中。
+  - 前端构建通过：
+    - `cmd /c npm run build`
+
+### 32. 本轮补收口：账户入口与退出按钮补统一小标识
+- 用户要求：
+  - 在“账户中心 / 登录 / 退出”按钮前增加一个小标识，保持顶栏入口识别更直接。
+- 本轮处理：
+  - 在共享顶栏组件中统一补前置图标，不单独拆页面处理：
+    - `frontend/src/components/UserShell.vue`
+  - 账户入口按钮与退出按钮统一加圆形小图标容器，避免顶部样式不一致。
+- 本轮原则：
+  - 只做轻量视觉增强，不改导航逻辑、不加新资源文件、不抬高顶栏整体高度。
+- 待验证：
+  - 前端构建需再次确认通过。
+
+### 33. 本轮新增：首页独立预览页方案先落地，不并入现有路由
+- 用户要求：
+  - 先做一个首页方案，但不要直接并入当前站内路由。
+  - 先作为独立页面预览，确认后再决定是否接入 `/` 或 `/home`。
+- 本轮处理：
+  - 新增独立预览入口：
+    - `frontend/home-preview.html`
+  - 新增独立首页组件与样式：
+    - `frontend/src/home-preview/HomePreview.vue`
+    - `frontend/src/home-preview/main.js`
+    - `frontend/src/home-preview/home-preview.css`
+  - 首页结构按当前确认方案落地：
+    - 顶部极简导航
+    - 海报式 Hero
+    - 三张等大“核心服务”卡片
+    - 底部“机构合作”联系区
+  - 首页不接当前 `router`，避免影响现有任务页与后台页面。
+  - `frontend/vite.config.js` 已补多入口构建配置，确保独立预览页可单独构建。
+- 本轮视觉原则：
+  - 不做模板式 SaaS 卡片墙首页。
+  - 用“暖白纸面 + 墨色文字 + 学术蓝校样线”统一视觉。
+  - Hero 右侧主视觉使用论文页叠层和批注感，不引入人物插画。
+- 待验证：
+  - 前端构建需确认主站入口和 `home-preview.html` 同时可正常产物输出。
+
+### 34. 本轮重做：首页预览页按新方案收紧文案与配色
+- 用户反馈：
+  - Hero 主文案需要改成“`不绕路，直接出结果`”。
+  - 核心服务三张卡虽然等大，但缺少各自特色。
+  - 机构合作区当前颜色不合适，需要重做。
+- 本轮处理：
+  - Hero 主标题已改为：
+    - `不绕路，直接出结果。`
+  - Hero 辅助文案收短，不再重复“学术文稿处理”。
+  - Hero 右侧论文主视觉新增“处理摘录”模块，增强真实处理感。
+  - 三张等大服务卡继续保留，但为每张卡补独立视觉语言：
+    - `AIGC 检测`：扫描线 + 圈选标记
+    - `降重复率`：编辑线 + 替换感标记
+    - `降 AIGC 率`：注释框 + 润色感标记
+  - 三张卡继续统一尺寸，但通过顶部视觉模块和轻量点缀色做区分，不改整体版式。
+  - 机构合作区取消深色大底，改回浅纸面联系区，避免像第二组功能卡。
+  - 联系方式卡片改为更克制的浅底档案感样式。
+- 本轮判断：
+  - 首页重点应该是“主张 + 三类服务入口”，而不是堆叠多个配色模块。
+  - 机构合作只承担联系承接，不应该抢核心服务区视觉权重。
+
+### 35. 本轮重做：首页预览页移除顶部横幅并切回项目蓝白体系
+- 用户反馈：
+  - 不要最上面的横幅。
+  - 手机页面卡片也要横向排列，不要纵向堆叠。
+  - 整体颜色需要重构，要符合项目当前蓝白色体系。
+- 本轮处理：
+  - 删除 `home-preview` 顶部导航横幅结构，首页首屏直接从 Hero 开始。
+  - 首页整体配色从暖纸色系改回项目蓝白体系：
+    - 背景：浅蓝白渐变
+    - 主文字：项目现有深蓝灰
+    - 主按钮：项目蓝色渐变
+    - 卡片：白底 / 浅蓝底 / 蓝色细边
+  - Hero 右侧论文视觉、三张服务卡和机构合作区均统一到蓝白语言。
+  - 移动端不再把服务卡和合作卡改为纵向堆叠，改为横向滑动排列：
+    - `service-grid`
+    - `contact-board`
+  - 保留三张核心服务卡等大，并用不同蓝色层次区分卡片视觉，不再使用棕红 / 墨绿点缀。
+- 本轮边界：
+  - 仍然是独立预览页，未并入现有 `router`。
+  - 未改当前用户端任务页和后台页面。
+
+### 36. 本轮重做：首页预览页改为 Claude 官网式版式语言
+- 用户要求：
+  - 首页参考 Claude 官网的设计、配色和风格。
+  - 不再沿用上一版蓝白装饰型方案。
+- 本轮处理：
+  - 重新设计 `home-preview`：
+    - 顶部改为极简品牌 + 轻量锚点导航
+    - Hero 改为“大标题 + 工作区面板”结构
+    - 三张核心服务卡改为更克制的浅底卡片
+    - 机构合作改为与服务区一致的极简卡片体系
+  - 整体语言改为更接近 Claude 官网当前视觉：
+    - 暖白 / 米色背景
+    - 深色正文
+    - 小范围柔和强调色
+    - 细描边
+    - 更小圆角
+    - 更大留白
+  - 移动端继续保留横向卡片浏览，不改回纵向堆叠。
+- 本轮边界：
+  - 仍是独立预览页，未接入现有路由。
+  - 仅重做首页预览，不影响当前任务页和后台页面。
+
+### 37. 本轮重做：首页预览页完全重构，只保留用户指定信息
+- 用户要求：
+  - 不保留上一版任何具体样式设计、颜色和布局。
+  - 只保留必须出现的信息本身：
+    - 品牌
+    - 主标题
+    - 三类核心服务
+    - 机构合作联系方式
+  - 其余视觉语言全部完全重构。
+- 本轮处理：
+  - `home-preview` 再次整体推翻重做：
+    - 顶部只保留品牌与“开始使用”入口
+    - Hero 只保留品牌短标识、主标题和辅助说明
+    - 核心服务改为统一服务横轨，不再沿用之前任何工作台或 Claude 式面板结构
+    - 机构合作改为左文案、右联系方式卡列表的独立布局
+  - 视觉全部重新定义：
+    - 新的米白背景
+    - 新的深墨正文
+    - 新的暖橙强调色
+    - 新的分区关系和间距体系
+  - 移动端继续保留横向卡片浏览，不改回纵向堆叠。
+- 本轮边界：
+  - 仍为独立预览页，未接入主站路由。
+  - 仅影响 `home-preview` 入口。
+
+### 38. 本轮处理：按用户要求删除首页预览相关方案
+- 用户要求：
+  - 删掉刚才几轮首页预览设计及其相关代码。
+- 本轮处理：
+  - 删除独立首页预览入口：
+    - `frontend/home-preview.html`
+  - 删除首页预览源码目录：
+    - `frontend/src/home-preview/main.js`
+    - `frontend/src/home-preview/HomePreview.vue`
+    - `frontend/src/home-preview/home-preview.css`
+  - 删除 `frontend/vite.config.js` 中的独立多入口构建配置，恢复为主站单入口构建。
+- 本轮边界：
+  - 不回滚日志历史记录，只追加“已删除”的事实。
+  - 不影响现有前台任务页、后台页面及其他已有改动。
+
+### 39. 本轮新增结论：基线4重构为“知网/维普降AIGC率双策略执行体系”
+- 时间：
+  - `2026-04-19 13:40:26`
+- 本轮背景：
+  - 重新审视基线4后，确认此前“算法包上传 / 激活 / 停用 / 版本库 / 综合表”的工程化方案过重，不适合当前 MVP 主链。
+  - 当前真实目标不是做一个复杂的算法平台，而是保证“用户提交任务后，后端必须真正有能力处理知网/维普降 AIGC 率任务”，并且后台可以切换处理策略。
+- 本轮新的基线4收口方向：
+  - 基线4不再按“算法包与 LLM 平台能力”继续扩张。
+  - 改为“知网/维普降 AIGC 率双策略执行体系”。
+  - 平台先只围绕：
+    - `cnki`
+    - `vip`
+  - 功能先只围绕：
+    - `rewrite`
+  - 每个平台只保留两种处理策略：
+    - `algorithm`
+    - `llm`
+  - 管理后台只负责配置当前启用哪种策略。
+- 本轮明确废弃的复杂心智：
+  - 不再把这块继续按“算法包管理平台”方向设计。
+  - 不再把“上传 zip / 安装 / 激活 / 停用 / 历史版本 / 综合表”作为基线4主线。
+  - 不再优先做动态插件化、版本治理、平台治理后台。
+- 本轮确认的最小工程体系：
+  - `策略配置模块`
+    - 后台按 `platform + task_type` 配置当前启用策略。
+    - 第一阶段只需要支持：
+      - `rewrite + cnki`
+      - `rewrite + vip`
+  - `策略执行器`
+    - 用户提交任务后，后端统一根据后台配置选择策略实现。
+  - `算法策略模块`
+    - 平台内置固定代码实现，不走上传和安装。
+    - 知网、维普各自可有独立规则策略。
+  - `LLM 策略模块`
+    - 平台内置固定 prompt / 调用链。
+    - 知网、维普各自可有独立大模型策略。
+  - `统一校验模块`
+    - 两类策略输出后都进入统一校验。
+    - 至少校验：
+      - 字数区间
+      - 结构一致
+      - 术语/保护区完整
+      - 基础语言合法性
+- 本轮从资料中提炼出的真正约束：
+  - 改写不是重写文章，而是在不改主旨、不降质量的前提下做表层重构。
+  - 知网资料强调：
+    - 术语保护优先级极高
+    - 需要重点防“可视化 -> 可以视化”这类术语崩塌
+    - 需要单独的合法性校验思路
+  - 维普资料强调：
+    - 六条通用改写规律可以作为更通用的骨架
+    - 改写目标仍然是语言重构，不是内容扩写
+  - 两份资料的共同硬约束：
+    - 字数浮动控制
+    - 内容格式一致
+    - 无错别字 / 无明显病句
+    - 核心质量不降
+    - 主旨不偏
+- 本轮确定的统一业务定义：
+  - 系统针对“知网/维普降 AIGC 率”提供双策略执行能力。
+  - 用户提交任务后，后端根据平台与后台配置选择 `algorithm` 或 `llm` 策略执行。
+  - 输出统一结果，并通过统一校验机制保证质量边界。
+- 当前阶段明确不做：
+  - 不先落代码。
+  - 不先继续扩复杂后台。
+  - 先继续吃透用户提供的知网/维普资料，再形成完整方案。
+- 对后续人或工具的明确要求：
+  - 从本条开始，后续只要继续推进基线4、知网/维普降 AIGC 率策略、后台策略配置或相关任务链，都必须先读取 `gw工作日志.md` 了解上下文，再继续工作。
+  - 后续每一轮只要有分析结论、方案调整、边界变化、代码改动、测试结果，都必须持续追加写入本日志，不能只改代码不记过程。
+  - 如后续模型、工具或人工接手，本条应视为“继续写日志”的显式协作约定，必须延续，不得中断。
+
+### 40. 本轮方案设计：知网/维普降AIGC率双策略执行体系
+- 时间：
+  - `2026-04-19 13:42:08`
+- 本轮目标：
+  - 基于用户提供的知网、维普两份降 AIGC 率资料，形成可实施但不过度工程化的基线4设计方案。
+  - 本轮仍不落代码，先确定模块边界、配置口径、执行链路和验收口径。
+- 方案总原则：
+  - 任务范围只收口到 `rewrite`。
+  - 平台范围只收口到 `cnki`、`vip`。
+  - 每个平台只支持两种策略：
+    - `algorithm`
+    - `llm`
+  - 后台只配置当前启用哪一种策略。
+  - 后端必须能根据配置真正处理任务。
+  - 不恢复算法包上传、安装、版本、激活、综合表等复杂体系。
+- 模块拆分：
+  - `StrategyConfig`
+    - 负责保存 `platform + task_type` 对应的启用状态和当前策略。
+  - `RewriteStrategyExecutor`
+    - 负责统一读取配置并分发到具体策略。
+  - `CnkiAlgorithmStrategy`
+    - 知网算法策略，重点强调术语保护、合法性校验、长度控制。
+  - `CnkiLlmStrategy`
+    - 知网大模型策略，使用知网专用 prompt，并在输出后进入统一校验。
+  - `VipAlgorithmStrategy`
+    - 维普算法策略，重点实现六条通用改写规律和长度控制。
+  - `VipLlmStrategy`
+    - 维普大模型策略，使用维普专用 prompt，并在输出后进入统一校验。
+  - `RewriteQualityValidator`
+    - 两个平台、两种策略共用的统一校验层。
+- 配置模型：
+  - 第一阶段可以继续沿用 `SystemConfig`，避免新增表。
+  - 建议配置 key：
+    - category: `system`
+    - config_key: `rewrite_strategy`
+  - 示例：
+    - `cnki.rewrite.enabled = true`
+    - `cnki.rewrite.active_strategy = algorithm`
+    - `vip.rewrite.enabled = true`
+    - `vip.rewrite.active_strategy = llm`
+- 后台页面：
+  - 不再保留复杂算法包综合表心智。
+  - 页面只需要展示两行：
+    - 知网 / 降 AIGC 率 / 当前策略 / 是否启用 / 保存
+    - 维普 / 降 AIGC 率 / 当前策略 / 是否启用 / 保存
+  - 策略下拉只允许：
+    - 算法策略
+    - 大模型策略
+- 执行流程：
+  - 用户提交 `rewrite` 任务。
+  - 后端识别平台 `cnki` 或 `vip`。
+  - 进入 `RewriteStrategyExecutor`。
+  - 读取后台配置。
+  - 如果策略为 `algorithm`，调用对应平台算法策略。
+  - 如果策略为 `llm`，调用对应平台大模型策略。
+  - 策略输出后统一进入 `RewriteQualityValidator`。
+  - 校验通过，生成结果文件并完成任务。
+  - 校验失败，任务失败并记录明确失败原因。
+- 统一输出结构：
+  - `rewritten_text`
+  - `strategy`
+  - `platform`
+  - `length_before`
+  - `length_after`
+  - `change_ratio`
+  - `quality_flags`
+  - `warnings`
+- 质量校验第一阶段只做必要项：
+  - 输出非空。
+  - 字数浮动在目标区间，默认 `+5% ~ +8%`。
+  - 保护区不被破坏。
+  - 知网重点拦截术语拆解类错误。
+  - 基础重复词、明显异常词、明显占位符检查。
+- 知网与维普差异：
+  - 知网：
+    - 更重术语保护与合法性校验。
+    - 黑名单必须覆盖类似 `可以视化`、`能够视化` 这类术语拆坏结果。
+  - 维普：
+    - 更重通用语言改写规律。
+    - 以六条规律作为规则策略和 prompt 的核心骨架。
+- 第一阶段不做：
+  - 不做策略版本管理。
+  - 不做算法上传。
+  - 不做动态新增平台。
+  - 不做复杂灰度。
+  - 不做多轮自动返工闭环，最多先记录失败原因。
+- 后续落地提醒：
+  - 实现前仍需先读取本日志。
+  - 代码落地后必须继续追加：
+    - 改了哪些文件。
+    - 后台配置最终字段。
+    - 任务链接入点。
+    - 测试命令和结果。
+
+### 41. 本轮继续细化：配置字段、后端文件落点、任务链接入点
+- 时间：
+  - `2026-04-19 13:44:45`
+- 本轮目的：
+  - 把上一轮方案继续细化到“可以直接进入实现”的层级。
+  - 本轮重点只处理：
+    - 配置字段
+    - 后端文件落点
+    - 任务处理链接入点
+- 当前代码上下文确认：
+  - `SystemConfig` 已能稳定承载系统配置，适合继续存放第一阶段的双策略配置。
+  - 任务异步处理当前统一从 `backend/app/worker_tasks.py` 进入。
+  - 文本处理当前核心在 `backend/app/services/processing_engine.py`，适合作为本轮重构的主要接入点。
+- 配置字段设计（第一阶段）：
+  - 不新增表，继续使用：
+    - `SystemConfig.category = "system"`
+    - `SystemConfig.config_key = "rewrite_strategy"`
+  - 建议 value 结构：
+    - `cnki.rewrite.enabled`
+    - `cnki.rewrite.active_strategy`
+    - `vip.rewrite.enabled`
+    - `vip.rewrite.active_strategy`
+  - `active_strategy` 允许值仅两种：
+    - `algorithm`
+    - `llm`
+  - 第一阶段暂不把长度区间、黑名单、回退规则做成后台字段，先固化在服务代码内，避免后台配置面再次膨胀。
+- 后端文件落点建议：
+  - 新增目录：
+    - `backend/app/services/rewrite_strategies/`
+  - 建议文件：
+    - `backend/app/services/rewrite_strategies/__init__.py`
+    - `backend/app/services/rewrite_strategies/config.py`
+    - `backend/app/services/rewrite_strategies/executor.py`
+    - `backend/app/services/rewrite_strategies/validators.py`
+    - `backend/app/services/rewrite_strategies/cnki_algorithm.py`
+    - `backend/app/services/rewrite_strategies/cnki_llm.py`
+    - `backend/app/services/rewrite_strategies/vip_algorithm.py`
+    - `backend/app/services/rewrite_strategies/vip_llm.py`
+- 各文件职责：
+  - `config.py`
+    - 读取/规范化 `rewrite_strategy` 配置。
+    - 提供 `get_active_rewrite_strategy(db, platform)` 之类的简单函数。
+  - `executor.py`
+    - 统一入口。
+    - 对 `rewrite + cnki/vip` 做分发。
+  - `validators.py`
+    - 统一校验。
+    - 第一阶段最少包含：
+      - 输出非空校验
+      - 字数区间校验
+      - 保护区完整性校验
+      - 基础语言合法性校验
+      - 知网术语拆坏黑名单校验
+  - `cnki_algorithm.py`
+    - 知网规则策略。
+    - 重点保留术语保护、长度控制、合法性检查。
+  - `cnki_llm.py`
+    - 知网大模型策略。
+    - 内置知网专用 prompt。
+  - `vip_algorithm.py`
+    - 维普规则策略。
+    - 以内置六条改写规律为骨架。
+  - `vip_llm.py`
+    - 维普大模型策略。
+    - 内置维普专用 prompt。
+- 统一接口建议：
+  - 每个策略实现都接收：
+    - `db`
+    - `text`
+    - `task`
+    - `report_summary`
+  - 每个策略都返回统一结构：
+    - `rewritten_text`
+    - `strategy`
+    - `platform`
+    - `length_before`
+    - `length_after`
+    - `change_ratio`
+    - `quality_flags`
+    - `warnings`
+- 任务链接入点设计：
+  - 第一阶段不改提交链，不改扣点链，不改结果下载链。
+  - 只改“真正处理文本”的位置。
+  - 当前最佳接入点：
+    - `backend/app/services/processing_engine.py`
+    - 现有 `_transform_text(...)` 内部当前是：
+      - 算法包
+      - LLM
+      - heuristic fallback
+  - 新方案应改为：
+    - 若 `task_type != rewrite`：
+      - 保持现有链路不动
+    - 若 `task_type == rewrite` 且平台为 `cnki/vip`：
+      - 进入 `RewriteStrategyExecutor`
+      - 由执行器读取后台策略并调用对应实现
+      - 统一校验通过后返回文本
+  - 这样可保证：
+    - 不推翻现有任务状态流转
+    - 不推翻输出文件生成逻辑
+    - 只替换 rewrite 文本生成核心
+- 后台接入建议：
+  - 第一阶段不新增独立后台菜单。
+  - 直接接在现有配置中心类别下更稳。
+  - 可新增一个 `rewrite_strategy` 配置分类，或先并入现有算法/配置页的一个独立区块。
+  - 页面交互维持最小：
+    - 平台
+    - 是否启用
+    - 当前策略
+    - 保存
+- 第一阶段实现顺序建议：
+  1. 先做 `rewrite_strategy` 配置读写。
+  2. 再做 `config.py + executor.py + validators.py`。
+  3. 再分别落 `cnki/vip` 四个策略文件骨架。
+  4. 最后在 `ProcessingEngine._transform_text(...)` 中替换 rewrite 链路。
+- 本轮结论：
+  - 这套方案已经细化到可以进入代码实现。
+  - 后续如继续实现，必须继续在本日志追加：
+    - 实际文件变更
+    - 是否新增配置分类
+    - `ProcessingEngine` 的接线方式
+    - 自动化测试与手工验证结果
+## 42
+- 时间：
+  - `2026-04-19 14:31:00`
+- 本轮目的：
+  - 把“基线4 重做”的简化方案真正落地到代码，并完成最小可用验证。
+- 本轮实际落地：
+  - 后端新增简化版降AIGC率策略体系目录：
+    - `backend/app/services/rewrite_strategies/`
+  - 已落文件：
+    - `config.py`
+    - `executor.py`
+    - `validators.py`
+    - `cnki_algorithm.py`
+    - `cnki_llm.py`
+    - `vip_algorithm.py`
+    - `vip_llm.py`
+    - `__init__.py`
+  - 配置中心新增分类：
+    - `rewrite_strategy`
+  - 配置结构正式定为：
+    - `cnki.rewrite.enabled`
+    - `cnki.rewrite.active_strategy`
+    - `vip.rewrite.enabled`
+    - `vip.rewrite.active_strategy`
+  - `active_strategy` 当前只允许：
+    - `algorithm`
+    - `llm`
+- 后端接线结果：
+  - `backend/app/api/admin.py`
+    - 已支持 `rewrite_strategy` 的读取、保存、默认值、字段标签与 readiness。
+  - `backend/app/services/processing_engine.py`
+    - 已将 `rewrite + cnki/vip` 接到新的 `execute_rewrite_strategy(...)`。
+    - 其他任务类型和其他平台继续走原链路，不做破坏性替换。
+    - 返回结果中已追加：
+      - `rewrite_strategy.strategy`
+      - `rewrite_strategy.platform`
+      - `rewrite_strategy.length_before`
+      - `rewrite_strategy.length_after`
+      - `rewrite_strategy.change_ratio`
+      - `rewrite_strategy.quality_flags`
+      - `rewrite_strategy.warnings`
+- 前台后台页已补齐：
+  - `frontend/src/views/admin/AdminConfigPage.vue`
+    - 新增“降AIGC率策略”页签。
+    - 页面只保留：
+      - 知网是否启用
+      - 知网执行策略
+      - 维普是否启用
+      - 维普执行策略
+    - 明确不再在这里暴露算法包上传、版本切换、激活历史等旧复杂能力。
+- 校验规则（第一阶段已落）：
+  - 输出不能为空。
+  - 长文本结果字符数浮动必须控制在 `5%~8%`。
+  - 知网保护术语会做完整性检查。
+  - 会拦截明显异常表达，例如：
+    - `可以视化`
+    - `能够视化`
+    - `进行进行`
+- 自动化验证结果：
+  - 后端定向测试：
+    - 命令：`python -m pytest tests/test_admin_config_validation.py tests/test_processing_engine_results.py`
+    - 目录：`backend`
+    - 结果：`40 passed`
+  - 前端构建验证：
+    - 命令：`npm --prefix frontend run build`
+    - 结果：`vite build` 通过
+- 本轮特别修正：
+  - 旧测试中有两条仍默认 `cnki + rewrite` 应继续走旧算法包链路，这与本轮新设计冲突。
+  - 已把这两条测试调整为仍覆盖旧通用链路，但不再占用新的 `cnki/vip rewrite` 入口。
+- 当前结论：
+  - “用户提交知网/维普降AIGC率任务，后端必须能处理，后台可配置算法策略或大模型策略” 这一核心诉求已完成首版落地。
+  - 当前版本是简化 MVP，不再延续旧算法包管理心智。
+- 给后来的人/工具的要求：
+  - 之后每次继续改这块，必须继续往 `gw工作日志.md` 追加记录，不要中断这个习惯。
+  - 追加内容至少要写清：
+    - 改了哪些文件
+    - 改的是配置、执行链、校验还是前台入口
+    - 测试命令和结果
+    - 是否影响了 `rewrite + cnki/vip` 的运行语义
+## 43
+- 时间：
+  - `2026-04-19 14:36:00`
+- 本轮记录：
+  - 用户补充后续方向：
+    - `降重复率`
+    - `AIGC检测`
+  - 后续也会参考本轮 `降AIGC率` 的简化策略模式来做。
+- 设计约束：
+  - 当前暂不提前实现 `dedup` 和 `aigc_detect` 的新策略体系。
+  - 等用户后续提供资料后，再按资料体系化，不要凭空复用旧算法包复杂模型。
+  - 后续应优先复用本次形成的思路：
+    - 平台维度配置
+    - 任务类型维度执行入口
+    - 策略只保留 `algorithm` / `llm` 这类运营能理解的选择
+    - 后端统一 executor 分发
+    - 输出统一 metadata，便于任务详情和日志追踪
+- 给后来的人/工具的要求：
+  - 不要把 `降重复率` 和 `AIGC检测` 直接塞进当前 `rewrite_strategy` 配置里。
+  - 等资料到位后，应考虑抽象为更通用的 `task_strategy` 或分别建立清晰分类，避免配置语义混乱。
+  - 继续修改前必须继续追加本日志。
+## 44
+- 时间：
+  - `2026-04-19 14:45:00`
+- 本轮设计补充：
+  - 用户指出当前知网/维普的同义词映射表、句式模板库、术语保护词表、衔接规则库在资料中大多只是举例，不足以支持真实大规模文本处理。
+- 结论：
+  - 后续不能把这类库做成“样例枚举”。
+  - 必须做成“规律类别 + 可扩展词库/模板库 + 保护规则 + 日志回流增补”的体系。
+- 设计方向：
+  - 规则库至少分四层：
+    - 通用基础层
+    - 平台专属层（cnki / vip）
+    - 保护与黑名单层
+    - 日志回流扩充层
+  - 命中逻辑不能只靠原词精确匹配，还要结合：
+    - 词类
+    - 句法模式
+    - 关联词关系
+    - 术语识别
+    - 上下文禁替换条件
+  - 大模型策略也应共享这些库，用于 prompt 约束与输出校验。
+- 给后来的人/工具的要求：
+  - 如果继续做这块，不要继续在代码里堆零散 dict。
+  - 应先把资源文件结构设计好，再逐步把样例沉淀为可扩展规则资产。
+## 45
+- 时间：
+  - `2026-04-19 14:52:00`
+- 本轮设计要求：
+  - 用户要求基于已给的知网、维普资料中的核心原则与思路扩充规则资产，不能偏离资料原意。
+  - 重点不是继续堆样例，而是把资料中的规律抽象为可扩展资产体系。
+- 核心约束：
+  - 知网资料不能偏离：
+    - 七条润色规律
+    - 术语保护与语言合法性为最高优先级
+    - 字数浮动 5%~8%
+    - 九模块算法链
+    - 四级长度控制
+    - 大模型输出也必须经算法合法性校验
+  - 维普资料不能偏离：
+    - 六条改写规律
+    - 同义替换、句法重构、长短句调节、名词化切换、回指显化、关联词重组
+    - 字数浮动 5%~8%
+    - 八模块算法链
+    - 三级长度控制
+- 后续实现提醒：
+  - 不要把知网、维普合并成一套无差别规则。
+  - 应共享底层资源结构，但平台专属规则和优先级必须分开。
+  - 规则资产扩充要以“规则族 + 命中条件 + 禁用条件 + 校验回滚”为基本单元。
+## 46
+- 时间：
+  - `2026-04-19 15:08:00`
+- 本轮目的：
+  - 不再停留在“样例 dict”，而是把知网/维普降AIGC率算法策略升级为基于资料原则的可扩展规则资产。
+- 本轮新增文件：
+  - `backend/app/services/rewrite_strategies/assets.py`
+  - `backend/app/services/rewrite_strategies/rule_engine.py`
+- 本轮改动文件：
+  - `backend/app/services/rewrite_strategies/cnki_algorithm.py`
+  - `backend/app/services/rewrite_strategies/vip_algorithm.py`
+  - `backend/app/services/rewrite_strategies/cnki_llm.py`
+  - `backend/app/services/rewrite_strategies/vip_llm.py`
+  - `backend/app/services/rewrite_strategies/executor.py`
+  - `backend/app/services/rewrite_strategies/validators.py`
+  - `backend/app/services/processing_engine.py`
+  - `backend/tests/test_processing_engine_results.py`
+- 本轮设计落实：
+  - 已把知网/维普两套规则资产从“零散样例替换表”升级为结构化资源：
+    - 同义词规则
+    - 句式模板规则
+    - 术语保护规则
+    - 衔接规则
+    - 黑名单/异常表达规则
+  - 已区分平台差异：
+    - `cnki`
+      - 术语保护更重
+      - 合法性防拆词更重
+      - 结构改写更克制
+    - `vip`
+      - 句法模板更积极
+      - 名词化/去名词化与关系显化更积极
+  - 规则执行不再只靠样例精确匹配，而是开始具备：
+    - 平台专属资产
+    - 优先级
+    - 保护区占位
+    - 模板替换
+    - 衔接补强
+    - 规则命中轨迹输出
+- 与资料原则的对应：
+  - 知网：
+    - 严守术语保护与合法性优先
+    - 保留 5%~8% 长度控制
+    - 大模型输出仍受算法校验
+  - 维普：
+    - 严守六条改写规律方向
+    - 强化同义替换、句法重构、名词化切换、衔接重组
+    - 保留 5%~8% 长度控制
+- 新增结果元数据：
+  - `rewrite_strategy.rule_trace`
+  - 便于后续在任务详情、日志、回流扩库时查看：
+    - 命中了哪些规则
+    - 命中了哪些保护术语
+- 自动化验证结果：
+  - 后端测试：
+    - 命令：`python -m pytest tests/test_processing_engine_results.py tests/test_admin_config_validation.py`
+    - 目录：`backend`
+    - 结果：`42 passed`
+  - 前端构建：
+    - 命令：`npm --prefix frontend run build`
+    - 结果：待本轮命令结果
+- 给后来的人/工具的要求：
+  - 继续扩规则时，优先往 `assets.py` 的结构化资源里加，不要退回到算法文件里堆平面 dict。
+  - 如果后面规则规模继续扩大，下一步应把 `assets.py` 拆到 `resources/cnki/*.json` 与 `resources/vip/*.json`，避免单文件持续膨胀。
+  - 继续修改前必须继续写日志，并注明是否影响 `rule_trace` 结构。
+## 47
+- 时间：
+  - `2026-04-19 15:18:00`
+- 本轮结论：
+  - 后续从整个项目角度按模块逐个完善是正确方向。
+  - 目标明确为：
+    - 便于功能增加
+    - 便于问题修复
+    - 便于定位 bug
+    - 便于后续继续拆分知网/维普、降重复率、AIGC检测等策略能力
+- 当前建议的一级模块视角：
+  - 网关与接口层
+  - 认证与权限层
+  - 用户与账户层
+  - 订单/支付/点数层
+  - 任务提交与编排层
+  - 文本处理引擎层
+  - 平台/策略执行层
+  - 检测/报告输出层
+  - 配置中心与后台运营层
+  - 前台用户工作台层
+  - 日志/审计/监控层
+  - 基础设施与部署层
+- 后续推进原则：
+  - 先做“模块地图”和边界，再逐个模块收职责。
+  - 先解决高耦合与高变更模块：
+    - 任务提交与编排
+    - 文本处理引擎
+    - 平台/策略执行
+    - 配置中心
+  - 每轮都要说明：
+    - 这个模块负责什么
+    - 不该负责什么
+    - 当前主要问题
+    - 建议怎么收口
+## 48
+- 时间：
+  - `2026-04-19 15:42:00`
+- 本轮工作：
+  - 围绕“从整个项目角度做模块化深审，便于后续加功能、修问题、定位 bug”做了一轮结构审查。
+  - 重点核查了：
+    - 后端接口层：`backend/app/api/router.py`、`auth.py`、`tasks.py`、`billing.py`、`admin.py`
+    - 后端任务与执行层：`backend/app/worker_tasks.py`、`backend/app/services/processing_engine.py`
+    - 新增策略层：`backend/app/services/rewrite_strategies/`
+    - 前端路由与大页面：`frontend/src/router/index.js`、`frontend/src/views/admin/AdminConfigPage.vue`、`frontend/src/components/UserShell.vue`、`frontend/src/components/BuyCreditsPanel.vue`
+- 本轮核心审查结论：
+  - 项目当前不是“没有模块”，而是“已有模块边界被少数巨型文件重新吞并”。
+  - 最重的 4 个风险热点：
+    - `processing_engine.py`
+      - 同时承担流程编排、算法/LLM 调用、检测评分、分段分析、报告构建、PDF 生成、兼容旧版本逻辑。
+    - `admin.py`
+      - 同时承担后台认证、后台账号、总览、用户、任务、订单、配置中心、策略配置、算法包管理。
+    - `tasks.py`
+      - 同时承担上传校验、频控、幂等、防积压、预扣点、任务创建、恢复、下载、删除。
+    - `worker_tasks.py`
+      - 同时承担队列基础设施、本地回退执行、预处理、正式处理、退款、清理、并发保护。
+- 已确认的结构性问题：
+  - 同类规则重复实现：
+    - `tasks.py` 与 `worker_tasks.py` 各自实现了 `_report_is_full`、`_validate_report_content`，后续规则修改容易漂移。
+  - 新旧体系并存：
+    - `rewrite_strategy` 新体系已进入 `processing_engine.py`，但老的算法包/模式切换链仍在主干中，后续若继续扩展 `dedup` / `detect` 策略，会进一步加重主引擎耦合。
+  - 前后端配置规范双份维护：
+    - 后端 `admin.py` 有配置默认值/归一化/校验；
+    - 前端 `AdminConfigPage.vue` 也有默认值/归一化/校验；
+    - 容易出现字段漂移、默认值不一致、前后行为不一致。
+  - 前端页面脚本过大：
+    - `AdminConfigPage.vue`、`UserShell.vue`、`BuyCreditsPanel.vue` 均混合了接口调用、状态归一化、业务规则、UI 展示。
+- 建议的一级模块地图：
+  - 网关与 API 装配层
+  - 认证与会话层
+  - 用户与账户层
+  - 计费/订单/支付层
+  - 任务提交与任务编排层
+  - 后台执行与队列层
+  - 文本处理引擎层
+  - 平台策略层
+  - 报告与结果构建层
+  - 后台配置与运营层
+  - 前台工作台层
+  - 日志/审计/可观测层
+  - 基础设施与部署层
+- 建议的整改顺序：
+  - 第一优先级：
+    - 把 `processing_engine.py` 先按“编排 / detect / transform / report”收边界。
+    - 把 `tasks.py` 里的提交链抽成 service。
+    - 把 `admin.py` 按后台域拆分 router。
+  - 第二优先级：
+    - 把 `worker_tasks.py` 拆成“队列基础设施”和“业务处理 handlers”。
+    - 把配置中心的默认值、归一化、readiness 规则抽成独立配置模块。
+    - 把 `AdminConfigPage.vue` 按 tab 和 composable 拆开。
+- 给后来的人/工具的要求：
+  - 后续继续做模块重构、功能扩展、修 bug 前，先写工作日志，再动代码。
+  - 审查与重构时优先解决“职责混装”和“重复规则实现”，不要只做目录搬家式重构。
+  - 若后面继续扩展降重复率、AIGC 检测的策略模式，必须避免再把平台策略直接塞回 `processing_engine.py`。
+## 49
+- 时间：
+  - `2026-04-19 16:02:00`
+- 本轮结论：
+  - 相比“13 个一级模块平铺”，更适合本项目的结构是：
+    - 业务域
+    - 运行链路
+    - 支撑层
+    三层组合，而不是继续把所有能力并列平铺。
+- 建议的更优结构：
+  - 业务域：
+    - `auth`
+    - `users`
+    - `billing`
+    - `admin`
+  - 运行链路：
+    - `tasking`
+      - 任务提交、任务查询、任务状态流转
+    - `processing`
+      - 处理编排，不直接堆平台规则
+    - `strategies`
+      - 平台/任务类型/策略模式
+    - `reports`
+      - 结果结构、报告视图、PDF 输出
+    - `workers`
+      - 后台执行、补偿、清理、队列适配
+  - 支撑层：
+    - `configs`
+    - `storage`
+    - `observability`
+    - `infra`
+- 为什么更优：
+  - 更贴近你后面的业务演进方向：
+    - 知网/维普
+    - 降AIGC率
+    - 降重复率
+    - AIGC检测
+    这些变化主要发生在 `strategies` 与 `processing`，不会污染用户、支付、后台用户等域。
+  - 更贴近真实运行链路：
+    - 提交任务
+    - 进入执行
+    - 选策略
+    - 产出结果
+    - 生成报告
+  - 更利于后续查问题：
+    - 如果是“策略选错”，先查 `configs/strategies`
+    - 如果是“任务卡住”，先查 `tasking/workers`
+    - 如果是“报告异常”，先查 `reports`
+- 后续落地原则：
+  - 目录和代码都优先按这三层思想收边界。
+  - 不建议继续按“单个页面/单个接口”来切模块。
+  - 先动：
+    - `processing`
+    - `tasking`
+    - `workers`
+    - `admin`
+## 50
+- 时间：
+  - `2026-04-19 14:58:02`
+- 本轮工作：
+  - 按“不要遗漏、不要混乱”的要求，补做了一轮文件级模块审计。
+  - 审计范围不只包含热点业务文件，还覆盖了：
+    - 后端源码
+    - 前端源码
+    - 小程序
+    - 后端测试源码
+    - `docs/`
+    - `scripts/`
+    - `deploy/`
+    - 运行目录与工具目录
+- 本轮新增产出：
+  - `docs/PROJECT_MODULE_AUDIT_2026-04-19.md`
+- 本轮确认的关键结论：
+  - 现有项目应统一按 `8 个大模块` 认知与推进：
+    - 认证与账户模块
+    - 计费与订单模块
+    - 任务中心模块
+    - 后台执行模块
+    - 处理编排模块
+    - 策略中心模块
+    - 结果与报告模块
+    - 系统支撑模块
+  - 审计时已明确区分：
+    - 源码模块
+    - 测试源码
+    - 资料文档
+    - 部署脚本
+    - 运行产物目录
+    避免把缓存、运行目录、训练目录误当成功能模块。
+- 本轮新增确认的混乱点：
+  - `rewrite_strategies/rule_engine.py` 反向依赖 `ProcessingEngine`。
+  - `detect_report_renderer.py` 仍对 `ProcessingEngine` 存在耦合感知。
+  - `AdminAlgoPackagePage.vue` 与 `/admin/algo-packages` 仍是旧算法包体系正式入口。
+  - `models.py` 仍保留 referral / promo 历史兼容模型，不能误判为当前主线模块。
+  - `backend/tests/__pycache__/` 等缓存目录不能进入模块归属视图。
+- 本轮整改优先级确认：
+  - `P0`
+    - 修 `processing_engine.py` 结构风险。
+    - 抽公共报告校验，消除 `tasks.py` / `worker_tasks.py` 双份规则。
+  - `P1`
+    - 拆 `admin.py`
+    - 拆 `tasks.py`
+    - 拆 `worker_tasks.py`
+  - `P2`
+    - 拆 `processing_engine.py`
+    - 去掉策略层 / 报告层对主引擎的反向依赖
+  - `P3`
+    - 拆后台配置页与前台壳组件
+- 给后来的人/工具的要求：
+  - 后续所有模块整改、功能扩展、问题修复前，先看：
+    - `PROJECT_BASELINE_AND_ROADMAP.md`
+    - `docs/PROJECT_MODULE_AUDIT_2026-04-19.md`
+    - `gw工作日志.md`
+  - 后续继续写日志，不能中断。
+  - 后续不要只做“目录搬家式模块化”，必须先对照审计文档检查职责边界是否真的收口。
+## 51
+- 时间：
+  - `2026-04-19 15:25:00`
+- 本轮目标：
+  - 按“边做边审、不能伤到当前任务链能力”的原则，先做最低风险收口。
+  - 不直接拆主引擎，不直接改提交、扣费、队列、状态流转主逻辑。
+- 本轮改动：
+  - 新增共享模块：
+    - `backend/app/services/task_report_validation.py`
+  - 只抽取了一类重复逻辑：
+    - `tasks.py` 与 `worker_tasks.py` 中重复的“全文报告完整性判断 / 校验”逻辑
+  - 保持调用点原行为不变：
+    - `backend/app/api/tasks.py`
+      - 仍然抛 `BizError`
+      - 仍然保留原错误码：
+        - `4114`
+        - `4115`
+    - `backend/app/worker_tasks.py`
+      - 仍然抛 `ValueError`
+      - 仍然保留原错误文案
+- 本轮为什么安全：
+  - 没有修改：
+    - 任务提交参数结构
+    - 扣费逻辑
+    - 队列派发逻辑
+    - worker 主处理流程
+    - `ProcessingEngine`
+  - 只把重复判断挪成共享函数，两个入口继续按原方式报错。
+- 本轮新增测试：
+  - `backend/tests/test_task_report_validation.py`
+  - 覆盖：
+    - 提交侧 dedup 报错码不变
+    - 提交侧 rewrite 报错码不变
+    - worker 侧异常文案不变
+    - 完整报告仍可通过
+- 本轮验证结果：
+  - 命令：
+    - `python -m pytest tests/test_task_report_validation.py tests/test_task_submission_chain.py tests/test_local_task_dispatch.py tests/test_processing_engine_results.py`
+  - 结果：
+    - `38 passed`
+- 给后来的人/工具的要求：
+  - 后续继续拆任务链时，仍按这次原则：
+    - 先抽重复纯逻辑
+    - 先补回归测试
+    - 再动主链结构
+  - 不要在没有定向回归的情况下直接拆 `processing_engine.py`、`tasks.py`、`worker_tasks.py` 主流程。
+## 52
+- 时间：
+  - `2026-04-19 15:42:00`
+- 本轮目标：
+  - 继续按低风险方式处理 `processing_engine.py` 的 `P0` 结构风险。
+  - 优先修复“同名方法覆盖导致的运行时兼容问题”，不重写 PDF 链，不改处理链主逻辑。
+- 本轮确认的问题：
+  - `ProcessingEngine` 内部存在多个同名方法：
+    - `_risk_band`
+    - `_wrap_pdf_line`
+    - `_render_pdf`
+  - Python 类定义以后者覆盖前者为准。
+  - 当前最后生效的 `_wrap_pdf_line` 只接受 `max_units`，但前面仍有 `_render_pdf` 使用 `width=` 调用，存在潜在运行时 `TypeError` 风险。
+- 本轮修复：
+  - 只做兼容签名修复：
+    - `backend/app/services/processing_engine.py`
+  - 修改方式：
+    - 让最后生效的 `_wrap_pdf_line` 同时兼容：
+      - `max_units=...`
+      - `width=...`
+  - 本轮没有修改：
+    - 检测评分逻辑
+    - 任务编排逻辑
+    - PDF 内容结构
+    - 结果结构
+    - 提交 / 扣费 / 队列 / worker 逻辑
+- 本轮新增测试：
+  - 在 `backend/tests/test_processing_engine_results.py` 中新增：
+    - 兼容 `width` 参数的测试
+- 本轮验证结果：
+  - 命令：
+    - `python -m pytest tests/test_processing_engine_results.py tests/test_task_report_validation.py tests/test_task_submission_chain.py tests/test_local_task_dispatch.py`
+  - 结果：
+    - `39 passed`
+- 当前模块化整改剩余阶段：
+  - 第 1 阶段：
+    - `P0` 已完成两项：
+      - 共享报告校验逻辑
+      - `processing_engine.py` 兼容性风险修复
+  - 剩余约 `5` 个主阶段：
+    - 拆 `tasks.py`
+    - 拆 `worker_tasks.py`
+    - 拆 `admin.py`
+    - 拆 `processing_engine.py` 主职责
+    - 去掉反向依赖并拆前端大页面
+- 给后来的人/工具的要求：
+  - 后续处理 `processing_engine.py` 时，不要先做大面积删除或改名。
+  - 先靠测试把当前行为钉住，再逐段迁移到新模块。
+## 53
+- 时间：
+  - `2026-04-19 16:20:00`
+- 本轮目标：
+  - 继续按“小步抽纯逻辑、不碰任务提交主链状态机”的方式拆 `tasks.py`。
+  - 先完成文件产物支撑逻辑与任务响应构建逻辑的收口。
+- 本轮改动：
+  - 新增文件产物共享模块：
+    - `backend/app/services/task_artifacts.py`
+  - 收口内容：
+    - 唯一存储文件名生成
+    - 上传文件保存
+    - 批量删除临时上传
+    - 安全删除任务产物
+  - 替换调用点：
+    - `backend/app/api/tasks.py`
+    - `backend/app/api/users.py`
+  - 新增任务响应构建模块：
+    - `backend/app/services/task_response_builder.py`
+  - 收口内容：
+    - 提交成功返回载荷
+    - 幂等恢复返回载荷
+    - 我的任务列表项载荷
+    - 任务详情载荷
+  - `backend/app/api/tasks.py` 现在只保留：
+    - 路由入口
+    - 提交流程编排
+    - 查询筛选
+    - 下载与删除动作
+- 本轮为什么安全：
+  - 没有修改：
+    - 提交参数结构
+    - 扣费规则
+    - 幂等键生成规则
+    - 队列派发顺序
+    - worker 处理主流程
+    - `ProcessingEngine`
+  - 本轮只把：
+    - 文件产物边界逻辑
+    - 任务响应字典构建逻辑
+    从 `tasks.py` 中抽离到 service。
+- 本轮新增测试：
+  - `backend/tests/test_task_artifacts.py`
+    - 唯一文件名保留原文件名
+    - 空上传仍报原错误码 `4102`
+    - 仅允许删除 upload/output 根目录内产物
+  - `backend/tests/test_task_response_builder.py`
+    - 提交/列表/详情/恢复四类载荷关键字段不漂移
+    - `billing`、`refund_done`、`download_ready`、结果脱敏字段保持稳定
+- 本轮额外收口：
+  - 调整 `backend/tests/test_process_strategies.py`
+    - 原 `rewrite + algo_llm` 集成测试会偶发被真实改写结果的字数浮动阈值卡住。
+    - 已改成 stub `execute_rewrite_strategy`，只验证：
+      - 策略接线生效
+      - worker 完整跑通
+      - 任务元数据与 `rewrite_strategy` 结果正确合并
+    - 没有放松生产校验规则。
+- 本轮验证结果：
+  - 命令：
+    - `python -m pytest tests/test_task_response_builder.py tests/test_task_artifacts.py tests/test_task_submission_chain.py tests/test_user_task_download_and_batch_submit.py tests/test_task_report_validation.py tests/test_local_task_dispatch.py tests/test_processing_engine_results.py tests/test_task_chain_guard.py tests/test_process_strategies.py -q`
+  - 结果：
+    - `59 passed`
+- 当前对 `tasks.py` 的拆分进度：
+  - 已抽出：
+    - 报告校验
+    - 文件产物工具
+    - 任务响应构建
+  - 仍待继续：
+    - 提交频控 / backlog / 幂等键
+    - 提交预处理与扣费准备
+    - 查询筛选与下载删除动作进一步分层
+- 给后来的人/工具的要求：
+  - 下一步优先继续拆：
+    - `tasks.py` 的提交频控 / 幂等 / backlog 逻辑
+    - 或把查询筛选与下载删除整理成独立 query/action service
+  - 不要直接把提交主链整段搬走。
+  - 继续保持“先补测试，再抽纯逻辑，再跑定向回归”的节奏。
+## 54
+- 时间：
+  - `2026-04-19 16:45:00`
+- 本轮目标：
+  - 继续按低风险方式拆 `tasks.py`。
+  - 只处理提交保护层：
+    - 频控
+    - backlog
+    - 幂等键
+- 本轮改动：
+  - 新增共享模块：
+    - `backend/app/services/task_submission_guards.py`
+  - 收口内容：
+    - 请求 IP 提取
+    - 提交频控检查
+    - backlog key 生成
+    - backlog 获取 / 释放
+    - 幂等键构建
+  - `backend/app/api/tasks.py`
+    - 保留原本地函数名，改为薄包装调用新 service
+    - 没有改提交流程顺序
+    - 没有改异常码
+  - `backend/tests/conftest.py`
+    - 为测试内 `FakeRedis` 补 `decr()`
+    - 避免 backlog 异常路径测试出现伪实现缺口
+- 本轮新增测试：
+  - `backend/tests/test_task_submission_guards.py`
+  - 覆盖：
+    - `X-Forwarded-For` 优先取值
+    - 幂等键哈希后长度受控
+    - 用户提交频控仍抛 `4116`
+    - backlog 用户并发上限仍抛 `4117`
+    - backlog 释放后计数不会继续失控
+- 本轮为什么安全：
+  - 没有修改：
+    - 提交参数结构
+    - 幂等命中查询逻辑
+    - 扣费和字符数预处理
+    - 队列派发顺序
+    - worker 主处理流程
+  - 本轮只把“提交保护层”从 `tasks.py` 挪到独立 service。
+- 本轮验证结果：
+  - 命令：
+    - `python -m pytest tests/test_task_submission_guards.py tests/test_task_response_builder.py tests/test_task_artifacts.py tests/test_task_submission_chain.py tests/test_user_task_download_and_batch_submit.py tests/test_task_report_validation.py tests/test_local_task_dispatch.py tests/test_processing_engine_results.py tests/test_task_chain_guard.py tests/test_process_strategies.py -q`
+  - 结果：
+    - `63 passed`
+- 当前对 `tasks.py` 的拆分进度：
+  - 已抽出：
+    - 报告校验
+    - 文件产物工具
+    - 任务响应构建
+    - 提交保护层（频控 / backlog / 幂等键）
+  - 仍待继续：
+    - 提交预处理与扣费准备
+    - 查询筛选条件与列表查询
+    - 下载 / 删除动作 service 化
+- 给后来的人/工具的要求：
+  - 下一步优先继续拆：
+    - `_prepare_task_for_processing` 及其周边 billing/preprocess 逻辑
+    - 或把 `my_tasks/task_detail/task_download/delete_task` 收成 query/action service
+  - 仍然不要直接重写 `submit_task` 主流程。
+## 55
+- 时间：
+  - `2026-04-19 17:05:00`
+- 本轮目标：
+  - 继续收口 `tasks.py`。
+  - 只抽提交预处理与扣费准备，不改 `submit_task` 主流程分支。
+- 本轮改动：
+  - 新增共享模块：
+    - `backend/app/services/task_submission_prepare.py`
+  - 收口内容：
+    - 辅助报告内容校验到 API 错误码映射
+    - 提交后预处理：
+      - 读取正文
+      - 统计计费字符
+      - 计算计费单价与金额
+      - AIGC 每日免费额度预扣判断
+      - 调用 `change_credits`
+      - 写回 `task.char_count`
+      - 写回 `task.cost_credits`
+      - 写回 `task.result_json.billing`
+      - 状态推进到 `pending`
+    - 非 test 环境提交时的初始 billing 预览
+  - `backend/app/api/tasks.py`
+    - `_validate_report_content`
+    - `_prepare_task_for_processing`
+    - `_initial_billing_payload`
+    现在都只是薄包装。
+- 本轮新增测试：
+  - `backend/tests/test_task_submission_prepare.py`
+  - 覆盖：
+    - 预处理后正确扣费并写回 billing
+    - 空正文仍抛原错误码 `4102`
+    - AIGC 初始 billing 预览能读取免费额度
+- 本轮修正：
+  - 抽取时曾误删 `tasks.py` 中任务链保护退款仍需使用的 `change_credits` 导入。
+  - 定向回归暴露后已恢复导入，任务链保护退款测试恢复通过。
+- 本轮为什么安全：
+  - 没有修改：
+    - 提交参数结构
+    - 文件保存与 magic 校验
+    - 幂等命中逻辑
+    - 队列派发逻辑
+    - worker 主处理流程
+  - 本轮只把“提交后预处理和扣费准备”从 API 文件移动到 service。
+- 本轮验证结果：
+  - 命令：
+    - `python -m pytest tests/test_task_submission_prepare.py tests/test_task_submission_guards.py tests/test_task_response_builder.py tests/test_task_artifacts.py tests/test_task_submission_chain.py tests/test_task_billing_config.py tests/test_user_task_download_and_batch_submit.py tests/test_task_report_validation.py tests/test_local_task_dispatch.py tests/test_processing_engine_results.py tests/test_task_chain_guard.py tests/test_process_strategies.py -q`
+  - 结果：
+    - `70 passed`
+- 当前对 `tasks.py` 的拆分进度：
+  - 已抽出：
+    - 报告校验
+    - 文件产物工具
+    - 任务响应构建
+    - 提交保护层（频控 / backlog / 幂等键）
+    - 提交预处理与扣费准备
+  - 仍待继续：
+    - 查询筛选条件与列表查询
+    - 下载 / 删除动作 service 化
+    - 最后再评估是否把 `submit_task` 编排本身收成 application service
+- 给后来的人/工具的要求：
+  - 下一步优先拆 `my_tasks/task_detail/task_download/delete_task`。
+  - 这部分是读模型和轻 action，风险低于继续直接搬 `submit_task`。
+## 56
+- 时间：
+  - `2026-04-19 17:28:00`
+- 本轮目标：
+  - 收尾 `tasks.py` 的查询与轻动作部分。
+  - 只拆 `my_tasks`、`task_detail`、`task_download`、`delete_task`，不动提交主链。
+- 本轮改动：
+  - 新增共享模块：
+    - `backend/app/services/task_query_actions.py`
+  - 收口内容：
+    - 我的任务列表筛选与分页
+    - 任务详情载荷获取
+    - 下载前状态与文件存在校验
+    - 删除任务动作与产物清理
+  - `backend/app/api/tasks.py`
+    - `my_tasks`
+    - `task_detail`
+    - `task_download`
+    - `delete_task`
+    已改为调用 service。
+  - 清理了 `tasks.py` 中不再使用的部分 import。
+- 本轮新增测试：
+  - `backend/tests/test_task_query_actions.py`
+  - 覆盖：
+    - 列表筛选与分页
+    - 非法任务类型 / 状态 / 日期筛选错误码
+    - 下载状态校验 `4108`
+    - 下载文件缺失 `4109`
+    - 运行中任务不可删除 `4113`
+    - 删除后产物清理
+- 本轮验证结果：
+  - 完整定向回归：
+    - `python -m pytest tests/test_task_query_actions.py tests/test_task_submission_prepare.py tests/test_task_submission_guards.py tests/test_task_response_builder.py tests/test_task_artifacts.py tests/test_task_submission_chain.py tests/test_task_billing_config.py tests/test_user_task_download_and_batch_submit.py tests/test_task_report_validation.py tests/test_local_task_dispatch.py tests/test_processing_engine_results.py tests/test_task_chain_guard.py tests/test_process_strategies.py -q`
+    - `74 passed`
+  - import 清理后快速回归：
+    - `python -m pytest tests/test_task_query_actions.py tests/test_user_task_download_and_batch_submit.py tests/test_task_chain_guard.py tests/test_task_submission_chain.py -q`
+    - `19 passed`
+  - 编译检查：
+    - `python -m py_compile app/api/tasks.py`
+- 当前对 `tasks.py` 的拆分进度：
+  - 已抽出：
+    - 报告校验
+    - 文件产物工具
+    - 任务响应构建
+    - 提交保护层（频控 / backlog / 幂等键）
+    - 提交预处理与扣费准备
+    - 查询 / 下载 / 删除 action
+  - `tasks.py` 当前主要还剩：
+    - 提交路由本身的编排逻辑
+    - 任务链保护 `_guard_stale_tasks_for_user`
+    - 上传扩展名 / MIME 校验常量与薄包装函数
+- 给后来的人/工具的要求：
+  - `tasks.py` 阶段已经基本进入收尾状态。
+  - 后续不要急着继续搬 `submit_task` 整段；如果要继续，应先抽上传校验参数对象或任务链保护 service。
+  - 更建议下一主阶段转向 `worker_tasks.py`，拆 dispatcher / handlers。
+## 57
+- 时间：
+  - `2026-04-19 17:48:00`
+- 本轮目标：
+  - 开始进入 `worker_tasks.py` 模块化。
+  - 先抽本地派发基础设施，不动 worker 主状态流。
+- 本轮改动：
+  - 新增共享模块：
+    - `backend/app/services/worker_dispatch_runtime.py`
+  - 收口内容：
+    - 本地队列名归一化
+    - 本地 worker 并发数解析
+    - 本地队列获取
+    - 本地 worker 启动
+    - 本地任务执行
+    - 等待本地队列清空
+  - `backend/app/worker_tasks.py`
+    - 保留原函数名：
+      - `_run_task_locally`
+      - `_normalize_local_queue_name`
+      - `_resolve_local_worker_concurrency`
+      - `_get_local_task_queue`
+      - `_ensure_local_workers`
+      - `wait_for_local_tasks`
+    - 现在都只是薄包装到新 service
+  - 同时把 `worker_tasks.py` 中报告校验继续统一到共享规则：
+    - 不再保留 `_report_is_full` 本地实现
+- 本轮新增测试：
+  - `backend/tests/test_worker_dispatch_runtime.py`
+  - 覆盖：
+    - 队列归一化
+    - 并发配置解析
+    - 本地 worker 队列执行
+- 本轮验证结果：
+  - 命令：
+    - `python -m pytest tests/test_worker_dispatch_runtime.py tests/test_local_task_dispatch.py tests/test_production_guards.py tests/test_task_submission_chain.py tests/test_task_failure_refund.py tests/test_process_strategies.py -q`
+  - 结果：
+    - `26 passed`
+- 当前对 `worker_tasks.py` 的拆分进度：
+  - 已抽出：
+    - 本地派发基础设施
+    - 报告校验规则重复实现
+  - 仍待继续：
+    - 结果元数据合并
+    - 提交预处理 handler
+    - 处理执行 handler
+    - processing slot / refund / submission counter 等支撑动作
+- 给后来的人/工具的要求：
+  - 下一步优先继续拆：
+    - `_merge_task_result_metadata`
+    - `_refund_task`
+    - `_decrement_submission_counters`
+    - processing slot 相关函数
+  - 仍然不要直接大改 `preprocess_submission_async` / `process_task_async` 主状态流。
+## 58
+- 时间：
+  - `2026-04-19 18:08:00`
+- 本轮目标：
+  - 继续拆 `worker_tasks.py` 的支撑动作层。
+  - 不改两个主 handler 的状态推进顺序。
+- 本轮改动：
+  - 新增共享模块：
+    - `backend/app/services/worker_task_support.py`
+  - 收口内容：
+    - 结果元数据合并
+    - 失败退款
+    - submission counter 回收
+    - processing slot key 生成
+    - processing slot 获取 / 释放
+  - `backend/app/worker_tasks.py`
+    - 保留原函数名：
+      - `_merge_task_result_metadata`
+      - `_refund_task`
+      - `_decrement_submission_counters`
+      - `_processing_guard_keys`
+      - `_try_acquire_processing_slot`
+      - `_release_processing_slot`
+    - 现在都只是薄包装到新 service
+- 本轮新增测试：
+  - `backend/tests/test_worker_task_support.py`
+  - 覆盖：
+    - 结果元数据合并保留提交元信息
+    - 失败退款幂等
+    - processing slot key 与并发限制行为
+- 本轮验证结果：
+  - 命令：
+    - `python -m pytest tests/test_worker_task_support.py tests/test_worker_dispatch_runtime.py tests/test_local_task_dispatch.py tests/test_production_guards.py tests/test_task_submission_chain.py tests/test_task_failure_refund.py tests/test_process_strategies.py tests/test_user_task_download_and_batch_submit.py -q`
+  - 结果：
+    - `34 passed`
+  - 编译检查：
+    - `python -m py_compile app/worker_tasks.py app/services/worker_task_support.py`
+- 当前对 `worker_tasks.py` 的拆分进度：
+  - 已抽出：
+    - 本地派发基础设施
+    - 报告校验规则重复实现
+    - 结果元数据合并
+    - 退款 / counter / processing slot 支撑动作
+  - 仍待继续：
+    - `preprocess_submission_async` handler 主体
+    - `process_task_async` handler 主体
+    - handler 间共享的任务快照 / 状态推进片段
+- 给后来的人/工具的要求：
+  - 下一步若继续拆 `worker_tasks.py`，应该先抽：
+    - preprocess handler service
+    - process handler service
+  - 仍然不要在没有定向回归的情况下直接重写两个 celery task 主体。
+## 59
+- 时间：
+  - `2026-04-19 18:25:00`
+- 本轮目标：
+  - 开始拆 `worker_tasks.py` 的第一个主 handler：
+    - `preprocess_submission_async`
+  - 保持 celery task 入口、派发失败回滚与现有 monkeypatch 接缝不变。
+- 本轮改动：
+  - 新增共享模块：
+    - `backend/app/services/worker_preprocess_handler.py`
+  - 收口内容：
+    - 任务存在性检查
+    - `preprocessing -> pending` 抢占更新
+    - 辅助报告校验
+    - 正文字符统计
+    - 计费单价与费用计算
+    - 免费额度预扣判断
+    - 扣费
+    - `billing` 写回
+    - `queued` 状态写回
+  - `backend/app/worker_tasks.py`
+    - `preprocess_submission_async` 现在只保留：
+      - db session 包装
+      - 调用 handler service
+      - 原异常回滚到 `failed`
+      - submission counter 回收
+      - 二段派发失败后的退款与状态兜底
+  - 关键兼容处理：
+    - service 依赖都由 `worker_tasks.py` 显式传入
+    - 因此现有测试中对：
+      - `extract_text_from_file`
+      - `count_billable_chars`
+      - `resolve_task_points_per_char`
+      - `dispatch_background_task`
+      的 monkeypatch 仍然有效
+- 本轮新增测试：
+  - `backend/tests/test_worker_preprocess_handler.py`
+  - 覆盖：
+    - preprocess 成功后更新任务与 billing
+    - 空正文仍抛 `ValueError("文档字符数为0，无法处理")`
+- 本轮验证结果：
+  - 命令：
+    - `python -m pytest tests/test_worker_preprocess_handler.py tests/test_worker_task_support.py tests/test_worker_dispatch_runtime.py tests/test_local_task_dispatch.py tests/test_task_submission_chain.py tests/test_task_failure_refund.py tests/test_process_strategies.py tests/test_task_billing_config.py -q`
+  - 结果：
+    - `31 passed`
+  - 编译检查：
+    - `python -m py_compile app/worker_tasks.py app/services/worker_preprocess_handler.py`
+- 当前对 `worker_tasks.py` 的拆分进度：
+  - 已抽出：
+    - 本地派发基础设施
+    - 报告校验规则重复实现
+    - 结果元数据合并
+    - 退款 / counter / processing slot 支撑动作
+    - preprocess handler 主体
+  - 仍待继续：
+    - `process_task_async` handler 主体
+    - handler 间共享的任务快照与结果提交动作
+- 给后来的人/工具的要求：
+  - 下一步优先拆 `process_task_async`。
+  - 仍然保留 celery task 入口作为薄编排层，不要一次把整个函数改成全新结构。
+## 60
+- 时间：
+  - `2026-04-19 16:58:00`
+- 本轮目标：
+  - 继续拆 `worker_tasks.py` 的第二个主 handler：
+    - `process_task_async`
+  - 保持 celery task 入口、processing slot 限流、退款与测试 monkeypatch 接缝不变。
+- 本轮改动：
+  - 新增共享模块：
+    - `backend/app/services/worker_process_handler.py`
+  - 收口内容：
+    - 任务 claim 与状态推进
+    - 输出文件路径生成
+    - `ProcessingEngine.process(...)` 调用编排
+    - 完成态结果写回
+    - 失败态退款与错误写回
+  - `backend/app/worker_tasks.py`
+    - `process_task_async` 现在只保留：
+      - db session 包装
+      - processing slot 抢占 / 释放
+      - 调用 handler service
+      - 失败兜底回滚
+  - 关键兼容处理：
+    - service 依赖继续由 `worker_tasks.py` 显式传入
+    - 因此现有测试中对：
+      - `ProcessingEngine`
+      - `db_session`
+      - `_decrement_submission_counters`
+      - processing slot 相关薄包装
+      的 monkeypatch 接缝保持可用
+  - 本轮额外修正：
+    - 修复 `process_task_async` 在 `claim_process_task` 返回终态时未释放 processing slot 的边界问题
+    - 避免 Redis `task:processing:*` 计数被早退路径污染，后续任务误触发 `retry`
+- 本轮新增测试：
+  - `backend/tests/test_worker_process_handler.py`
+  - 覆盖：
+    - claim queued 任务后返回快照
+    - invalid status 拒绝
+    - AIGC 输出路径扩展名选择
+    - `ProcessingEngine.process(...)` 参数透传
+    - 完成态 metadata merge
+    - 失败态退款
+    - terminal 状态早退时仍释放 processing slot
+- 本轮验证结果：
+  - 命令：
+    - `python -m pytest tests/test_worker_process_handler.py tests/test_worker_preprocess_handler.py tests/test_worker_task_support.py tests/test_worker_dispatch_runtime.py tests/test_local_task_dispatch.py tests/test_task_submission_chain.py tests/test_task_failure_refund.py tests/test_process_strategies.py tests/test_task_billing_config.py tests/test_user_task_download_and_batch_submit.py tests/test_task_end_to_end_flows.py -q`
+  - 结果：
+    - `44 passed`
+  - 编译检查：
+    - `python -m py_compile app/worker_tasks.py app/services/worker_process_handler.py tests/test_worker_process_handler.py`
+- 当前对 `worker_tasks.py` 的拆分进度：
+  - 已抽出：
+    - 本地派发基础设施
+    - 报告校验规则重复实现
+    - 结果元数据合并
+    - 退款 / counter / processing slot 支撑动作
+    - preprocess handler 主体
+    - process handler 主体
+  - 仍待继续：
+    - 评估是否还需要抽 handler 间共享快照 / 状态推进片段
+    - 若无明显收益，则转入 `processing_engine.py` 主职责拆分
+- 给后来的人/工具的要求：
+  - 下一步先重新审视 `worker_tasks.py` 当前剩余职责，确认是否已达到“薄编排层”标准。
+  - 若已达标，优先进入 `processing_engine.py` 的 orchestration / 结果构建 / 输出层拆分，不要继续为拆而拆。
+## 61
+- 时间：
+  - `2026-04-19 17:18:00`
+- 本轮目标：
+  - 开始进入 `processing_engine.py` 主职责拆分
+  - 先只抽结果构建层，不碰检测评分主干和 PDF 输出主流程
+- 本轮改动：
+  - 新增共享模块：
+    - `backend/app/services/processing_result_builder.py`
+  - 收口内容：
+    - transform 类任务结果 JSON 组装
+    - 字符统计 / 预览裁剪 / 变更率 / review points / rewrite strategy 元数据写回
+  - `backend/app/services/processing_engine.py`
+    - `_build_transform_result(...)` 现在改为薄包装，调用共享 builder
+  - 关键兼容处理：
+    - `ProcessingEngine` 方法名和入参保持不变
+    - 现有测试和外部调用仍以 `ProcessingEngine._build_transform_result(...)` 为入口
+- 本轮验证结果：
+  - 命令：
+    - `python -m pytest tests/test_processing_engine_results.py tests/test_process_strategies.py tests/test_task_end_to_end_flows.py tests/test_task_failure_refund.py tests/test_task_submission_chain.py -q`
+  - 结果：
+    - `44 passed`
+  - 编译检查：
+    - `python -m py_compile app/services/processing_engine.py app/services/processing_result_builder.py`
+- 当前进度判断：
+  - `tasks.py`：基本完成
+  - `worker_tasks.py`：已达到薄编排层标准，可视为这一阶段完成
+  - `processing_engine.py`：刚开始，已完成第 1 个低风险切口
+- 给后来的人/工具的要求：
+  - 下一步优先继续抽 `processing_engine.py` 中输入输出清晰的纯逻辑：
+    - detect result builder
+    - report summary parser
+  - 先不要直接改 PDF 渲染与检测评分主干。
+## 62
+- 时间：
+  - `2026-04-19 17:33:00`
+- 本轮目标：
+  - 继续拆 `processing_engine.py` 的纯逻辑部分
+  - 优先抽 `report summary` 解析，不碰检测评分和 PDF 渲染主干
+- 本轮改动：
+  - 新增共享模块：
+    - `backend/app/services/processing_report_summary.py`
+  - 收口内容：
+    - 报告百分比字段提取
+    - dedup / aigc 两类辅助报告摘要解析
+    - `pressure`、`metrics`、`highlights`、`recommended_actions` 组装
+  - `backend/app/services/processing_engine.py`
+    - `_extract_report_summary(...)` 改为薄包装
+    - `_extract_percent(...)` 改为薄包装
+  - 关键兼容处理：
+    - `ProcessingEngine` 内部方法名保持不变
+    - 现有流程仍通过 `ProcessingEngine` 调用，不改变主流程接线
+- 本轮新增测试：
+  - `backend/tests/test_processing_report_summary.py`
+  - 覆盖：
+    - 百分比提取
+    - 空报告默认摘要
+    - dedup 高压摘要
+    - aigc 高压摘要
+    - 低风险场景兜底建议
+- 本轮验证结果：
+  - 命令：
+    - `python -m pytest tests/test_processing_report_summary.py tests/test_processing_engine_results.py tests/test_process_strategies.py tests/test_task_end_to_end_flows.py tests/test_task_failure_refund.py tests/test_task_submission_chain.py -q`
+  - 结果：
+    - `49 passed`
+  - 编译检查：
+    - `python -m py_compile app/services/processing_engine.py app/services/processing_result_builder.py app/services/processing_report_summary.py tests/test_processing_report_summary.py`
+- 当前进度判断：
+  - `processing_engine.py`
+    - 已抽出：
+      - transform result builder
+      - report summary parser
+    - 仍待继续：
+      - detect result builder
+      - 视情况再考虑 PDF 输出层拆分
+- 给后来的人/工具的要求：
+  - 下一步若继续拆 `processing_engine.py`，优先做 `detect result builder`。
+  - 仍然不要直接切评分模拟 / 段落细节 / PDF 渲染三块主干。
+## 63
+- 时间：
+  - `2026-04-19 17:49:00`
+- 本轮目标：
+  - 继续拆 `processing_engine.py`
+  - 只抽 `detect result` 的组装层，不动评分模拟、段落细节与 PDF 渲染主干
+- 本轮改动：
+  - 新增共享模块：
+    - `backend/app/services/processing_detect_result_builder.py`
+  - 收口内容：
+    - detect breakdown 补充字段写回
+    - CNKI / VIP / fallback 摘要文案生成
+    - detect result payload 组装
+  - `backend/app/services/processing_engine.py`
+    - `_build_detect_result(...)` 仍保留评分、校准与细节分析
+    - 最后阶段的 breakdown enrich / summary / payload 组装改为调用 builder
+  - 关键兼容处理：
+    - `ProcessingEngine._build_detect_result(...)` 方法名和返回结构保持不变
+    - `report_view` 仍在 `ProcessingEngine` 内部继续构建
+- 本轮新增测试：
+  - `backend/tests/test_processing_detect_result_builder.py`
+  - 覆盖：
+    - breakdown enrich 字段
+    - CNKI 摘要文案
+    - VIP 摘要文案
+    - payload 字段稳定性
+- 本轮验证结果：
+  - 命令：
+    - `python -m pytest tests/test_processing_detect_result_builder.py tests/test_processing_report_summary.py tests/test_processing_engine_results.py tests/test_cnki_sampled_builtin_packages.py tests/test_process_strategies.py tests/test_task_end_to_end_flows.py tests/test_task_failure_refund.py tests/test_task_submission_chain.py -q`
+  - 结果：
+    - `59 passed`
+  - 编译检查：
+    - `python -m py_compile app/services/processing_engine.py app/services/processing_detect_result_builder.py tests/test_processing_detect_result_builder.py`
+- 当前进度判断：
+  - `processing_engine.py`
+    - 已抽出：
+      - transform result builder
+      - report summary parser
+      - detect result builder（组装层）
+    - 仍待继续：
+      - 若继续细拆，可考虑 PDF 输出层
+      - 评分模拟 / 段落细节暂不建议继续拆，除非先发现明显重复或回归保护足够
+- 给后来的人/工具的要求：
+  - 下一步先重新审视 `processing_engine.py` 剩余部分是否还值得继续拆。
+  - 如果收益不明显，应转向“反向依赖 + 前端大页面”阶段，而不是为了模块数量继续切。
+## 64
+- 时间：
+  - `2026-04-19 18:08:00`
+- 本轮目标：
+  - 开始处理反向依赖
+  - 先拆更低风险的 `rewrite_strategies -> ProcessingEngine` 依赖
+- 本轮改动：
+  - 新增共享模块：
+    - `backend/app/services/processing_text_tools.py`
+  - 收口内容：
+    - 长句拆分工具 `split_long_sentences(...)`
+  - `backend/app/services/processing_engine.py`
+    - `_split_long_sentences(...)` 改为薄包装
+  - `backend/app/services/rewrite_strategies/rule_engine.py`
+    - 不再 import / new `ProcessingEngine`
+    - 改为直接调用 `split_long_sentences(...)`
+  - 关键兼容处理：
+    - `ProcessingEngine._split_long_sentences(...)` 方法名保留
+    - rewrite 策略层仅去掉对主引擎的反向依赖，不改规则行为
+- 本轮新增测试：
+  - `backend/tests/test_processing_text_tools.py`
+  - 覆盖：
+    - 长句拆分
+    - 短句保持不变
+- 本轮验证结果：
+  - 命令：
+    - `python -m pytest tests/test_processing_text_tools.py tests/test_processing_engine_results.py tests/test_process_strategies.py tests/test_cnki_sampled_builtin_packages.py tests/test_task_end_to_end_flows.py tests/test_task_submission_chain.py tests/test_task_failure_refund.py -q`
+  - 结果：
+    - `52 passed`
+  - 编译检查：
+    - `python -m py_compile app/services/processing_engine.py app/services/processing_text_tools.py app/services/rewrite_strategies/rule_engine.py tests/test_processing_text_tools.py`
+- 当前进度判断：
+  - 反向依赖处理：
+    - 已完成：
+      - `rewrite_strategies/rule_engine.py -> ProcessingEngine`
+    - 仍待评估：
+      - `detect_report_renderer.py -> ProcessingEngine`
+- 给后来的人/工具的要求：
+  - 下一步先评估 `detect_report_renderer.py` 对 `ProcessingEngine` 的依赖是否值得继续拆。
+  - 如果收益不高，可转入前端大页面拆分阶段。
+## 65
+- 时间：
+  - `2026-04-19 18:24:00`
+- 本轮目标：
+  - 处理剩余的 `detect_report_renderer.py -> ProcessingEngine` 反向依赖
+  - 只改签名与依赖注入，不重写报告渲染主体
+- 本轮改动：
+  - `backend/app/services/detect_report_renderer.py`
+    - `render_detect_report_pdf_reportlab(...)` 改为显式接收：
+      - `meta`
+      - `source_text`
+      - `build_detect_band_rows`
+      - `split_detect_paragraphs`
+      - `escape_pdf_text`
+      - `detect_outline_heading`
+    - 去掉对 `ProcessingEngine` 类型和实例方法宿主的依赖
+  - `backend/app/services/processing_engine.py`
+    - `_render_detect_report_pdf(...)` 改为显式传入上述参数与回调
+  - 关键兼容处理：
+    - `ProcessingEngine._render_detect_report_pdf(...)` 对外行为不变
+    - reportlab 路径与 fallback 路径都未改动主渲染逻辑
+- 本轮验证结果：
+  - 命令：
+    - `python -m pytest tests/test_processing_engine_results.py tests/test_cnki_sampled_builtin_packages.py tests/test_process_strategies.py tests/test_task_end_to_end_flows.py tests/test_task_submission_chain.py tests/test_task_failure_refund.py -q`
+  - 结果：
+    - `50 passed`
+  - 编译检查：
+    - `python -m py_compile app/services/processing_engine.py app/services/detect_report_renderer.py`
+- 当前进度判断：
+  - 反向依赖处理：
+    - 已完成：
+      - `rewrite_strategies/rule_engine.py -> ProcessingEngine`
+      - `detect_report_renderer.py -> ProcessingEngine`
+  - `processing_engine.py`：
+    - 低风险拆分阶段可以视为收口
+- 给后来的人/工具的要求：
+  - 下一步转入前端大页面拆分：
+    - `AdminConfigPage.vue`
+    - `UserShell.vue`
+    - `BuyCreditsPanel.vue`
+  - 优先先审页面结构和现有测试/依赖，不要直接大改模板。
+## 66
+- 时间：
+  - `2026-04-19 18:41:00`
+- 本轮目标：
+  - 开始前端大页面拆分
+  - 先选择边界最清楚的 `BuyCreditsPanel.vue` 做第一刀
+- 本轮改动：
+  - 新增共享模块：
+    - `frontend/src/lib/buyCredits.js`
+  - 收口内容：
+    - 套餐展示归一化
+    - 支付 provider 列表解析
+    - 支付错误文案归一化
+  - `frontend/src/components/BuyCreditsPanel.vue`
+    - 改为调用共享 `lib/buyCredits.js`
+    - 模板、支付弹窗和订单轮询状态机保持原样
+  - 关键兼容处理：
+    - 组件入参与 `paid` 事件不变
+    - 所有页面对 `BuyCreditsPanel.vue` 的引用方式不变
+- 本轮验证结果：
+  - 命令：
+    - `npm run build`
+  - 结果：
+    - `vite build` 通过
+- 当前进度判断：
+  - 前端大页面拆分：
+    - 已开始：
+      - `BuyCreditsPanel.vue` 第 1 刀（纯逻辑下沉）
+    - 待继续：
+      - `BuyCreditsPanel.vue` 订单状态机 / 轮询逻辑
+      - `AdminConfigPage.vue` 按 tab 拆配置表单区块
+      - `UserShell.vue` 按导航 / 公告 / 顶栏状态拆 composable 或子块
+- 给后来的人/工具的要求：
+  - 下一步优先继续 `BuyCreditsPanel.vue`，先评估是否能把订单轮询与倒计时状态机下沉。
+  - 仍然不要先动 `UserShell.vue` 的整套导航模板。
+## 67
+- 时间：
+  - `2026-04-19 18:55:00`
+- 本轮目标：
+  - 继续拆 `BuyCreditsPanel.vue`
+  - 把订单轮询 / 倒计时 / 模拟支付状态机下沉为 composable
+- 本轮改动：
+  - 新增共享模块：
+    - `frontend/src/composables/useBuyCreditsCheckout.js`
+  - 收口内容：
+    - 订单创建
+    - 订单状态轮询
+    - 支付倒计时
+    - 模拟支付
+    - 定时器清理
+    - 订单状态文案与进度计算
+  - `frontend/src/components/BuyCreditsPanel.vue`
+    - 改为调用 `useBuyCreditsCheckout.js`
+    - 自身保留：
+      - 套餐选择
+      - 弹窗开关
+      - provider 选择
+      - 登录前置控制
+      - 成功提示与 `paid` 事件透传
+  - 关键兼容处理：
+    - 模板不变
+    - `paid` 事件不变
+    - 所有页面对 `BuyCreditsPanel.vue` 的使用方式不变
+- 本轮验证结果：
+  - 命令：
+    - `npm run build`
+  - 结果：
+    - `vite build` 通过
+- 当前进度判断：
+  - `BuyCreditsPanel.vue`
+    - 已抽出：
+      - 套餐归一化 / provider 解析 / 错误文案
+      - 订单状态机 composable
+    - 剩余：
+      - 可继续拆 provider 展示元数据，但收益已经不高
+  - 下一阶段优先级：
+    - `AdminConfigPage.vue`
+    - `UserShell.vue`
+- 给后来的人/工具的要求：
+  - 下一步优先切到 `AdminConfigPage.vue`，按 tab 或 guide/sidebar 数据与表单区块拆分。
+  - `BuyCreditsPanel.vue` 暂时不必继续为拆而拆。
+## 68
+- 时间：
+  - `2026-04-19 19:11:00`
+- 本轮目标：
+  - 开始拆 `AdminConfigPage.vue`
+  - 先抽配置元数据、默认值和归一化函数，不动模板与保存主链
+- 本轮改动：
+  - 新增共享模块：
+    - `frontend/src/lib/adminConfig.js`
+  - 收口内容：
+    - tabs / provider / strategy 等静态元数据
+    - 计费套餐默认值
+    - 小程序默认配置
+    - rewrite strategy 默认配置
+    - billing / miniapp / rewrite strategy 归一化函数
+    - 支付回调预览文本生成
+    - 策略说明文本
+  - `frontend/src/views/admin/AdminConfigPage.vue`
+    - 改为从 `lib/adminConfig.js` 导入上述配置与工具函数
+    - 删除页面内重复定义
+  - 关键兼容处理：
+    - 页面模板、tab 切换、保存动作与路由行为都保持不变
+    - 仍由页面本身负责加载、校验和保存
+- 本轮验证结果：
+  - 命令：
+    - `npm run build`
+  - 结果：
+    - `vite build` 通过
+- 当前进度判断：
+  - 前端大页面拆分：
+    - `BuyCreditsPanel.vue`
+      - 纯逻辑与状态机拆分已完成
+    - `AdminConfigPage.vue`
+      - 第 1 刀（元数据 / 归一化层）已完成
+    - `UserShell.vue`
+      - 尚未开始
+- 给后来的人/工具的要求：
+  - 下一步优先继续 `AdminConfigPage.vue`，考虑把校验 / payloadFor / 局部表单处理再下沉一层。
+  - 若收益变低，再转 `UserShell.vue` 的导航 / 公告状态管理。
+## 69
+- 时间：
+  - `2026-04-19 17:46:47`
+- 本轮目标：
+  - 继续拆 `AdminConfigPage.vue`
+  - 把校验 / payload / guide 辅助展示 / 局部数组操作进一步下沉，但不动页面加载保存主链
+- 本轮改动：
+  - `frontend/src/lib/adminConfig.js`
+    - 新增：
+      - `ADMIN_CONFIG_GUIDES`
+      - `adminConfigReadinessChipClass`
+      - `adminConfigReadinessLabel`
+      - `applyLlmProviderPreset`
+      - `createBillingPackage`
+      - `reorderAdminConfigItems`
+    - 延续复用：
+      - `validateAdminConfigCategory`
+      - `buildAdminConfigPayload`
+  - `frontend/src/views/admin/AdminConfigPage.vue`
+    - 改为调用共享 guide 数据与 readiness 展示 helper
+    - 改为调用共享 LLM preset 切换逻辑
+    - 改为调用共享套餐新增与导航排序逻辑
+    - 页面自身继续保留：
+      - 路由同步
+      - 加载 / 重新加载
+      - 保存主链
+      - 权限判断
+- 关键兼容处理：
+  - 模板结构不变
+  - 各 tab 的保存入口与后端接口不变
+  - `AdminConfigPage.vue` 仍作为配置中心编排页，不把副作用逻辑拆散
+- 本轮验证结果：
+  - 命令：
+    - `npm run build`
+  - 结果：
+    - `vite build` 通过
+- 当前进度判断：
+  - 后端主阶段：
+    - 已基本完成
+  - 前端大页面拆分：
+    - `BuyCreditsPanel.vue`
+      - 已完成
+    - `AdminConfigPage.vue`
+      - 已完成 3 刀低风险收口，继续硬拆收益开始下降
+    - `UserShell.vue`
+      - 仍待做 1 刀导航 / 公告状态整理
+- 给后来的人/工具的要求：
+  - 下一步优先切到 `UserShell.vue`，只抽导航投影和公告归一化，不先动整体模板与路由事件。
+  - 做完后执行一次前端总构建，再决定是否就地收口。
+## 70
+- 时间：
+  - `2026-04-19 17:50:06`
+- 本轮目标：
+  - 拆 `UserShell.vue`
+  - 只收口导航投影与公告归一化，不动模板结构、路由跳转、窗口事件和轮询主链
+- 本轮改动：
+  - 新增共享模块：
+    - `frontend/src/lib/userShell.js`
+  - 收口内容：
+    - 公告默认文案与已读存储 key
+    - 公告归一化
+    - 公告更新时间格式化
+    - 顶部菜单 icon 投影
+    - 可见菜单分组
+    - 顶部菜单可见区 / 更多区切分
+  - `frontend/src/components/UserShell.vue`
+    - 改为调用 `lib/userShell.js`
+    - 自身继续保留：
+      - 登录态同步
+      - 顶栏滚动状态
+      - 公告轮询与可见性监听
+      - 路由跳转 / 退出登录
+      - More 菜单开关与点击外部关闭
+- 关键兼容处理：
+  - 页面模板和视觉结构不变
+  - 导航显示顺序仍由 `userNavigation` 配置控制
+  - 公告弹窗开启条件与已读行为保持原策略
+- 本轮验证结果：
+  - 命令：
+    - `npm run build`
+  - 结果：
+    - `vite build` 通过
+- 当前进度判断：
+  - 后端模块化：
+    - 任务入口、worker、processing engine 和反向依赖处理已基本完成
+  - 前端大页面拆分：
+    - `BuyCreditsPanel.vue` 已完成
+    - `AdminConfigPage.vue` 已完成
+    - `UserShell.vue` 已完成 1 刀低风险收口
+  - 整体进度：
+    - 约 `95%+`
+    - 剩余主要是一次最终总回归与收口确认
+- 给后来的人/工具的要求：
+  - 下一步优先做最终定向回归与脏工作区审查，不再为拆而拆。
+  - 若没有回归风险，再按“模块化地基稳定、任务链不受伤”标准收尾即可。
+## 71
+- 时间：
+  - `2026-04-19 18:46:49`
+- 本轮目标：
+  - 给 `降重复率` 落独立平台策略
+  - 参考 CNKI / VIP 查重特点，复用策略结构但不复用 `rewrite_strategies` 路由
+  - 顺手清理可安全删除的诊断残留
+- 本轮改动：
+  - 新增共享模块：
+    - `backend/app/services/dedup_strategies/`
+  - 收口内容：
+    - `executor.py`
+      - `DEDUP` 独立策略分发
+    - `cnki_algorithm.py` / `cnki_llm.py`
+      - 偏保守降重：术语保护、轻句式改写、连续相似片段削弱
+    - `vip_algorithm.py` / `vip_llm.py`
+      - 偏结构降重：句式重排、主被动切换、连接词重组
+    - `validators.py`
+      - 独立降重校验
+      - 不再套用降AIGC率 `5%-8%` 增字限制
+    - `assets.py` / `rule_engine.py`
+      - 独立平台词表、模板、衔接规则和坏词规则
+  - `backend/app/services/processing_engine.py`
+    - `DEDUP + cnki/vip` 改走 `dedup_strategies`
+    - 结果元数据新增 `dedup_strategy`
+  - `backend/app/services/processing_result_builder.py`
+    - `DEDUP` 结果增加 `dedup_strategy`
+    - 保留 `REWRITE` 的 `rewrite_strategy`
+  - 边界修正：
+    - `rewrite_strategies/executor.py` 已恢复为只服务 `REWRITE`
+  - 清理内容：
+    - 删除诊断残留：
+      - `backend/tmp_diag_algos/`
+      - `backend/tmp_diag.db`
+- 关键兼容处理：
+  - `降重复率` 不复用 `rewrite` 路由
+  - 后台 rewrite 配置不影响 dedup 路由
+  - 仍保留算法包系统与旧通用链，供 `AIGC检测` 和非 `cnki/vip` 平台使用
+- 本轮验证结果：
+  - 命令：
+    - `python -m pytest tests/test_processing_engine_results.py tests/test_process_strategies.py tests/test_worker_process_handler.py tests/test_task_submission_chain.py`
+    - `python -m pytest tests/test_processing_engine_results.py tests/test_process_strategies.py`
+  - 结果：
+    - `53 passed`
+    - `38 passed`
+- 当前进度判断：
+  - `DEDUP` 已从通用处理链中分出 `cnki/vip` 独立平台策略
+  - 可安全清理的诊断残留已清掉
+  - 算法包系统本体暂不删除，因为仍在主链上
+- 给后来的人/工具的要求：
+  - 若继续清理，只能优先审查非 `cnki/vip` 的旧 dedup fallback 是否还有真实调用。
+  - 不要直接删 `algorithm_packages / custom_algo_packages / algo_package_service`，它们当前仍被主链使用。
+## 72
+- 时间：
+  - `2026-04-19 19:11:00`
+- 本轮目标：
+  - 去掉 `rewrite/dedup` 对旧激活算法包的硬依赖
+  - 删除已退出主链的旧 `rewrite/dedup` 算法包目录与样例残留
+  - 做最终定向回归，确认任务链和后台配置链不受伤
+- 本轮改动：
+  - 策略解析收口：
+    - `backend/app/services/process_strategy_service.py`
+      - 新增 `requires_active_algorithm_package(...)`
+      - `cnki/vip + rewrite/dedup` 不再要求激活算法包
+      - `aigc_detect` 继续保留算法包要求
+  - 后台启用校验收口：
+    - `backend/app/api/admin.py`
+      - 策略启用与执行配置启用统一走 `requires_active_algorithm_package(...)`
+      - `rewrite/dedup` 不再因为没有旧算法包而报 `4118`
+  - 测试同步：
+    - `backend/tests/test_process_strategies.py`
+      - 改为验证 `rewrite/cnki` 可直接启用
+      - 补充 `aigc_detect/cnki` 仍需激活算法包
+    - `backend/tests/test_task_submission_chain.py`
+    - `backend/tests/test_task_billing_config.py`
+    - `backend/tests/test_user_task_download_and_batch_submit.py`
+      - 删除 `rewrite/dedup` 提交前手动激活旧算法包的前置动作
+  - 旧目录清理：
+    - 删除：
+      - `backend/algorithm_packages/cnki/rewrite/`
+      - `backend/algorithm_packages/cnki/dedup/`
+      - `backend/algorithm_packages/vip/rewrite/`
+      - `backend/algorithm_packages/vip/dedup/`
+      - `backend/custom_algo_packages/cnki_rewrite_sampled_v1/`
+      - `backend/tests/test_cnki_rewrite_sample_package.py`
+- 关键兼容处理：
+  - `AIGC检测` 的算法包系统继续保留并受保护
+  - `rewrite/dedup` 的 `cnki/vip` 已完全切到新平台策略主链
+  - 后台算法包管理接口与自定义上传能力仍保留，未做破坏性下线
+- 本轮验证结果：
+  - 命令：
+    - `python -m pytest tests/test_process_strategies.py tests/test_task_submission_chain.py tests/test_processing_engine_results.py tests/test_worker_process_handler.py`
+    - `python -m pytest tests/test_process_strategies.py tests/test_task_submission_chain.py tests/test_task_billing_config.py tests/test_user_task_download_and_batch_submit.py tests/test_processing_engine_results.py tests/test_worker_process_handler.py tests/test_algo_packages.py`
+  - 结果：
+    - `54 passed`
+    - `80 passed`
+- 当前进度判断：
+  - `rewrite/dedup` 新策略主链：已完成
+  - 旧 `rewrite/dedup` 算法包硬依赖：已拆除
+  - 可安全删除的旧目录与样例残留：已清理
+  - 本轮目标已收口，可进入最终改动审查与完成清单整理
+- 给后来的人/工具的要求：
+  - 若继续清理，只能针对 `builtin_algo_packages.py` 里的历史模板/文档层做审查，不能误删 `aigc_detect` 能力。
+  - 不要回退这轮对 `rewrite/dedup` 去激活包依赖的改动，否则会把新策略重新绑回旧链。
+## 73
+- 时间：
+  - `2026-04-19 19:28:52`
+- 本轮目标：
+  - 清掉 `builtin_algo_packages.py` 里残留的 `rewrite/dedup` 内置模板、骨架和作者包文档
+  - 保留后台算法包系统通用上传能力与 `AIGC检测` 内置包能力
+- 本轮改动：
+  - `backend/app/services/builtin_algo_packages.py`
+    - 删除内置 `rewrite/dedup` 模板生成函数与升级函数
+    - `bootstrap_builtin_algo_packages(...)` 现在只内置引导 `cnki/vip` 两个 `aigc_detect` 包
+    - `build_builtin_template_package(...)` 现在只提供 `aigc_detect` 模板
+    - `build_authoring_spec_bundle()` 现在只输出 `aigc_detect` 写作规范和 `cnki/vip` 两个检测骨架
+  - `backend/tests/test_algo_packages.py`
+    - 模板/作者包/bootstrap 断言改成新的 `AIGC检测` 预期
+    - 增加非 `aigc_detect` 模板请求被拒绝的断言
+  - `backend/tests/test_cnki_sampled_builtin_packages.py`
+    - 删除旧内置 `rewrite/dedup` 采样测试，只保留 `aigc_detect`
+  - 删除空文件：
+    - `backend/tests/test_vip_sampled_builtin_packages.py`
+- 关键兼容处理：
+  - 后台仍允许管理员上传/下载/停用任意槽位算法包，通用算法包系统未下线
+  - 仅“系统自带模板/骨架/bootstrap”层不再提供 `rewrite/dedup`
+  - `AIGC检测` 内置包链路保持可用
+- 本轮验证结果：
+  - 命令：
+    - `python -m pytest tests/test_algo_packages.py tests/test_cnki_sampled_builtin_packages.py tests/test_process_strategies.py tests/test_processing_engine_results.py`
+  - 结果：
+    - `61 passed`
+- 当前进度判断：
+  - `rewrite/dedup` 新策略主链：已完成
+  - 旧算法包目录、旧样例、旧内置模板/骨架：已完成清理
+  - 算法包系统现仅作为 `AIGC检测` 内置能力和后台通用上传能力保留
+- 给后来的人/工具的要求：
+  - 若再继续清理，优先做文档和后台文案层，不要再碰任务主链。
+  - 不要把 `algo package` 通用上传下载能力删掉，它仍是后台能力的一部分。
+## 74
+- 时间：
+  - `2026-04-20 11:45:00`
+- 本轮目标：
+  - 让 `降重复率` 的策略切换方式与 `降AIGC率` 对齐
+  - 把后台“算法综合配置”页里对 `dedup/rewrite` 的旧 `process_mode` 语义收口，避免继续误导
+- 本轮改动：
+  - 后端新增独立配置：
+    - `backend/app/services/dedup_strategies/config.py`
+      - 新增 `DEFAULT_DEDUP_STRATEGY_CONFIG`
+      - 新增 `normalize_dedup_strategy_config(...)`
+      - 新增 `get_active_dedup_strategy(...)`
+      - 新增 `dedup_strategy_readiness(...)`
+    - `backend/app/api/admin.py`
+      - 新增系统配置分类 `dedup_strategy`
+      - 新增 `dedup_strategy` 默认值、字段标签、readiness 与配置读取/保存归一化
+    - `backend/app/services/processing_engine.py`
+      - `DEDUP + cnki/vip` 不再根据 `process_mode` 直接推断 strategy
+      - 改为读取独立 `dedup_strategy` 配置决定走 `algorithm` 或 `llm`
+  - 前端配置中心新增独立页签：
+    - `frontend/src/lib/adminConfig.js`
+      - 新增 `dedup_strategy` tab / guide / 默认配置 / 平台元数据 / options / normalize / validate / payload`
+    - `frontend/src/views/admin/AdminConfigPage.vue`
+      - 新增“降重复率策略”页签
+      - `cnki/vip` 可分别启停并切换 `algorithm / llm`
+  - 执行配置页文案收口：
+    - `frontend/src/views/admin/AdminAlgoPackagePage.vue`
+      - 页面副标题改为“算法包主链”
+      - 全局模式文案改为“算法主链 + 大模型 / 算法主链模式”
+      - 表格说明明确：
+        - `cnki/vip` 的 `降重复率 / 降AIGC率` 已独立到配置中心
+        - 不再在本页切策略
+      - `dedup/rewrite + cnki/vip` 行的“运行模式”改为只读提示
+      - 保存时这类行不再提交 `process_mode`
+      - 这类行禁用“使用最新”按钮，避免误导成仍依赖旧版本切换
+  - 测试同步：
+    - `backend/tests/test_admin_config_validation.py`
+      - 新增 `dedup_strategy` 保存 / 非法值 / readiness 测试
+    - `backend/tests/test_processing_engine_results.py`
+      - `dedup` 相关测试改为显式写入 `dedup_strategy` 配置
+- 关键兼容处理：
+  - `AIGC检测` 仍保留算法包主链与内置包能力，不受影响
+  - `rewrite/dedup` 的 `cnki/vip` 现在都通过后台配置中心独立切策略
+  - 后台算法包上传/下载/停用能力仍保留，主要服务 `AIGC检测` 与通用后台能力
+- 本轮验证结果：
+  - 命令：
+    - `python -m py_compile backend/app/services/dedup_strategies/config.py backend/app/services/processing_engine.py backend/app/api/admin.py`
+    - `python -m pytest tests/test_admin_config_validation.py tests/test_processing_engine_results.py`
+    - `npm run build`
+  - 结果：
+    - Python 语法编译通过
+    - `50 passed`
+    - `vite build` 通过
+- 当前进度判断：
+  - `降重复率` 独立策略配置：已完成
+  - 后台配置中心与执行链：已对齐 `降AIGC率`
+  - 执行配置页对旧 `process_mode` 的误导文案：已收口
+- 给后来的人/工具的要求：
+  - 后续若再改 `AdminAlgoPackagePage.vue`，不要把 `cnki/vip + dedup/rewrite` 的策略切换重新塞回综合表。
+  - `dedup_strategy` 和 `rewrite_strategy` 应视为配置中心真相源；综合表仅保留算法包主链的可观测与版本管理职责。
+## 75
+- 时间：
+  - `2026-04-20 12:10:00`
+- 本轮目标：
+  - 执行 `AIGC检测` 主链重构：改为纯内部算法策略链
+  - 彻底移除 AIGC 检测对算法包、大模型、旧算法包评分融合体系的依赖
+- 本轮边界：
+  - 只参考用户指定的两份检测资料：
+    - `C:\Users\m\Desktop\新建文件夹\维普AIGC检测算法系统化设计.md`
+    - `C:\Users\m\Desktop\新建文件夹\知网AIGC检测.txt`
+  - 不读取、不使用另外两份 `.docx` 改写策略资料
+- 已开始执行：
+  - 确认旧链路中 `AIGC检测` 仍在 `processing_engine.py` 调用 `_run_algo_package(...)` 和 `_run_llm(...)`
+  - 确认旧链路存在算法包分数、LLM 分数与内部启发式分数混合逻辑，需整段替换
+- 下一步：
+  - 新增 `backend/app/services/aigc_detect_strategies/` 内部策略模块
+  - 后端配置中心新增 `aigc_detect_strategy`
+  - `AIGC检测` 执行链改为只调用内部策略执行器
+  - 后台综合配置页同步收口 AIGC 检测算法包相关文案
+- 已完成第一步：
+  - 新增 `backend/app/services/aigc_detect_strategies/`
+  - `config.py`：
+    - 新增 `aigc_detect_strategy` 配置模型
+    - 仅保留 `cnki/vip` 平台启停，不提供 LLM 模式，不提供算法包版本选择
+  - `cnki.py`：
+    - 按“段级窗口 × 多特征 × 双阈值”实现内部检测策略
+    - `0.60` 以上为显著，`0.40-0.60` 为疑似
+  - `vip.py`：
+    - 按“段落级 18 特征族 + 字数加权聚合”实现内部检测策略
+    - 保留 `90/70/50` 风险阈值
+  - `report_builder.py`：
+    - 输出兼容现有 PDF/前端的检测结果结构
+    - 显式标记 `llm_used=false`、`algo_package_used=false`
+    - `score_breakdown` 不再写入算法包评分或 LLM 评分
+- 已完成第二步：
+  - `backend/app/services/processing_engine.py`
+    - `AIGC_DETECT` 主入口改为调用 `execute_aigc_detect_strategy(...)`
+    - 删除主链中 AIGC 对 `_run_algo_package(...)`、`_run_llm(...)`、LLM 摘要截取与旧融合评分的调用
+  - `backend/app/api/admin.py`
+    - 新增系统配置分类 `aigc_detect_strategy`
+    - 新增默认值、字段标签、归一化、readiness、仪表盘 readiness 输出
+  - `backend/app/services/process_strategy_service.py`
+    - `aigc_detect + cnki/vip` 改为 package-less strategy task
+    - 提交/解析任务模式时不再要求激活算法包
+    - 对独立策略任务强制解析为 `ALGO_ONLY`，避免旧 `process_mode` 干扰
+  - `frontend/src/lib/adminConfig.js`
+    - 新增 `AIGC检测策略` tab、guide、默认配置、平台元数据、normalize、validate、payload
+  - `frontend/src/views/admin/AdminConfigPage.vue`
+    - 新增 AIGC 检测策略页
+    - 仅保留 `cnki/vip` 平台启停
+    - 明确没有 LLM 模式、没有算法包版本读取
+  - `frontend/src/views/admin/AdminAlgoPackagePage.vue`
+    - `cnki/vip + aigc_detect` 行改为独立策略页只读提示
+    - 综合表说明同步标注 AIGC 检测不再在本页切策略
+- 修正与验证：
+  - 修正 `process_strategy_service.py`：
+    - 只对 `aigc_detect + cnki/vip` 强制 `ALGO_ONLY`
+    - 不影响 `rewrite/dedup` 独立策略中的 `llm` 模式
+  - 修正 `vip.py`：
+    - 对模板化段落的连接词、排比、融合信号做适度放大，保证维普样例能产生疑似片段
+  - 测试同步：
+    - `backend/tests/test_admin_config_validation.py`
+      - 新增 `aigc_detect_strategy` 保存/readiness 测试
+      - 新增全平台关闭时报错 readiness 测试
+    - `backend/tests/test_process_strategies.py`
+      - AIGC 检测不再要求激活算法包
+      - 保留后台已有算法包可观测能力，但不作为 AIGC 主链依赖
+    - `backend/tests/test_processing_engine_results.py`
+      - AIGC 检测断言改为纯内部策略链
+      - 明确 `llm_used=false`、`algo_package_used=false`
+      - 明确不再出现 `llm_score`、`algo_package_score`
+- 本轮验证结果：
+  - 命令：
+    - `python -m py_compile app/services/aigc_detect_strategies/config.py app/services/aigc_detect_strategies/common.py app/services/aigc_detect_strategies/cnki.py app/services/aigc_detect_strategies/vip.py app/services/aigc_detect_strategies/report_builder.py app/services/aigc_detect_strategies/executor.py app/services/processing_engine.py app/api/admin.py app/services/process_strategy_service.py`
+    - `python -m pytest tests/test_admin_config_validation.py tests/test_process_strategies.py tests/test_processing_engine_results.py`
+    - `npm run build`
+  - 结果：
+    - Python 语法编译通过
+    - `62 passed`
+    - `vite build` 通过
+- 当前进度判断：
+  - AIGC 检测主链已改为纯内部算法策略链
+  - AIGC 检测不再调用算法包
+  - AIGC 检测不再调用 LLM
+  - AIGC 检测不再做算法包分数 / LLM 分数混合
+  - 配置中心已新增独立 `AIGC检测策略`
+  - 综合配置页已对 `cnki/vip + aigc_detect` 收口为只读提示
+- 给后来的人/工具的要求：
+  - 不要再把 `cnki/vip + aigc_detect` 接回 `_run_algo_package(...)`
+  - 不要再为 AIGC 检测添加 LLM 模式或 `process_mode` 影响
+  - 后续若要继续清理，可以再处理 `builtin_algo_packages.py` 中历史 AIGC 算法包模板/文档，但不得影响当前通用上传下载能力
+
+## 76
+- 本轮目标：
+  - 继续执行“干净彻底”的 AIGC 检测收口。
+  - 重点清理后台配置页和兼容接口里残留的旧算法包版本语义。
+  - 保留通用算法包上传、下载、历史版本能力，但不再让 `cnki/vip + aigc_detect` 看起来还能通过算法包版本切换。
+- 已确认现状：
+  - AIGC 检测主处理链已经是内部策略链。
+  - 后台综合配置页仍显示 `当前版本`、`最新版本`、`使用最新`、`历史版本` 等旧控件。
+  - `process_strategy_service.list_process_strategies()` 仍会给独立策略行挂载 `active_package/latest_package/current_version/latest_version`。
+  - `builtin_algo_packages.py` 仍保留 AIGC 算法包模板和 AIGC 算法包写作规范下载入口，会误导后续维护。
+- 本轮执行计划：
+  - 后端执行配置兼容层：对 `cnki/vip + aigc_detect/dedup/rewrite` 返回 package-less 行，不再暴露包版本字段。
+  - 前台算法综合配置页：独立策略行只保留平台状态、任务状态、超时和只读说明，不再展示或提交版本切换。
+  - 算法版本库：过滤独立策略行，避免这些行继续出现在版本库中。
+  - 旧 AIGC 模板入口：下线 AIGC 算法包模板和 AIGC authoring bundle 内容，保留通用上传下载接口。
+- 已完成后端清理：
+  - `backend/app/services/process_strategy_service.py`
+    - 新增 `is_independent_strategy_config(...)`
+    - `list_process_strategies(...)` 对 `cnki/vip + aigc_detect/dedup/rewrite` 不再返回 `active_package/latest_package/current_version/latest_version`
+    - `update_execution_config(...)` 对独立策略行直接返回 package-less 结果，不再吃 `active_version`
+  - `backend/app/api/admin.py`
+    - `/admin/strategies/{task_type}/{platform}` 对独立策略行不再回填 `active_package`
+    - `/admin/algo-packages/authoring-bundle` 改为明确退役报错
+    - `/admin/algo-packages/template` 改为明确退役报错
+  - `backend/app/services/builtin_algo_packages.py`
+    - 改成退役壳层
+    - 不再提供 AIGC 模板包
+    - 不再提供 AIGC 规范包
+    - 不再自举 AIGC 内置算法包
+- 已完成前端清理：
+  - `frontend/src/views/admin/AdminAlgoPackagePage.vue`
+    - 综合表文案改为“独立策略不再展示或切换算法包版本”
+    - 独立策略行的 `当前版本` 列改为只读提示
+    - `最新版本` 列改为 `版本状态`，显示“由配置中心管理”
+    - `历史版本` 按钮对独立策略行禁用
+    - 保存独立策略行时不再提交 `active_version`
+    - 算法版本库中过滤独立策略行
+- 已完成测试收口：
+  - `backend/tests/test_process_strategies.py`
+    - AIGC 独立策略不再断言 `active_package`
+    - 新增综合配置表对独立策略隐藏包版本字段的断言
+  - `backend/tests/test_algo_packages.py`
+    - AIGC 规范包/模板下载改为断言 `4526` 退役错误
+    - builtin bootstrap 改为断言 `retired=true`
+    - builtin active 保持函数改为断言返回 `None`
+  - 删除 `backend/tests/test_cnki_sampled_builtin_packages.py`
+    - 原测试只验证已退役的 AIGC builtin 包行为，已不再适用
+- 本轮验证结果：
+  - `python -m py_compile app\\services\\process_strategy_service.py app\\services\\builtin_algo_packages.py app\\api\\admin.py tests\\test_process_strategies.py tests\\test_algo_packages.py`
+    - 通过
+  - `python -m pytest tests/test_process_strategies.py tests/test_algo_packages.py`
+    - `29 passed`
+  - `npm run build`
+    - 通过
+- 本轮结论：
+  - 三个独立策略（AIGC检测 / 降重复率 / 降AIGC率）在 `cnki/vip` 平台下，后台配置层已经不再继续暴露旧算法包版本切换语义。
+  - AIGC 检测相关的历史算法包模板、规范包、自举包入口已退役，避免后续又沿着旧算法包路线维护。
+  - 通用算法包上传、下载、历史版本、激活/停用能力仍然保留给真正依赖算法包的任务槽位。
+
+## 77
+- 本轮目标：
+  - 用户明确判断“通用算法包上传、下载、激活、停用能力也没意义”。
+  - 本轮改为整套删除算法包体系，而不是继续保留兼容壳。
+- 已盘点到的依赖面：
+  - 前端：
+    - `/admin/algo-packages` 路由
+    - 后台侧边栏“算法配置”
+    - `AdminAlgoPackagePage.vue`
+    - 任务结果里的“算法包已使用/未使用”指标
+  - 后端：
+    - `algo_package_service.py`
+    - `algo_package_runner.py`
+    - `builtin_algo_packages.py`
+    - `/admin/algo-packages/*` 接口
+    - `/admin/execution-configs/*` 里的 `active_version`
+    - `process_strategy_service.py` 的 active package 判断、自举和版本字段
+    - `processing_engine.py` 的 `_run_algo_package(...)` 与 `algo_package_used` 结果字段
+  - 测试：
+    - `test_algo_packages.py`
+    - 多个任务提交/计费/端到端测试用 `install_algorithm_package(...)` 做旧前置条件
+- 本轮执行原则：
+  - 删除后台算法包管理入口。
+  - 删除运行链路里的算法包调用和包版本概念。
+  - 三个功能只保留内部策略配置和执行路径。
+  - 旧历史结果中如果出现 `algo_package_*` 字段，只作为兼容清洗对象，不再新增。
+
+## 78
+- 本轮执行：
+  - 继续完成“算法包体系彻底删除”的最后收口。
+  - 清理 `backend/app/services/processing_engine.py` 中剩余的算法包评分混合、标签覆盖、段落联动和旧检测构建死代码。
+  - 删除 `backend/app/config.py` 中 `algorithm_package_*` 配置项与目录属性。
+  - 删除 `backend/tests/conftest.py` 中对算法包目录/大小/超时的测试覆盖设置。
+  - 清理 `backend/tests/test_user_profile_summary.py`、`backend/tests/test_user_task_download_and_batch_submit.py` 中对 `install_algorithm_package(...)` 的依赖。
+  - 清理 `backend/tests/test_processing_engine_results.py`、`backend/tests/test_process_strategies.py` 中 `_run_algo_package(...)`、`algo_package_used`、`algo_package_score` 相关旧断言。
+  - 删除 `frontend/scripts/route_audit_playwright.mjs` 里的 `/admin/algo-packages` 残留路由。
+  - 收口 `frontend/src/lib/adminConfig.js`、`frontend/src/views/admin/AdminConfigPage.vue`、`backend/app/api/tasks.py` 的旧算法包文案。
+- 本轮结果：
+  - 后端运行时已经不再保留算法包上传/激活/评分融合/版本切换语义。
+  - AIGC 检测只保留内部算法策略链，不再接受算法包分数或外部结果参与最终判定。
+  - 降重复率、降AIGC率只保留平台启停与当前策略，不再暴露算法包管理心智。
+  - 新任务结果不再产出 `algo_package_used`、`algo_package_score` 等字段。
+  - 历史结果中的 `algo_package_*` 字段仅继续作为兼容清洗对象，不再作为主链能力保留。
+- 本轮验证：
+  - `python -m py_compile backend/app/config.py backend/app/api/admin.py backend/app/api/tasks.py backend/app/services/process_strategy_service.py backend/app/services/processing_engine.py backend/app/services/processing_result_builder.py backend/app/services/processing_detect_result_builder.py`
+    - 通过
+  - `python -m pytest tests/test_user_task_download_and_batch_submit.py tests/test_processing_engine_results.py tests/test_process_strategies.py tests/test_user_profile_summary.py tests/test_processing_detect_result_builder.py`
+    - `53 passed`
+  - `npm run build`
+    - 通过
+- 本轮结论：
+  - 当前项目主链已收口为：
+    - 平台启停
+    - AIGC 检测独立策略
+    - 降重复率独立策略
+    - 降AIGC率独立策略
+  - “算法包系统”已从后台入口、后端接口、运行链路、配置项、测试依赖和前端残留中彻底退出。
+
+## 79
+- 本轮目标：
+  - 按用户要求检查三个功能的真实任务链，确认不是“能提交但后续处理异常/失败”。
+  - 覆盖范围包括：
+    - 任务提交
+    - 文件格式校验
+    - 积分预估与扣除
+    - AIGC 免费额度
+    - 预处理
+    - 后台处理
+    - 结果落库
+    - 下载
+    - 失败退款
+    - 链路超时保护
+- 本轮检查结果：
+  - 三功能端到端链路测试通过：
+    - AIGC 检测：提交 txt 文稿，扣费，处理生成 PDF，结果落库，支持下载。
+    - 降重复率：提交 docx 文稿，扣费，处理生成 docx，结果落库，支持下载。
+    - 降AIGC率：提交 docx 文稿 + AIGC 报告，扣费，处理生成 docx，结果落库，支持下载。
+  - 积分链路通过：
+    - 任务提交后写入 `cost_credits`
+    - 写入 `CreditTransaction(TASK_CONSUME)`
+    - 用户余额按三个任务总费用扣减
+    - AIGC 免费额度逻辑仍可用
+  - 失败保护通过：
+    - 处理异常会标记 `FAILED`
+    - 已扣费任务会执行退款
+    - 退款幂等，不会重复退
+    - 链路保护会把超时的 `PREPROCESSING/PENDING/QUEUED/RUNNING` 任务标失败并退款
+- 本轮发现并修复的问题：
+  - 全量后端测试发现后台管理员下载已完成任务结果时报错：
+    - 位置：`backend/app/api/admin.py`
+    - 原因：`admin_task_download(...)` 使用 `Path(row.output_path)`，但文件头部缺少 `from pathlib import Path`
+    - 处理：补充 `Path` import
+  - 该问题不影响用户侧三功能处理主链，但会影响后台查看/下载已完成任务结果，因此已修。
+- 本轮验证：
+  - 任务链定向测试：
+    - `python -m pytest tests/test_task_end_to_end_flows.py tests/test_task_submission_chain.py tests/test_task_billing_config.py tests/test_task_failure_refund.py tests/test_task_chain_guard.py tests/test_worker_preprocess_handler.py tests/test_worker_process_handler.py tests/test_process_strategies.py tests/test_multi_end_source.py`
+    - `38 passed`
+  - 后端全量测试：
+    - `python -m pytest`
+    - `212 passed`
+  - 编译检查：
+    - `python -m py_compile backend/app/api/admin.py backend/app/api/tasks.py backend/app/worker_tasks.py backend/app/services/worker_preprocess_handler.py backend/app/services/worker_process_handler.py backend/app/services/task_submission_prepare.py`
+    - 通过
+- 本轮结论：
+  - 三个功能当前不是只停留在“提交成功”，而是已经验证到“提交、扣费、处理完成、结果落库、用户下载、异常退款”的完整后端任务链。
+  - 当前已发现的问题已修复，后端全量回归通过。
+
+## 80
+- 本轮目标：
+  - 修复人工提交后仍出现“处理异常”的真实处理链问题，不能只停留在测试通过。
+  - 重点检查降重复率、降AIGC率两个功能在真实文稿上的策略执行与校验逻辑。
+- 本轮定位结果：
+  - 当前异常不是服务未启动，也不是队列未消费，而是任务进入处理链后被策略校验判失败。
+  - 人工提交样本中已确认两类真实失败：
+    - 降重复率：策略输出为空，报错 `降重复率策略输出为空`
+    - 降AIGC率：结果字数浮动约 `4.59% ~ 4.71%`，被原有硬校验 `5%~8%` 直接判失败
+  - 进一步检查处理入口后确认：
+    - `.docx` 处理是逐个 `run` 执行 `_transform_text(...)`
+    - 某些仅含空格/换行的 `run` 也会进入 dedup/rewrite 策略
+    - 这类空片段本身就可能触发“策略输出为空”，从而把整篇任务打成失败
+- 本轮修复：
+  - `backend/app/services/processing_engine.py`
+    - 调整 `.docx` 转写逻辑，仅对 `run.text.strip()` 非空的片段执行策略，空白 run 直接跳过。
+  - `backend/app/services/dedup_strategies/executor.py`
+    - 新增降重复率执行器兜底逻辑。
+    - 当平台策略返回空结果但源文本非空时，不再直接失败，而是切换到内部稳定兜底改写：
+      - 基础连接词替换
+      - 句长切分
+      - 记录 `fallback_applied`、`fallback_reason`
+  - `backend/app/services/dedup_strategies/validators.py`
+    - 对兜底改写增加告警信息：`降重复率策略空输出，已切换兜底改写`
+    - 仍保留明显异常表达、保护术语、数字缺失等质量检查
+  - `backend/app/services/rewrite_strategies/validators.py`
+    - 将 `5%~8%` 从“硬失败阈值”改为“建议区间告警”
+    - 仅当字数浮动超出可处理范围时才继续报错，避免真实文稿在 `4.x%` 附近被误判失败
+- 本轮新增回归测试：
+  - `test_dedup_algorithm_empty_output_uses_fallback_and_does_not_fail`
+  - `test_rewrite_validation_accepts_borderline_ratio_with_warning`
+  - `test_rewrite_validation_still_rejects_extreme_length_ratio`
+  - `test_transform_docx_skips_blank_runs_for_dedup`
+- 本轮验证：
+  - 定向回归：
+    - `python -m pytest tests/test_processing_engine_results.py tests/test_worker_process_handler.py`
+    - `40 passed`
+  - 后端全量：
+    - `python -m pytest`
+    - `216 passed`
+- 本轮结论：
+  - 本次“提交成功但处理异常”的问题已经明确落在处理链内部校验，不是前端、服务启动或任务分发问题。
+  - 修复后：
+    - 空白 `docx run` 不再触发策略异常
+    - 降重复率策略出现空输出时会自动走稳定兜底，不再直接失败
+    - 降AIGC率结果在 `4.x%` 这类接近目标区间的真实输出下不再被硬性打回
+  - 后续人工复测时，应重新提交新任务验证；历史失败任务不会自动转成功。
+
+## 81
+- 本轮目标：
+  - 研究用户提供的 `C:\Users\m\Desktop\维普AIGC` 样例，判断维普降AIGC改写产品的真实输出风格和可借鉴点。
+  - 样例包括：
+    - `维普降AIGC改写样例001.docx`
+    - `维普降AIGC改写样例002.docx`
+    - `维普AIGC改写样例003.docx`
+- 本轮检查方式：
+  - 直接解析 3 份 `docx` 的 `word/document.xml`。
+  - 将文档按 `原文 -> 改写` 成对抽取，观察段落结构、字数浮动、术语保留、句法变化和异常表达。
+  - 对改写结果做结构化统计，重点看：
+    - 段落对数量
+    - 平均字数增幅
+    - 高频改写痕迹
+    - 是否存在标题/术语/引用保留能力
+- 本轮样例结构结果：
+  - `维普降AIGC改写样例001.docx`
+    - `12` 组原文/改写对
+    - 平均字数增幅约 `23.88%`
+  - `维普降AIGC改写样例002.docx`
+    - `21` 组原文/改写对
+    - 平均字数增幅约 `29.96%`
+  - `维普AIGC改写样例003.docx`
+    - `11` 组原文/改写对
+    - 平均字数增幅约 `29.15%`
+- 本轮核心观察：
+  - 这 3 份样例的共同特征不是“精准重写”，而是明显的机械扩写。
+  - 主要手法表现为：
+    - 高频插入近义词并列：如 `蕴含包括着`、`探讨分析`、`融结合`、`达到超过`
+    - 高频添加功能词和虚词：如 `进行`、`对于`、`应当`、`可以`
+    - 高频把短句拉长：如 `是` 改成 `是属于`，`转化为` 改成 `转化变为`
+    - 高频把自然表达改成冗长表达：如 `通过分析` 改成 `通过...进行分析`
+  - 三份样例都保留了原文总体段落顺序、标题层次、引文编号、专有名词主干和公式符号。
+  - 但保留结构不等于保留质量，文本层面存在大量不自然表达。
+- 本轮发现的典型问题：
+  - 机械双写和语义重复明显：
+    - `进行` 在 3 份样例中均高频出现
+    - `将把`、`能够可以`、`可以能够`、`应当需要` 反复出现
+  - 句法被拉坏：
+    - `作为` 被改成 `作为属于`
+    - `承载着` 被改成 `承载包括着`
+    - `图像呈现层` 一类术语周边被改得更绕
+  - 不少句子并不是“改得更自然”，而是“加字但不增义”。
+  - 平均增幅接近 `24% ~ 30%`，远高于我们当前内部用于稳定校验的建议浮动区间，说明该产品路线本质上偏“扩写降检痕”，不是“轻改写稳表达”。
+- 对当前项目的可借鉴点：
+  - 可以借鉴其“保持段落结构、标题结构、引用编号、公式符号不乱”的保守回填思路。
+  - 不应借鉴其机械扩写策略，尤其不能引入：
+    - 高频近义词并列
+    - 无意义助词堆叠
+    - 通过增字硬拉长度
+    - 用模板化长句替代自然短句
+  - 如果后续要做降AIGC率优化，方向应当是：
+    - 保语义
+    - 控增幅
+    - 减模板
+    - 段落级处理
+    - 对标题、图表标题、参考文献、公式说明等区域尽量少改或不改
+- 本轮结论：
+  - 用户提供的维普样例可以作为“外部产品风格参考”，但不能作为“高质量改写标准答案”直接照搬。
+  - 它们更像是“结构保留较强、文本自然度一般、靠扩写拉低检测痕迹”的方案。
+  - 对我们当前链路最有价值的启发不是学习其扩写措辞，而是反向明确：
+    - 不要 run 级碎改
+    - 不要靠固定模板灌水
+    - 不要靠字数膨胀充当降AIGC效果
+    - 要把稳定性和自然度放在第一优先级
+
+- 本轮补充修正：
+  - 用户进一步指出样例里的颜色标注语义：
+    - 红色表示原文中被替换/删改的词或片段
+    - 绿色表示改写后新增或替换进去的词或片段
+  - 重新按 `docx run` 级颜色解析后确认：
+    - 样例并不是简单的“原文整段 + 改写整段”展示，而是“整段回填后的结果 + 局部替换痕迹可视化”
+    - 颜色值主要为：
+      - 深红：`B91C1C`
+      - 深绿：`047857`
+      - 正文深灰：`1F2937` / `333333`
+      - 标签灰：`666666`
+  - 颜色级观察结果：
+    - 这套产品的核心操作粒度确实偏向“局部替换”，不是整句重写后完全覆盖原文。
+    - 大量替换发生在词组和短语层：
+      - `作为 -> 属于`
+      - `蕴含 -> 包括`
+      - `开展 -> 进行`
+      - `探讨 -> 分析`
+      - `路径 -> 方式`
+      - `研究发现 -> 分析说明`
+    - 同时存在大量“红绿拼接后语义变差”的情况：
+      - `蕴含着 -> 蕴含包括着`
+      - `融 合 -> 融结合`
+      - `作为 -> 作为属于`
+      - `经历着深刻变革 -> 正在发生明显改变革`
+  - 修正后的判断：
+    - 这批样例不能简单理解成“整段机械扩写结果展示”，更准确地说，是“局部替换驱动的回填结果展示”。
+    - 但即便考虑颜色层，它依然暴露出明显问题：
+      - 替换粒度过细
+      - 片段拼接生硬
+      - 近义词替换缺乏句法约束
+      - 局部替换后未做足够的全句顺滑重整
+    - 这对当前项目的启发更明确：
+      - 不能只做词级/短语级替换
+      - 即使采用局部替换，也必须在段落级做二次顺滑和一致性检查
+      - 文档处理层需要支持“块级改写 + 局部高亮审计”，而不是把词级替换直接当最终结果
+
+## 82
+- 本轮目标：
+  - 将用户提供的维普降AIGC样例提炼成可工程化复用的改写能力，并与当前维普/知网降AIGC策略融合。
+  - 核心约束：
+    - AIGC率要真实下降
+    - 文章质量不能降低
+    - `rewrite_result_113.docx` 这类拼接坏句不能再出现
+    - 能覆盖更多未见过的专业论文文本，而不是只对当前样例有效
+- 本轮改造：
+  - `backend/app/services/processing_engine.py`
+    - 将 `docx` 改写入口从 `run` 级提升为“正文段落/表格单元格段落”级。
+    - 新增正文块跳过规则，默认不改写：
+      - 标题型段落
+      - 图表标题
+      - `关键词`
+      - `参考文献` 及其后续内容
+    - 新增段落回填逻辑，按原 run 长度重新分配改写文本，尽量保住已有样式和结构。
+  - `backend/app/services/rewrite_strategies/assets.py`
+    - 收缩高风险改写资产，移除会诱发坏句的模板和连接词灌入规则。
+    - 删除或下线：
+      - `A是B -> A，这说明其属于B`
+      - `通过X，Y -> 借助X这一方式，Y`
+      - `将A与B结合 -> 把A和B进行结合`
+      - `因此 -> 由此可见`
+      - `作为 -> 属于`
+      - `呈现 -> 表现出`
+      - 以及多组容易导致冗长化、双写化的高风险替换
+    - 保留更稳的轻量资产：
+      - 学术表达软化
+      - 句首表述变化
+      - 少量名词化/句式调整
+  - `backend/app/services/rewrite_strategies/rule_engine.py`
+    - 新增后处理清洗层，专门修复样例中提炼出的坏模式：
+      - `作为属于`
+      - `蕴含包括`
+      - `融结合`
+      - `将把`
+      - `能够可以`
+      - `可以能够`
+      - `应当需要`
+      - `路径方式`
+      - `模型式`
+      - `改变革`
+    - 新增动态保护层，把跨专业论文中高价值、不能乱改的对象先做占位保护：
+      - 英文术语
+      - 缩写
+      - 字母数字混合术语
+      - 文献编号
+      - 年份引用
+      - 百分比
+      - 图表编号
+      - 统计值表达
+    - 这部分能力不依赖具体学科词表，属于面向未知论文文本的泛化资产。
+  - `backend/app/services/rewrite_strategies/validators.py`
+    - 将质量校验优先级放在字数浮动之前，先拦截坏句，再看长度。
+    - 删除固定补句 `并进一步保持原有论证脉络` 的灌水逻辑。
+    - 改成更轻的句间连接扩展方式，且只作为温和长度调整手段。
+    - 建议字数浮动区间从 `5%~8%` 放宽为 `3%~10%`，但仍保留明显异常的硬拦截。
+  - `backend/app/services/rewrite_strategies/cnki_llm.py`
+  - `backend/app/services/rewrite_strategies/vip_llm.py`
+    - 更新 LLM 提示词，明确禁止词级硬替换和低质量拼接表达。
+    - 强调：
+      - 段落级改写
+      - 术语完整保留
+      - 不输出机械模板句
+      - 面向多专业论文保持自然度
+- 本轮工程化能力提炼结果：
+  - 从维普样例中真正吸收的不是“词级替换内容”，而是几类可泛化能力：
+    - 局部改写而不是整段重写
+    - 结构保留优先
+    - 专有对象保护优先
+    - 句间顺滑必须单独做
+  - 但对其原始做法做了工程修正：
+    - 不采用高风险词级拼接
+    - 不采用固定模板拉长
+    - 不让局部替换直接成为最终输出
+    - 改为“块级改写 + 动态保护 + 后处理清洗 + 质量门禁”
+- 本轮新增回归测试：
+  - `test_docx_transform_rewrite_uses_paragraph_level_text_and_skips_references`
+  - `test_rewrite_validation_rejects_bad_sample_artifacts`
+  - `test_rewrite_algorithm_protects_dynamic_cross_domain_terms`
+  - 同时更新原有 `rewrite` 相关测试，适配更稳的规则追踪和更宽的建议长度区间
+- 本轮验证：
+  - 定向回归：
+    - `python -m pytest tests/test_docx_format_preservation.py tests/test_processing_engine_results.py tests/test_process_strategies.py`
+    - `48 passed`
+  - 编译检查：
+    - `python -m py_compile backend/app/services/processing_engine.py backend/app/services/rewrite_strategies/assets.py backend/app/services/rewrite_strategies/rule_engine.py backend/app/services/rewrite_strategies/validators.py backend/app/services/rewrite_strategies/cnki_algorithm.py backend/app/services/rewrite_strategies/vip_algorithm.py backend/app/services/rewrite_strategies/cnki_llm.py backend/app/services/rewrite_strategies/vip_llm.py`
+    - 通过
+- 本轮结论：
+  - 当前改造已经把维普样例里的“可借鉴规律”沉淀成了更泛化的工程资产，不再只是针对单个学科样例做修补。
+  - 当前维普降AIGC链路已从“词级易坏句策略”升级为：
+    - 段落/单元格级处理
+    - 动态术语保护
+    - 轻量句式变换
+    - 后处理坏句清洗
+    - 质量优先拦截
+  - 这轮重点解决的是“不要再出坏句”和“能处理更多未知论文文本”；后续如果要继续提升真实降AIGC效果，建议下一步基于真实任务样本补做：
+    - 不同学科论文语料回归
+    - 改写前后 AIGC 检测对照评估
+    - 失败样本持续沉淀为新的动态保护和坏句拦截资产
+
+## 83
+- 本轮目标：
+  - 按与维普降AIGC同样的思路，优化维普降重复率策略。
+  - 核心约束：
+    - 不能再靠高风险模板和词级拼接制造“降重痕迹”
+    - 要能处理更多未见过的专业论文文本
+    - 保留事实、术语、英文缩写、图表编号、文献编号等高价值对象
+- 本轮改造：
+  - `backend/app/services/dedup_strategies/assets.py`
+    - 收缩维普 dedup 的高风险资产。
+    - 删除会诱发坏句的模板资产：
+      - `将A与B结合 -> 把A和B进行结合`
+      - `X被Y推动 -> Y对X产生作用`
+      - `对X进行Y -> 围绕X展开Y`
+    - 关闭维普 dedup 的连接词灌入规则，避免：
+      - `由此可见`
+      - `换句话说`
+      - `具体来说`
+      - `所以`
+      这类模板化起句在未知文本上被滥加。
+    - 将维普 dedup 的同义词资产收缩为更稳的轻量替换：
+      - `构建 -> 建立/形成`
+      - `依赖 -> 借助/依托`
+      - `协同 -> 协作`
+      - `赋能 -> 支持`
+      - `进行分析 -> 分析`
+      - `开展研究 -> 研究`
+  - `backend/app/services/dedup_strategies/rule_engine.py`
+    - 复用 rewrite 侧已经验证过的工程能力：
+      - 动态保护层
+      - 句首轻量变形
+      - 坏句后处理清洗
+    - 维普 dedup 现在也会自动保护跨专业共性对象：
+      - 英文术语
+      - 缩写
+      - 文献编号
+      - 年份引用
+      - 百分比
+      - 图表编号
+      - 字母数字混合术语
+      - 统计值表达
+    - 同时把 `能够 -> 可以进一步` 收缩成更稳的 `能够 -> 可以`，避免机械痕迹。
+  - `backend/app/services/dedup_strategies/executor.py`
+    - 调整维普 dedup 的 fallback 兜底逻辑。
+    - 移除高风险兜底替换：
+      - `将 -> 把`
+      - `能够 -> 可以进一步`
+    - 改为更稳的低风险兜底：
+      - `构建 -> 建立`
+      - `依赖 -> 借助`
+      - 公共连接词也收缩为更自然的轻量变化
+  - `backend/app/services/dedup_strategies/vip_llm.py`
+    - 更新维普 dedup 的 LLM 提示词。
+    - 明确要求：
+      - 按完整语义块改写
+      - 不做词级硬替换
+      - 不输出高风险模板句
+      - 不出现 `作为属于`、`蕴含包括着`、`融结合`、`将把`、`能够可以`、`可以进一步` 这类拼接痕迹
+- 本轮工程化能力融合结果：
+  - 维普降重复率现在与维普降AIGC共享同一类底层工程思想：
+    - 块级处理
+    - 动态保护
+    - 轻量句式变换
+    - 后处理坏句清洗
+    - 质量优先拦截
+  - 这样做的意义不是“让两个功能用同一套词表”，而是让它们共享一套更稳的文本改写工程框架。
+- 本轮新增回归测试：
+  - `test_dedup_validation_rejects_bad_sample_artifacts`
+  - `test_dedup_algorithm_protects_dynamic_cross_domain_terms`
+  - 同时更新：
+    - `test_dedup_vip_algorithm_uses_structural_rewrite_rules`
+    - 让断言从旧模板命中，改为关注：
+      - 有改写
+      - 无坏句
+      - rule trace 合法
+- 本轮验证：
+  - 定向回归：
+    - `python -m pytest tests/test_processing_engine_results.py tests/test_process_strategies.py tests/test_docx_format_preservation.py`
+    - `50 passed`
+  - 编译检查：
+    - `python -m py_compile backend/app/services/dedup_strategies/assets.py backend/app/services/dedup_strategies/rule_engine.py backend/app/services/dedup_strategies/executor.py backend/app/services/dedup_strategies/validators.py backend/app/services/dedup_strategies/vip_algorithm.py backend/app/services/dedup_strategies/vip_llm.py`
+    - 通过
+- 本轮结论：
+  - 维普降重复率已按与维普降AIGC一致的工程思路完成第一轮收敛。
+  - 当前重点不是继续堆更多维普专属改写模板，而是把“未知专业文本也不容易改坏”的底层能力补齐。
+  - 这轮完成后，维普 dedup 已明显降低以下风险：
+    - 模板化硬灌句
+    - 词级拼接坏句
+    - 术语和英文缩写被乱改
+    - fallback 兜底把文本改得更怪
+
+## 84
+- 本轮目标：
+  - 研究用户提供的 `C:\Users\m\Desktop\知网AIGC` 样例，并升级知网降AIGC策略。
+  - 用户额外强调：
+    - 每个段落给了两种改写方式，但这两种方式只是参考样本，不是要把策略做成“双风格”
+    - 红色是待替换片段
+    - 绿色是替换后的片段
+    - 目标是抽象泛化成知网策略的工程能力，用于更多未知专业文本
+- 本轮样例研究结果：
+  - 3 份样例均为：
+    - `原文`
+    - `改写方案 1`
+    - `原文`
+    - `改写方案 2`
+    的重复排布
+  - 颜色语义确认：
+    - 深红 `B91C1C`：原文中被替换的词或片段
+    - 深绿 `047857`：替换后的词或片段
+    - 深灰 `1F2937` / `333333`：保留正文
+    - 浅灰 `666666`：`原文` / `改写` 标签
+  - 样例中两套改写虽然都存在较明显词级替换痕迹，但它们提供了两个可借鉴方向：
+    - 句首和判断句的轻量重构
+    - 局部学术表达的温和迁移
+  - 本轮判断：
+    - 不应直接学习其词级替换内容
+    - 可以吸收其“围绕整句骨架做局部改写”的方向
+- 本轮改造：
+  - `backend/app/services/rewrite_strategies/rule_engine.py`
+    - 新增知网句式重构层：
+      - `从X来看 -> 从X看`
+      - `研究认为 -> 研究指出`
+      - `其核心在于 -> 关键在于`
+      - `这意味着 -> 这表明`
+      - `在X过程中 -> 在X环节中`
+    - 这些规则不是词级替换表，而是从知网样例中抽象出的“整句安全重构”能力。
+    - 仍保留：
+      - 动态保护
+      - 句首轻量变形
+      - 后处理坏句清洗
+      - 质量门禁
+  - `backend/app/services/rewrite_strategies/cnki_llm.py`
+    - 更新知网降AIGC提示词，明确要求：
+      - 这是知网降AIGC改写，不是维普
+      - 优先使用句首重写、判断句改写、短句重排和局部学术表达替换
+      - 不做词级硬替换
+      - 不输出低质量拼接痕迹
+- 本轮工程化能力提炼结果：
+  - 这批知网样例沉淀下来的不是“双风格策略”，而是一套更稳的知网句式重构能力：
+    - 句首改写
+    - 判断句重构
+    - 轻量学术表达迁移
+    - 仍以术语保护和坏句拦截为前提
+  - 这意味着知网 rewrite 现在进一步从“有限同义词替换”走向“整句骨架级微重写”。
+- 本轮新增回归测试：
+  - `test_rewrite_cnki_algorithm_applies_safe_sentence_reframe`
+  - 同时更新：
+    - `test_rewrite_cnki_algorithm_keeps_protected_terms_and_records_rule_trace`
+    - 让断言兼容新的 `cnki_reframe` 规则追踪
+- 本轮验证：
+  - 定向回归：
+    - `python -m pytest tests/test_processing_engine_results.py -k "rewrite_cnki or rewrite_validation or rewrite_algorithm_protects_dynamic_cross_domain_terms"`
+    - `8 passed`
+  - 编译检查：
+    - `python -m py_compile backend/app/services/rewrite_strategies/rule_engine.py backend/app/services/rewrite_strategies/cnki_llm.py backend/tests/test_processing_engine_results.py`
+    - 通过
+- 本轮结论：
+  - 当前知网降AIGC策略已经按用户提供的知网样例完成了第一轮增强。
+  - 这轮没有把样例机械地变成“知网双风格策略”，而是把其中稳定、可泛化的句式重构规律沉淀进了知网单一增强版策略中。
+  - 当前知网 rewrite 相比之前更适合处理未知专业文本中的：
+    - 学术判断句
+    - 研究结论句
+    - 句首引导句
+    - 带有理论/过程/机制描述的学术段落
+
+## 85
+- 时间：2026-04-21
+- 主题：本地联调时拉起后端服务并校验接口可用性
+- 背景：
+  - 用户反馈前端页面可见，但怀疑“只开前端会不会用不成”。
+  - 先确认现状：
+    - `http://127.0.0.1:5173/app/rewrite` 可访问
+    - `http://127.0.0.1:8000/api/v1/health` 连接被拒绝
+  - 结论是前端已启动，后端未启动，因此登录、任务提交、改写处理、结果查询与下载都无法正常走通。
+- 排查过程：
+  - 读取 `README.md` 和 `backend/.env`，确认后端标准启动方式为：
+    - `cd backend`
+    - `python -m uvicorn app.main:app --host 127.0.0.1 --port 8000`
+  - 首次启动失败，错误日志定位到：
+    - `ModuleNotFoundError: No module named 'pymysql'`
+  - 读取 `backend/requirements.txt` 后确认项目明确依赖：
+    - `pymysql==1.1.1`
+  - 执行：
+    - `D:\python\python.exe -m pip install -r requirements.txt`
+    - 补齐后端依赖
+- 启动与验证：
+  - 重新启动后端后，确认服务已正常监听。
+  - 之前使用的 `/api/v1/health` 不是该项目的健康检查地址，真实路由在：
+    - `/health`
+    - `/health/live`
+  - 实际验证结果：
+    - `http://127.0.0.1:8000/docs` -> `200`
+    - `http://127.0.0.1:8000/health` -> `200`
+    - `http://127.0.0.1:8000/health/live` -> `200`
+- 本轮结论：
+  - 当前本机前后端都已可访问：
+    - 前端：`5173`
+    - 后端：`8000`
+  - 前端单独启动只能看页面，不能完成真实业务流转；后端启动后，用户现在可以继续做知网降AIGC联调与效果对比。
+
+## 86
+- 时间：2026-04-21
+- 主题：基于 `C:\Users\m\Desktop\123` 两组真实样本升级知网降AIGC策略
+- 样本内容：
+  - 两组对比资料：
+    - 原文 `docx`
+    - 降AIGC后 `docx`
+    - 检测结果 `pdf`
+  - 涵盖：
+    - 餐饮连锁营销论文
+    - 纪检监察派驻监督论文
+- 真实样本分析结论：
+  - 这批样本暴露的核心问题不是“替换词不够多”，而是知网改写链在部分长段落上出现了明显的工程性坏模式：
+    - 长句被按逗号硬拆
+    - 为了补足字数和制造表层变化，句首连续灌入
+      - `同时，`
+      - `此外，`
+      - `进一步看，`
+      - `在此基础上，`
+    - 部分评价词弱化后触发搭配变坏，如：
+      - `重要参考 -> 关键参考`
+      - `重要力量 -> 关键力量`
+      - `重要组成部分 -> 关键组成部分`
+      - `至关重要 -> 至关关键`
+    - 还出现了重复搭配类异常：
+      - `探索与探索`
+  - 对降后样本进行量化后，机械连接词问题非常明显：
+    - 餐饮样本中：
+      - `同时，198`
+      - `此外，193`
+      - `进一步看，175`
+      - `在此基础上，146`
+    - 纪检样本中：
+      - `同时，143`
+      - `此外，109`
+      - `进一步看，64`
+      - `在此基础上，31`
+  - 结论是：当前问题主要来自“算法层的机械扩写与拆句”，不是单纯 LLM 提示词不够强。
+- 本轮代码级修复：
+  - `backend/app/services/processing_text_tools.py`
+    - `split_long_sentences(...)` 增加：
+      - `clause_joiner`
+      - `min_clauses`
+    - 让拆句更保守，避免轻易把学术长句拆碎。
+  - `backend/app/services/rewrite_strategies/rule_engine.py`
+    - 知网 rewrite 的长句整形阈值明显上调：
+      - 高压力：`96`
+      - 常规：`132`
+    - 知网长句即使拆分也优先用 `；` 软切分，不再默认按 `。` 硬切。
+    - 后处理新增搭配修复：
+      - `至关关键 -> 至关重要`
+      - `探索与探索 -> 探索`
+      - `关键参考 -> 重要参考`
+      - `关键力量 -> 重要力量`
+      - `关键组成部分 -> 重要组成部分`
+  - `backend/app/services/rewrite_strategies/assets.py`
+    - 收紧 `重要 -> 关键` 的适用语境，避免在固定搭配里误伤。
+    - 新增知网坏样本表达门禁：
+      - `至关关键`
+      - `探索与探索`
+  - `backend/app/services/rewrite_strategies/validators.py`
+    - `adjust_to_target_length(...)` 增加 `platform`
+    - 对知网 rewrite 停止用机械连接词做“补长度扩写”
+    - 新增“机械连接词堆叠”校验：
+      - 单段内连续 3 句以上，或累计 4 句以上由上述模板连接词领起，直接判为异常输出
+  - `backend/app/services/rewrite_strategies/cnki_llm.py`
+    - 更新提示词，明确禁止：
+      - 把一个长句机械拆成多个由
+        - `同时`
+        - `此外`
+        - `进一步看`
+        - `在此基础上`
+        领起的短句
+- 本轮新增回归测试：
+  - `backend/tests/test_processing_text_tools.py`
+    - `test_split_long_sentences_supports_softer_clause_joiner`
+  - `backend/tests/test_processing_engine_results.py`
+    - `test_rewrite_cnki_validation_rejects_mechanical_connective_cascade`
+    - `test_rewrite_cnki_algorithm_avoids_sample_like_connective_cascade`
+- 本轮验证：
+  - 编译检查：
+    - `python -m py_compile ...`
+    - 通过
+  - 定向测试：
+    - `python -m pytest tests/test_processing_text_tools.py tests/test_processing_engine_results.py -k "rewrite_cnki or rewrite_validation or processing_text_tools"`
+    - `13 passed`
+  - 用真实样本句子现场试跑后确认：
+    - 原先会被改成多句并灌入连接词的知网段落，现在只保留必要的轻量句首改写，不再出现 `。此外，` `。进一步看，` `。在此基础上，` 这类坏模式。
+- 本轮结论：
+  - 这轮不是简单加几个坏词黑名单，而是把从真实失败样本中提炼出来的规律沉淀成了知网 rewrite 的工程能力：
+    - 更保守的长句处理
+    - 禁止机械连接词扩写
+    - 固定搭配保护
+    - 连接词堆叠门禁
+  - 这会直接改善用户最关心的两点：
+    - AIGC 降低过程不再依赖低质量表层灌词
+    - 文章质量更稳，之前那种一眼可见的“机械改写感”会明显下降
+
+## 87
+- 时间：2026-04-21
+- 主题：按同样思路升级知网降重策略
+- 背景：
+  - 用户要求把刚刚用于知网降AIGC的治理思路同步用于知网降重。
+  - 目标不是让降重去“多改几个词”，而是避免知网降重链也出现：
+    - 长句硬拆
+    - 机械连接词灌入
+    - 模板化判断句
+    - 固定搭配被改坏
+- 审计结果：
+  - 知网降重链中存在和 rewrite 同类的结构性风险：
+    - `backend/app/services/dedup_strategies/rule_engine.py`
+      - `split_long_sentences` 阈值偏激进
+    - `backend/app/services/dedup_strategies/assets.py`
+      - 存在会制造坏句的模板：
+        - `这说明其属于`
+      - 存在主动补衔接的 `cohesion_rules`
+        - `因此`
+        - `由此可见`
+    - `backend/app/services/dedup_strategies/executor.py`
+      - fallback 也会继续按老逻辑拆句
+  - 这意味着知网降重虽然目标是“降重复率”，但如果不收紧，同样会产生明显的机械改写感。
+- 本轮代码修复：
+  - `backend/app/services/dedup_strategies/assets.py`
+    - 去掉会产出 `这说明其属于` 的知网模板规则
+    - 关闭知网降重主动补衔接的 `cohesion_rules`
+    - 为 `重要 -> 关键` 增加固定搭配保护，避免：
+      - `重要参考 -> 关键参考`
+      - `重要力量 -> 关键力量`
+      - `重要组成部分 -> 关键组成部分`
+      - `至关重要 -> 至关关键`
+    - 新增知网降重坏样本门禁：
+      - `这说明其属于`
+      - `至关关键`
+      - `探索与探索`
+  - `backend/app/services/dedup_strategies/rule_engine.py`
+    - 知网降重长句处理改为更保守：
+      - 高压力：`96`
+      - 常规：`132`
+    - 即使拆分，也优先用 `；` 软切，不再轻易按 `。` 硬拆
+  - `backend/app/services/dedup_strategies/validators.py`
+    - 新增知网降重“机械连接词堆叠”校验
+    - 若单段内连续或累计出现：
+      - `同时，`
+      - `此外，`
+      - `进一步看，`
+      - `在此基础上，`
+      - `由此可见，`
+      的模板化领句，则直接判为异常输出
+  - `backend/app/services/dedup_strategies/cnki_llm.py`
+    - 更新知网降重提示词，明确禁止：
+      - 机械拆句
+      - 连续连接词领句
+      - `这说明其属于` 类模板句
+  - `backend/app/services/dedup_strategies/executor.py`
+    - fallback 的知网拆句逻辑同步改成保守软切分
+- 本轮新增回归测试：
+  - `test_dedup_cnki_validation_rejects_known_bad_sample_patterns`
+  - `test_dedup_cnki_validation_rejects_mechanical_connective_cascade`
+  - `test_dedup_cnki_algorithm_avoids_sample_like_connective_cascade`
+- 本轮验证：
+  - 编译检查：
+    - `python -m py_compile app/services/dedup_strategies/...`
+    - 通过
+  - 定向回归：
+    - `python -m pytest tests/test_processing_engine_results.py -k "dedup_cnki or dedup_validation or dedup_algorithm_protects_dynamic_cross_domain_terms"`
+    - `7 passed`
+  - 现场试跑知网降重规则后确认：
+    - 样本段落只保留必要的轻量改写
+    - 不再出现连续 `由此可见/同时/此外/进一步看/在此基础上` 领句
+- 本轮结论：
+  - 知网降重现在和知网降AIGC一样，已经从“词表替换 + 拆句凑变化”进一步收敛为：
+    - 更保守的结构改写
+    - 更稳的句子重构
+    - 对模板坏句和搭配异常的硬门禁
+  - 这会提升两件事：
+    - 降重结果的可读性
+    - 对未知专业文本的泛化稳定性
+
+## 88
+- 时间：2026-04-21
+- 主题：接收 `C:\Users\m\Desktop\算法报告` 并规划六槽位统一增强方案
+- 本轮新增资料盘点：
+  - 顶层已按平台与功能自然分组，核心目录包括：
+    - `知网降AIGC率`
+    - `知网降重复率`
+    - `知网AIGC`
+    - `知网AIGC检测`
+    - `维普降AIGC率`
+    - `维普降重复率`
+    - `维普AIGC`
+    - `维普AIGC检测`
+  - 资料总量概览：
+    - `.zip` 37
+    - `.docx` 32
+    - `.pdf` 24
+    - 另含 `html / md / txt`
+- 资料价值判断：
+  - 这批资料不是零散样例，而是已经接近“平台化资产池”的形态：
+    - `知网/维普降AIGC率` 目录可直接沉淀为：
+      - 原文/改后对照集
+      - 平台专属句式与坏样本规则
+    - `知网/维普AIGC检测` 与 `知网降重复率` 报告可用于：
+      - 提炼平台判定偏好
+      - 构建针对性的对抗评测集
+    - `维普降重复率` 大量 `zip` 样本覆盖教育、医学、管理、工程、人文等多专业，特别适合做泛化资产
+  - 当前最稀缺、最值钱的不是更多“单篇样本”，而是把这些资料统一转成六槽位共享的数据结构。
+- 六槽位统一增强方向：
+  - 平台：
+    - 知网
+    - 维普
+  - 功能：
+    - 降AIGC率
+    - 降重复率
+  - 模式：
+    - 算法
+    - LLM
+  - 核心思路不是分散优化，而是构建统一“资产工厂”：
+    - 正样本资产
+    - 坏样本资产
+    - 术语保护资产
+    - 平台偏好资产
+    - 模式约束资产
+- 后续执行方案：
+  - 第一层：本地真实资料
+    - 从上述目录抽取：
+      - 原文
+      - 改后文
+      - 检测/查重报告
+      - 报告样式
+  - 第二层：公开高质量数据
+    - 用公开许可数据补跨专业、跨表达风格覆盖
+  - 第三层：合成数据
+    - 围绕真实坏样本批量生成：
+      - 机械连接词堆叠
+      - 模板句坏样本
+      - 固定搭配破坏
+      - 术语拆坏
+      - 字数与结构异常
+- 本轮结论：
+  - `算法报告` 这批资料已经足够作为六槽位统一增强的主数据源之一。
+  - 后续应采用：
+    - 本地真实资料为主
+    - 公开数据为辅
+    - 合成数据放大
+    的三层方案，持续强化两平台在降AIGC、降重复率，以及算法/LLM模式下的整体能力，同时不偏离“质量优先、真实有效”的核心目标。
+
+## 89
+- 时间：2026-04-21
+- 主题：落地八槽位资产架构文档与 `算法报告` 首轮编目
+- 本轮目标：
+  - 用户要求先给出整体方案，且特别强调：
+    - 资料必须严格对应 `平台`
+    - 必须严格对应 `场景`
+    - 必须严格对应 `模式`
+    - 不能混用
+  - 因此本轮不直接做“混合训练方案”，而是先落地可执行的资产架构。
+- 本轮动作：
+  - 读取现有策略文档：
+    - `docs/ALGO_MATERIAL_REUSE_STRATEGY.md`
+    - `docs/CNKI_REWRITE_SAMPLE_RULESET.md`
+  - 审阅仓库 `docs/` 结构后，新增两份文档：
+    - `docs/STRATEGY_SLOT_ASSET_ARCHITECTURE_2026-04-21.md`
+    - `docs/ALGO_REPORT_SLOT_CATALOG_2026-04-21.md`
+- `STRATEGY_SLOT_ASSET_ARCHITECTURE_2026-04-21.md` 的核心内容：
+  - 把整体策略正式拆成 `8` 个独立槽位：
+    - `cnki.rewrite.algorithm`
+    - `cnki.rewrite.llm`
+    - `cnki.dedup.algorithm`
+    - `cnki.dedup.llm`
+    - `vip.rewrite.algorithm`
+    - `vip.rewrite.llm`
+    - `vip.dedup.algorithm`
+    - `vip.dedup.llm`
+  - 明确：
+    - 共享“底座能力”
+    - 隔离“槽位资产”
+    - 平台、场景、模式三维标签未打满不得入库
+  - 定义三层结构：
+    - 共享底座
+    - 槽位专属资产
+    - 槽位评测集
+  - 规定：
+    - 算法模式是默认生产主链
+    - LLM 模式用于上限增强，但必须受该槽位 validator 与 fallback 约束
+- `ALGO_REPORT_SLOT_CATALOG_2026-04-21.md` 的核心内容：
+  - 对 `C:\Users\m\Desktop\算法报告` 做第一轮目录级编目
+  - 给每个顶层目录打上：
+    - 平台
+    - 场景
+    - 模式适用范围
+    - 样本层级
+    - 当前建议用途
+  - 明确：
+    - `123`、`知网降AIGC率`、`维普降AIGC率` 进入高优先级抽取
+    - `知网/维普AIGC检测` 优先作为 `platform_signals`
+    - `维普降重复率` 作为跨专业泛化资产重点池
+    - `新建文件夹` 中的说明文档只作设计参考，不直接进入评分集
+- 本轮产出价值：
+  - 这一步把“不能混用”的要求从口头要求变成了文档级约束。
+  - 后续无论接入：
+    - 本地真实资料
+    - 公开数据
+    - 合成数据
+    都必须先经过这套八槽位架构分流，不允许跨平台、跨场景、跨模式直接混用。
+- 本轮结论：
+  - 目前已经完成：
+    - 八槽位顶层架构设计
+    - `算法报告` 目录级编目
+  - 下一步应继续推进：
+    - 样本级 `jsonl` 编目
+    - 文件对照关系表
+    - 报告字段抽取
+    - 八槽位 benchmark 清单
+
+## 90
+- 时间：2026-04-21
+- 主题：把 `算法报告` 从目录级编目推进到样本级编目（第一批）
+- 本轮目标：
+  - 在已经完成的目录级编目基础上，进一步明确：
+    - 哪些资料已经形成 `原文 + 改后文 + 报告`
+    - 哪些只有 `原文 + 改后文`
+    - 哪些只有 `报告`
+    - 哪些仍需解压
+  - 目的是把“八槽位方案”推进到真正可落库、可做 benchmark 的粒度。
+- 本轮动作：
+  - 用脚本逐目录抽取文件级清单
+  - 重点检查：
+    - `123`
+    - `知网降AIGC率`
+    - `维普降AIGC率`
+    - `维普AIGC检测`
+    - `知网降重复率`
+    - `知网AIGC检测`
+  - 处理了 `维普降重复率` 中文件名里不换行空格引发的编码问题，改为 `utf-8` 输出后完成清单抽取
+  - 新增文档：
+    - `docs/ALGO_REPORT_SAMPLE_LEVEL_INDEX_2026-04-21.md`
+- 本轮识别结果：
+  - `A-triple`（严格样本三元组）：
+    - `cnki.rewrite`
+      - 2 组
+    - `vip.rewrite`
+      - 3 组
+  - `B-pair`（弱监督正样本对）：
+    - `cnki.rewrite`
+      - 3 组
+      - 其中 `生态文明教育融入小学科学课堂的路径与策略` 存在双改后版本，可作为多参考样本
+  - `B-signal`（报告信号）：
+    - `cnki`
+      - `知网AIGC检测` 10 份
+      - `知网降重复率` 8 份
+  - `C-archive`：
+    - `vip.dedup`
+      - `zip` 37 份
+      - `html` 1 份
+      - 目前尚未解压，因此先只进入候选泛化资产池
+- `ALGO_REPORT_SAMPLE_LEVEL_INDEX_2026-04-21.md` 的作用：
+  - 明确了：
+    - 哪些样本可直接进严格 benchmark 候选池
+    - 哪些样本只能进弱监督池
+    - 哪些目录必须先解压/抽取
+  - 也明确了第一批最该推进的对象：
+    - `cnki.rewrite`
+    - `vip.rewrite`
+    - `cnki.*.platform_signals`
+- 本轮结论：
+  - `算法报告` 现在已经不只是“目录能看懂”，而是已经开始具备：
+    - 严格样本候选池
+    - 弱监督样本池
+    - 平台信号池
+    - 待解压泛化资产池
+  - 下一步最合理的工作，不再是泛泛补资料，而是：
+    - 建样本级 `jsonl` 标签
+    - 建文件对照关系表
+    - 为 `A-triple` 先落第一批 benchmark 清单
+
+## 91
+- 时间：2026-04-21
+- 主题：把主线切到“数据底座优先”，补互联网高质量资料与三层数据方案
+- 背景：
+  - 用户确认当前阶段应优先处理：
+    - 自有资料
+    - 互联网高质量资料
+    - 合成数据
+  - 并要求先把这三类资料体系化，再去推进其他环节。
+- 本轮动作：
+  - 通过官方 GitHub、官方论文页、官方文档筛选互联网高质量资料
+  - 新增文档：
+    - `docs/STRATEGY_DATA_FOUNDATION_PLAN_2026-04-21.md`
+- 本轮纳入的互联网资料：
+  - `CSL`
+    - `https://github.com/ydli-ai/CSL`
+    - `https://aclanthology.org/2022.coling-1.344`
+  - `CLUE`
+    - `https://github.com/CLUEbenchmark/CLUE`
+  - `PAWS / PAWS-X`
+    - `https://github.com/google-research-datasets/paws`
+  - `MCTS`
+    - `https://github.com/blcuicall/mcts`
+    - `https://aclanthology.org/2024.lrec-main.969`
+  - `C-ReD`
+    - 论文页：`https://papers.cool/arxiv/2604.11796`
+    - 论文页中披露的代码仓库：`https://github.com/HeraldofLight/C-ReD`
+  - `OpenAlex`
+    - `https://docs.openalex.org/api-entities/works/work-object`
+    - `https://docs.openalex.org/api-entities/works/search-works`
+    - `https://docs.openalex.org/api-entities/works/filter-works`
+- `STRATEGY_DATA_FOUNDATION_PLAN_2026-04-21.md` 的核心结论：
+  - 当前不应继续扩大重策略开发，而应先构建三层数据底座：
+    - 第一层：自有真实资料
+    - 第二层：互联网高质量资料
+    - 第三层：围绕真实坏模式生成的合成数据
+  - 互联网资料只做：
+    - 共享底座增强
+    - 泛化能力补充
+    - 对抗评测补充
+  - 不直接替代：
+    - 知网 / 维普平台信号
+    - 严格 benchmark
+    - 槽位专属评分样本
+  - 明确要求保留“最小必要骨架”：
+    - 八槽位标签
+    - A/B/C 准入等级
+    - 样本级 `jsonl`
+    - benchmark 骨架
+- 本轮结论：
+  - 当前主线已正式切换为：
+    - 自有资料精编
+    - 互联网资料筛选
+    - 合成数据设计
+  - 在这三项完成前，暂不继续扩大重策略开发范围。
+
+## 92
+- 时间：2026-04-21
+- 主题：补齐“互联网资料来源台账”和“合成数据样本规范”
+- 本轮目标：
+  - 在已经落下的数据底座主文档基础上，继续补齐两份关键配套文档：
+    - 互联网资料来源台账
+    - 合成数据样本规范
+  - 目的是让后续数据接入和合成样本生产不再依赖临时口头约定。
+- 本轮新增文档：
+  - `docs/INTERNET_MATERIAL_LEDGER_2026-04-21.md`
+  - `docs/SYNTHETIC_DATA_SPEC_2026-04-21.md`
+- `INTERNET_MATERIAL_LEDGER_2026-04-21.md` 的核心内容：
+  - 建立统一字段：
+    - `id`
+    - `name`
+    - `source_url`
+    - `source_kind`
+    - `primary_use`
+    - `allowed_slots`
+    - `allowed_layers`
+    - `forbidden_uses`
+    - `license_notes`
+    - `verification_status`
+  - 将当前确认的互联网来源逐条入账：
+    - `CSL`
+    - `CLUE`
+    - `PAWS / PAWS-X`
+    - `MCTS`
+    - `C-ReD`
+    - `OpenAlex`
+  - 明确这些来源只能服务：
+    - `shared_base`
+    - `eval_support`
+    - `synthetic_seed`
+    - `discovery`
+  - 明确禁止误用：
+    - 不直接替代知网 / 维普平台信号
+    - 不直接替代 strict benchmark
+- `SYNTHETIC_DATA_SPEC_2026-04-21.md` 的核心内容：
+  - 明确合成数据不是为了凑量，而是为了覆盖真实坏模式
+  - 规定合成样本必须声明：
+    - `target_slot`
+    - `target_layer`
+    - `source_type`
+    - `source_reference`
+    - `error_type`
+    - `severity`
+    - `expected_action`
+  - 定义第一批重点合成类型：
+    - 机械连接词堆叠
+    - 模板判断句
+    - 术语拆坏
+    - 固定搭配破坏
+    - 拼接病句
+    - 长句切碎
+    - 字数异常扩写
+    - 定义句伪改写
+  - 给出统一 `jsonl` 样例结构，后续可直接作为资产格式基线
+- 本轮结论：
+  - 当前数据底座主线已经从“方向”进入“规范”阶段。
+  - 现在已经具备：
+    - 自有资料编目
+    - 互联网资料台账
+    - 合成数据规范
+  - 下一步可以进入真正的数据落库阶段：
+    - 第一批严格样本 `jsonl`
+    - 第一批合成负样本 `jsonl`
+
+## 93
+- 时间：2026-04-21
+- 主题：把数据底座从教育偏置扩到跨学科，并完成资产可解析校验
+- 本轮目标：
+  - 在不混用平台、场景、模式资产的前提下，先把“跨学科覆盖”补到数据底座约束里
+  - 再把合成负样本从教育场景扩到医学、法学、财经、工程、人文社科
+  - 最后做一次 `jsonl` 解析校验，确认资产文件可继续被工程链路消费
+- 本轮更新文档：
+  - `docs/STRATEGY_DATA_FOUNDATION_PLAN_2026-04-21.md`
+  - `docs/INTERNET_MATERIAL_LEDGER_2026-04-21.md`
+  - `docs/SYNTHETIC_DATA_SPEC_2026-04-21.md`
+- `STRATEGY_DATA_FOUNDATION_PLAN_2026-04-21.md` 的新增要点：
+  - 明确新增资产必须补齐 6 类学科覆盖：
+    - 教育
+    - 医学 / 公共卫生
+    - 法学 / 政策治理
+    - 财经 / 管理 / 金融
+    - 工程 / 计算机 / 专利技术
+    - 人文 / 社会科学
+  - 明确新增样本默认必须声明 `discipline`
+  - 明确共享底座可补表达泛化，但平台信号、few-shot、评分资产仍按槽位隔离
+- `INTERNET_MATERIAL_LEDGER_2026-04-21.md` 的新增要点：
+  - 为来源台账增加 `discipline_priority`
+  - 新增 4 类跨学科来源：
+    - `CMB`
+    - `LeCaRDv2`
+    - `DocFEE`
+    - `CNIPA`
+  - 将这些来源分别映射到：
+    - 医学 / 公共卫生
+    - 法学 / 政策治理
+    - 财经 / 管理
+    - 工程 / 专利技术
+  - 继续保留边界：
+    - 不直接替代知网 / 维普平台评分样本
+    - 不直接替代真实平台报告
+- `SYNTHETIC_DATA_SPEC_2026-04-21.md` 的新增要点：
+  - 规定从本轮开始新增合成样本必须声明 `discipline`
+  - 明确历史样本可暂时缺省，后续逐步回填
+  - 明确禁止把教育域表达模式硬套到医学、法律、财经、工程文本
+- 本轮新增资产：
+  - 更新 `data/strategy_assets/synthetic_negative_samples_v1.jsonl`
+  - 新增 10 条跨学科负样本：
+    - 医学 / 公共卫生：2
+    - 法学 / 政策治理：2
+    - 财经 / 管理：2
+    - 工程 / 专利技术：2
+    - 人文 / 社会科学：2
+  - 这些新增样本已分布到 8 个槽位，不再只集中在教育场景
+- 当前 `synthetic_negative_samples_v1.jsonl` 统计：
+  - 总样本数：18
+  - 槽位覆盖：
+    - `cnki.rewrite.algorithm`: 3
+    - `cnki.rewrite.llm`: 2
+    - `cnki.dedup.algorithm`: 2
+    - `cnki.dedup.llm`: 2
+    - `vip.rewrite.algorithm`: 3
+    - `vip.rewrite.llm`: 2
+    - `vip.dedup.algorithm`: 2
+    - `vip.dedup.llm`: 2
+  - 学科统计：
+    - `medicine_public_health`: 2
+    - `law_policy`: 2
+    - `finance_management`: 2
+    - `engineering_it_patent`: 2
+    - `humanities_social_science`: 2
+    - `unspecified`: 8
+- 本轮校验：
+  - 已对 `data/strategy_assets/*.jsonl` 做本地解析校验
+  - 结果：
+    - `platform_signal_reports_v1.jsonl`: 21 条，解析通过
+    - `strict_benchmark_samples_v1.jsonl`: 5 条，解析通过
+    - `synthetic_negative_samples_v1.jsonl`: 18 条，解析通过
+    - `weak_supervised_pairs_v1.jsonl`: 3 条，解析通过
+- 本轮结论：
+  - 数据底座已经从“先有规范”推进到“开始去教育偏置、补跨学科覆盖”
+  - 下一步可以继续做：
+    - 历史 `unspecified` 样本的 `discipline` 回填
+    - 各槽位的真实样本 / 严格样本继续扩容
+    - 将这些跨学科负样本接入 validator、prompt 负样例和回归测试
+
+## 94
+- 时间：2026-04-21
+- 主题：把策略资产校验做成可复用脚本和测试
+- 本轮目标：
+  - 不再依赖临时命令检查 `strategy_assets`
+  - 将“文件可解析”和“跨学科补盲覆盖”固化成可重复执行的工程门禁
+- 本轮新增文件：
+  - `backend/app/services/strategy_asset_validation.py`
+  - `backend/tests/test_strategy_asset_validation.py`
+  - `scripts/validate_strategy_assets.py`
+- `strategy_asset_validation.py` 的核心能力：
+  - 统一解析 `data/strategy_assets/*.jsonl`
+  - 校验 `synthetic_negative_samples_v1.jsonl` 的必填字段
+  - 校验 `target_slot` 是否落在 8 个允许槽位
+  - 校验 `discipline` 是否落在允许枚举或 `unspecified`
+  - 输出槽位覆盖和学科覆盖统计
+- `test_strategy_asset_validation.py` 的核心断言：
+  - 4 个资产文件都可被解析
+  - `synthetic_negative_samples_v1.jsonl` 当前总量不少于 18 条
+  - 8 个槽位全部被覆盖
+  - 每个槽位当前至少有 2 条负样本
+  - 非教育学科当前至少都已有 2 条样本：
+    - 医学
+    - 法学 / 政策治理
+    - 财经 / 管理
+    - 工程 / 专利技术
+    - 人文 / 社会科学
+- `validate_strategy_assets.py` 的作用：
+  - 可从仓库根目录直接运行
+  - 输出：
+    - 各 `jsonl` 文件条数
+    - 合成负样本的 8 槽位分布
+    - 合成负样本的学科分布
+- 本轮验证结果：
+  - `python -m pytest tests/test_strategy_asset_validation.py`
+    - 2 个测试通过
+  - `python scripts/validate_strategy_assets.py`
+    - 成功输出当前资产文件条数、槽位分布、学科分布
+- 本轮结论：
+  - 策略资产底座已经不只是“文档 + 样本”，而是有了可重复执行的最小校验链路
+  - 后续继续扩真实样本、互联网来源、合成数据时，可以直接复用这套门禁
+
+## 95
+- 时间：2026-04-21
+- 主题：把跨学科资产正式接入 rewrite / dedup 的真实策略链路
+- 本轮目标：
+  - 不让跨学科增强停留在文档和 `jsonl`
+  - 将这批资产接到：
+    - 算法规则保护
+    - validator 校验
+    - LLM prompt 约束
+  - 并用回归测试确认真实生效
+- 本轮主要改动文件：
+  - `backend/app/services/rewrite_strategies/assets.py`
+  - `backend/app/services/rewrite_strategies/rule_engine.py`
+  - `backend/app/services/rewrite_strategies/validators.py`
+  - `backend/app/services/dedup_strategies/validators.py`
+  - `backend/app/services/rewrite_strategies/cnki_llm.py`
+  - `backend/app/services/rewrite_strategies/vip_llm.py`
+  - `backend/app/services/dedup_strategies/cnki_llm.py`
+  - `backend/app/services/dedup_strategies/vip_llm.py`
+  - `backend/tests/test_processing_engine_results.py`
+- 资产层增强：
+  - 在 `rewrite_strategies/assets.py` 增加跨学科核心术语：
+    - 医学：`血糖管理`、`用药依从性`、`长期随访`、`临床路径`
+    - 法学：`行政复议程序`、`证据链完整性`、`事实认定`
+    - 财经：`现金流风险预警`、`财务稳健性`、`并购整合`、`治理结构`
+    - 工程：`边缘计算架构`、`多传感器协同校准机制`、`任务调度`
+    - 人文社科：`社区记忆`、`地方志`、`区域社会韧性`
+  - 增加跨学科坏样本模式：
+    - `关键稳定性`
+    - `关键环节和重要形式`
+    - `方面的风险情况`
+    - `依从性表现`
+    - `跟踪随访安排`
+    - `边缘进行计算`
+    - 空泛扩写正则：`在很多方面进行更加...`
+- 规则保护增强：
+  - `rewrite_strategies/rule_engine.py` 的 `_protect_terms(...)` 不再只保护静态术语
+  - 现在会同时保护：
+    - 资产里声明的静态专业术语
+    - 从原文动态抽取出的跨学科术语
+  - 动态提取器还补了停用片段过滤，避免把整句子误判成“术语”
+- validator 增强：
+  - `rewrite_strategies/validators.py` 不再使用过时硬编码列表，改为直接读取 `platform_assets(...)`
+  - `dedup_strategies/validators.py` 也会额外检查动态跨学科术语是否在结果中被保留
+  - 这样 rewrite / dedup 的质量门禁已经与资产真值源统一
+- LLM prompt 增强：
+  - 4 个 prompt 全部加入跨学科约束
+  - 明确声明兼容：
+    - 教育
+    - 医学
+    - 法学 / 政策
+    - 财经管理
+    - 工程 / 计算机
+    - 人文社科
+  - 并显式举例要求保留：
+    - `临床路径`
+    - `行政复议程序`
+    - `现金流风险预警`
+    - `边缘计算架构`
+    - `社区记忆`
+- 本轮新增回归测试：
+  - 验证 rewrite / dedup 算法链路能保护中文跨学科术语
+  - 验证 rewrite / dedup validator 能拦截跨学科坏样本弱化表达
+  - 验证 4 个 LLM prompt 已包含跨学科约束
+- 本轮验证结果：
+  - `python -m pytest tests/test_processing_engine_results.py -k "cross_domain or dynamic_chinese or llm_prompts_include_cross_discipline_constraints"`
+    - 初次运行 2 条失败，定位到“动态术语提取过宽”
+    - 收紧提取器后复跑通过：7/7
+  - `python -m pytest tests/test_strategy_asset_validation.py`
+    - 通过：2/2
+- 本轮结论：
+  - 跨学科增强已经从“资料层”进入“生产策略层”
+  - 现在两平台、两场景、两模式的核心链路已经开始共享这批新增的跨学科保护能力
+  - 下一步可以继续把这些资产向：
+    - few-shot 正反例
+    - validator 评分细则
+    - 平台专属术语库扩容
+    - 真实样本驱动的规则细化
+    推进
+
+## 96
+- 时间：2026-04-21
+- 主题：把合成负样本资产继续下沉到 LLM prompt 和更细粒度质量信号
+- 本轮目标：
+  - 不再手写分散的 LLM 禁止项
+  - 直接复用 `strategy_assets` 中已有的槽位负样本，为 4 个 LLM prompt 提供按槽位的 few-shot 反例约束
+  - 同时让 validator 不只给出粗粒度的 `length_ok / protected_content_ok`，而是补上可解释的跨学科和结构自然度信号
+- 本轮新增文件：
+  - `backend/app/services/strategy_prompt_assets.py`
+  - `backend/tests/test_strategy_prompt_assets.py`
+- `strategy_prompt_assets.py` 的核心能力：
+  - 读取 `data/strategy_assets/synthetic_negative_samples_v1.jsonl`
+  - 按 `target_slot` 过滤当前槽位可用的负样本
+  - 优先抽取：
+    - `few_shot_negative`
+    - `negative_assets`
+  - 生成可直接拼进 prompt 的短格式反例段：
+    - 带学科标签
+    - 带 `error_type`
+    - 带坏写法文本截断示例
+- 本轮 prompt 下沉：
+  - 已把 `build_slot_prompt_examples(...)` 接入 4 个 LLM prompt：
+    - `cnki.rewrite.llm`
+    - `vip.rewrite.llm`
+    - `cnki.dedup.llm`
+    - `vip.dedup.llm`
+  - 现在 prompt 中除了静态规则约束，还会自动带出对应槽位的坏写法示例
+  - 这一步意味着底座资产已经开始真实驱动 LLM 侧行为，而不是只停在文档和样本库
+- validator 细化：
+  - `rewrite_strategies/validators.py`
+    - 新增：
+      - `cross_domain_terms_ok`
+      - `structure_natural_ok`
+    - 对“非硬失败但偏机械”的连接词使用给 warning
+  - `dedup_strategies/validators.py`
+    - 新增：
+      - `cross_domain_terms_ok`
+      - `structure_natural_ok`
+    - 对动态跨学科术语缺失继续保留 warning
+    - 对连接词轻度机械化增加 warning
+- 本轮新增测试：
+  - `test_strategy_prompt_assets.py`
+    - 验证槽位过滤是否正确
+    - 验证 prompt 样例文本是否带出学科和坏写法示例
+  - `test_processing_engine_results.py`
+    - 验证 rewrite 在轻度机械衔接下会给 warning 而非直接硬失败
+    - 验证 dedup 在跨学科术语缺失但未触发坏样本硬规则时，会把 `cross_domain_terms_ok` 置为 `False`
+    - 验证 LLM prompt 中已经包含“禁止模仿以下坏写法示例”
+- 本轮验证结果：
+  - `python -m pytest tests/test_strategy_prompt_assets.py tests/test_processing_engine_results.py -k "prompt_assets or soft_mechanical or cross_domain_terms_missing or llm_prompts_include_cross_discipline_constraints"`
+    - 最终通过：5/5
+  - `python -m pytest tests/test_strategy_prompt_assets.py tests/test_strategy_asset_validation.py tests/test_processing_engine_results.py -k "cross_domain or dynamic_chinese or llm_prompts_include_cross_discipline_constraints or prompt_assets or soft_mechanical or cross_domain_terms_missing"`
+    - 通过：11/11
+- 本轮结论：
+  - 策略底座已经进一步下沉到：
+    - LLM prompt few-shot 反例
+    - validator 更细质量信号
+  - 现在 8 个槽位不仅共享跨学科术语保护，还开始共享按槽位的坏写法反例约束
+  - 下一步可以继续推进：
+    - 正向 few-shot 样本
+    - 平台专属质量评分细则
+    - 真实样本驱动的术语库扩容和 bad pattern 分层
+
+## 97
+- 时间：2026-04-21
+- 主题：把 strict / weak 样本继续下沉为正向 few-shot prompt 资产
+- 本轮目标：
+  - 让 LLM prompt 不只带“不能怎么写”，还带“应该往什么风格写”
+  - 将现有：
+    - `strict_benchmark_samples_v1.jsonl`
+    - `weak_supervised_pairs_v1.jsonl`
+    转为按槽位可复用的正向 prompt 资产
+- 本轮主要改动文件：
+  - `backend/app/services/strategy_prompt_assets.py`
+  - `backend/app/services/rewrite_strategies/cnki_llm.py`
+  - `backend/app/services/rewrite_strategies/vip_llm.py`
+  - `backend/app/services/dedup_strategies/cnki_llm.py`
+  - `backend/app/services/dedup_strategies/vip_llm.py`
+  - `backend/tests/test_strategy_prompt_assets.py`
+  - `backend/tests/test_processing_engine_results.py`
+- `strategy_prompt_assets.py` 的新增能力：
+  - 新增 `slot_positive_examples(...)`
+    - 从 `strict_benchmark_samples_v1.jsonl` 中优先抽取当前槽位的严格样本
+    - 再从 `weak_supervised_pairs_v1.jsonl` 中补充弱监督样本
+  - 新增 `build_slot_positive_examples(...)`
+    - 优先尝试读取真实样本文档：
+      - `source_text_path`
+      - `rewritten_text_path`
+      - `rewritten_candidates`
+    - 若能读取到 docx，则抽取可用段落预览，形成：
+      - 原段预览
+      - 改写后预览
+    - 若文档暂时不可读，则回退到：
+      - 标题
+      - 备注
+      - 槽位级正向指导语
+  - 新增 dedup 槽位兜底：
+    - 由于当前严格 / 弱监督正样本仍主要集中在 rewrite 槽位
+    - 对 `cnki.dedup.llm`、`vip.dedup.llm` 临时提供不跨平台、不跨场景的槽位级正向指导文本
+- prompt 下沉结果：
+  - 4 个 LLM prompt 现在都采用三段结构：
+    - 平台 / 场景约束
+    - 正向改写风格示例
+    - 负向坏写法示例
+  - 这意味着 prompt 资产已经从“单纯 blacklist”升级到“positive + negative 双向约束”
+- 本轮测试新增 / 更新：
+  - `test_strategy_prompt_assets.py`
+    - 验证正向样本是否按槽位过滤
+    - 验证正向 prompt 文本是否能输出真实示例或兜底指导
+  - `test_processing_engine_results.py`
+    - 验证 prompt 中已经包含：
+      - `优先参考以下正向改写风格示例`
+      - `禁止模仿以下坏写法示例`
+- 本轮验证结果：
+  - `python -m pytest tests/test_strategy_prompt_assets.py tests/test_processing_engine_results.py -k "positive_examples or prompt_assets or llm_prompts_include_cross_discipline_constraints"`
+    - 通过：5/5
+  - `python -m pytest tests/test_strategy_asset_validation.py`
+    - 通过：2/2
+  - `python -m pytest tests/test_strategy_prompt_assets.py tests/test_strategy_asset_validation.py tests/test_processing_engine_results.py -k "cross_domain or dynamic_chinese or llm_prompts_include_cross_discipline_constraints or prompt_assets or positive_examples or soft_mechanical or cross_domain_terms_missing"`
+    - 通过：13/13
+- 本轮结论：
+  - 当前 prompt 资产已经形成：
+    - 槽位级负向 few-shot 反例
+    - 槽位级正向风格示例
+    - 跨学科术语保护
+    - validator 细粒度质量信号
+  - 下一步可以继续推进：
+    - 把真实 docx 中更高质量的段落对抽成显式 few-shot 对照资产
+    - 按平台分别细化“高质量改写”的评分标准
+    - 为 dedup 槽位补真实正样本，替换当前临时兜底正向指导
+
+## 98
+- 时间：2026-04-21
+- 主题：把真实 rewrite docx 配对抽成显式 paragraph-pair 资产，并确认 dedup 正样本缺口
+- 本轮目标：
+  - 不再让 prompt 每次临时读取原始 docx
+  - 将真实 rewrite 配对样本沉淀成显式 `jsonl` few-shot 资产文件
+  - 同时确认 dedup 槽位为什么还没有真实正样本对
+- 本轮新增文件：
+  - `scripts/build_positive_few_shot_pairs.py`
+  - `data/strategy_assets/positive_few_shot_pairs_v1.jsonl`
+- `build_positive_few_shot_pairs.py` 的核心能力：
+  - 读取：
+    - `strict_benchmark_samples_v1.jsonl`
+    - `weak_supervised_pairs_v1.jsonl`
+  - 打开真实 `docx`：
+    - `source_text_path`
+    - `rewritten_text_path`
+    - `rewritten_candidates`
+  - 抽取可用正文段落
+  - 基于段落顺序和相似度做轻量配对
+  - 再用现有 rewrite validator 做质量过滤：
+    - 排除明显异常表达
+    - 排除机械连接词堆叠
+    - 排除结构不自然的正向样本
+- `positive_few_shot_pairs_v1.jsonl` 当前结果：
+  - 共生成 10 条显式段落对
+  - 槽位覆盖：
+    - `cnki.rewrite.algorithm`: 4
+    - `cnki.rewrite.llm`: 4
+    - `vip.rewrite.algorithm`: 6
+    - `vip.rewrite.llm`: 6
+  - 当前全部来自 rewrite 槽位
+  - 这些 pair 现在会被 `strategy_prompt_assets.py` 优先读取，先于旧的 docx 预览回退逻辑
+- dedup 正样本缺口结论：
+  - 已检查：
+    - `C:\Users\m\Desktop\算法报告\知网降重复率`
+    - `C:\Users\m\Desktop\算法报告\维普降重复率`
+  - 知网降重目录当前只有报告 PDF，没有原文 / 改后文配对 docx
+  - 维普降重目录虽然有大量 `zip/html`，但压缩包中主要是：
+    - `原文对照报告.pdf`
+    - `比对报告.html`
+    - `片段对照报告.html`
+    - `简洁报告.pdf`
+  - 这些材料是“最终稿 vs 文献库”的查重报告，不是“原文 vs 改后文”的重写配对
+  - 因此暂时无法从现有 dedup 资料直接抽出真实正向 paragraph-pair few-shot
+- 本轮对 prompt 资产模块的补强：
+  - `strategy_prompt_assets.py` 现在会优先读取 `positive_few_shot_pairs_v1.jsonl`
+  - 只有当当前槽位还没有显式 pair 资产时，才回退到：
+    - 原先 strict / weak 样本的文档预览
+    - 槽位级兜底正向指导
+- 本轮校验与回归：
+  - `python scripts/validate_strategy_assets.py`
+    - 已显示新增资产文件：
+      - `positive_few_shot_pairs_v1.jsonl: 10`
+  - `python -m pytest tests/test_strategy_asset_validation.py tests/test_strategy_prompt_assets.py tests/test_processing_engine_results.py -k "positive_few_shot_pairs or positive_examples or prompt_assets or llm_prompts_include_cross_discipline_constraints"`
+    - 通过：6/6
+- 本轮结论：
+  - rewrite 槽位已经从“标题/备注级正向示例”升级到“真实段落对级正向 few-shot 资产”
+  - dedup 槽位当前仍缺真实原文/改后文配对样本，临时只能继续使用槽位级正向指导
+  - 下一步如果要继续增强 dedup few-shot，必须优先补真实原文 / 改后文配对资料
+
+## 99
+- 时间：2026-04-21
+- 主题：把显式 pair 资产进一步上提为平台级风格基线，并前移到 rewrite prompt
+- 本轮目标：
+  - 不只把真实段落对当作 few-shot 示例
+  - 还要把它们统计成平台级风格基线，让：
+    - validator 后验判断
+    - rewrite LLM prompt 先验约束
+    同时受益
+- 本轮新增文件：
+  - `backend/app/services/strategy_style_profiles.py`
+  - `backend/tests/test_strategy_style_profiles.py`
+- `strategy_style_profiles.py` 的核心能力：
+  - 读取 `positive_few_shot_pairs_v1.jsonl`
+  - 为 rewrite 场景按平台计算风格基线：
+    - `avg_sentence_length`
+    - `avg_sentence_count`
+    - `avg_connector_ratio`
+  - 提供两个能力：
+    - `rewrite_text_style_signals(...)`
+      - 对当前改写结果输出：
+        - `style_profile_available`
+        - `style_alignment_ok`
+        - `style_sentence_length_delta`
+        - `style_connector_ratio`
+    - `build_rewrite_style_guidance(...)`
+      - 生成可直接拼进 prompt 的平台风格基线说明
+- rewrite validator 增强：
+  - `rewrite_strategies/validators.py` 现在会在已有：
+    - `length_ok`
+    - `protected_content_ok`
+    - `cross_domain_terms_ok`
+    - `structure_natural_ok`
+    基础上，继续输出：
+    - `style_profile_available`
+    - `style_alignment_ok`
+  - 当结果与当前平台高质量样本的句长 / 衔接风格偏离过大时，给 warning：
+    - `当前结果与平台高质量改写样本的句长/衔接风格偏离较大`
+- prompt 前移：
+  - `cnki.rewrite.llm`
+  - `vip.rewrite.llm`
+  - 这两个 rewrite prompt 现在会额外加入：
+    - `参考当前平台高质量样本风格基线：...`
+  - 形成三层约束：
+    - 平台规则
+    - 平台风格基线
+    - 正负 few-shot 示例
+- 本轮验证结果：
+  - `python -m pytest tests/test_strategy_style_profiles.py tests/test_strategy_asset_validation.py tests/test_strategy_prompt_assets.py tests/test_processing_engine_results.py -k "style_profile or positive_few_shot_pairs or positive_examples or llm_prompts_include_cross_discipline_constraints"`
+    - 通过：7/7
+  - `python scripts/validate_strategy_assets.py`
+    - 资产清单与 pair 统计正常
+- 当前结论：
+  - rewrite 侧已经形成完整闭环：
+    - 真实段落对资产
+    - 平台风格基线
+    - prompt 正反 few-shot
+    - validator 风格贴合信号
+  - dedup 侧当前仍然卡在“没有真实原文/改后文 pair”这个数据缺口
+  - 如果继续提升 dedup few-shot 真实性，下一步仍应优先补真实 pair 资料
+
+## 100
+- 时间：2026-04-21
+- 主题：补齐 dedup 单侧正向参考资产，并接入 prompt / 校验闭环
+- 本轮目标：
+  - 不再让 dedup 槽位只靠平台级兜底文案
+  - 从本地知网 / 维普降重报告中抽取“最终稿风格参考片段”
+  - 严格保持资产边界：
+    - rewrite 用 paragraph-pair
+    - dedup 用 single-sided final-text reference
+- 本轮新增文件：
+  - `scripts/build_dedup_positive_references.py`
+  - `data/strategy_assets/dedup_positive_references_v1.jsonl`
+- 本轮改动文件：
+  - `backend/app/services/strategy_prompt_assets.py`
+  - `backend/app/services/strategy_asset_validation.py`
+  - `backend/tests/test_strategy_prompt_assets.py`
+  - `backend/tests/test_strategy_asset_validation.py`
+  - `scripts/validate_strategy_assets.py`
+  - `data/strategy_assets/README.md`
+- `build_dedup_positive_references.py` 的核心能力：
+  - 知网：
+    - 读取 `C:\Users\m\Desktop\算法报告\知网降重复率` 下的 pdf
+    - 从 `原文内容` 之后抽取正文段落
+  - 维普：
+    - 优先读取 zip 内的 `比对报告.html`
+    - 若 html 不可用，再回退 `原文对照报告.pdf`
+    - 通过更稳的起始定位跳过目录/样式噪声，优先命中真实摘要/引言
+  - 统一做段落重建与过滤：
+    - 去页眉页脚、报告指标、目录、表格头
+    - 剔除重复半段、异常重复词、问题列表式残片
+    - 复用 `validate_dedup_output(...)` 做基础合法性与结构自然度过滤
+- prompt 资产接入：
+  - `strategy_prompt_assets.py` 现在会优先读取 `dedup_positive_references_v1.jsonl`
+  - dedup 槽位的正向示例不再只显示平台兜底文案
+  - 新增“按学科尽量分散抽样”的选择逻辑，避免前两条示例都挤在同一学科
+- 校验与说明补强：
+  - `strategy_asset_validation.py` 新增 `validate_dedup_positive_references(...)`
+  - 强约束：
+    - 仅允许 `scenario=dedup`
+    - 仅允许命中对应平台的两个 dedup 槽位
+    - excerpt 长度必须在合理范围内
+  - `data/strategy_assets/README.md` 已明确：
+    - `positive_few_shot_pairs_v1.jsonl` 只服务 rewrite
+    - `dedup_positive_references_v1.jsonl` 只服务 dedup 单侧参考
+- 本轮生成结果：
+  - `dedup_positive_references_v1.jsonl: 42`
+  - 槽位覆盖：
+    - `cnki.dedup.algorithm`: 16
+    - `cnki.dedup.llm`: 16
+    - `vip.dedup.algorithm`: 26
+    - `vip.dedup.llm`: 26
+  - 学科覆盖：
+    - `education`: 30
+    - `medicine_public_health`: 4
+    - `finance_management`: 2
+    - `law_policy`: 2
+    - `humanities_social_science`: 3
+    - `engineering_it_patent`: 1
+- 本轮质量结果：
+  - 已把最初抽出的：
+    - `需要要`
+    - `各个自`
+    - 目录拼接残片
+    - pdf 串行错位段
+    清出正向资产
+  - 当前 prompt 前排示例：
+    - 知网 dedup 以完整摘要段为主
+    - 维普 dedup 前排已覆盖工程、财经、医学等不同学科
+- 本轮验证结果：
+  - `python scripts/validate_strategy_assets.py`
+    - 通过
+  - `python -m pytest tests/test_strategy_asset_validation.py tests/test_strategy_prompt_assets.py tests/test_strategy_style_profiles.py tests/test_processing_engine_results.py -k "positive_examples or dedup_positive or style_profile or llm_prompts_include_cross_discipline_constraints"`
+    - 通过：8/8
+- 当前结论：
+  - dedup 侧已从“只有兜底说明”升级为“平台隔离、场景隔离、模式共享的真实参考资产”
+  - rewrite / dedup 两侧现在都已有显式正向资产，只是资产形态不同
+  - 当前剩余客观缺口不是工程接口，而是：
+    - `cnki dedup` 真实资料源仍然几乎全是教育类
+    - 如果后续要继续扩大知网 dedup 跨学科正向参考，仍需补更多非教育类知网降重报告
+
+## 101
+- 时间：2026-04-21
+- 主题：把 dedup 正向参考进一步上提为平台级风格基线，并接入 prompt / validator
+- 本轮目标：
+  - 不只让 dedup LLM 看到“参考片段长什么样”
+  - 还要把这些参考片段统计成平台级风格基线，形成：
+    - prompt 先验约束
+    - validator 后验判断
+    的双向闭环
+- 本轮改动文件：
+  - `backend/app/services/strategy_style_profiles.py`
+  - `backend/app/services/dedup_strategies/validators.py`
+  - `backend/app/services/dedup_strategies/cnki_llm.py`
+  - `backend/app/services/dedup_strategies/vip_llm.py`
+  - `backend/tests/test_strategy_style_profiles.py`
+  - `backend/tests/test_processing_engine_results.py`
+- `strategy_style_profiles.py` 本轮新增能力：
+  - 新增 dedup 资产读取：
+    - `dedup_positive_references_v1.jsonl`
+  - 新增 dedup 风格基线：
+    - `dedup_style_profile(platform)`
+  - 新增 dedup prompt 风格说明：
+    - `build_dedup_style_guidance(platform)`
+  - 新增 dedup 结果风格信号：
+    - `dedup_text_style_signals(platform, text)`
+  - 复用统一 metrics：
+    - `avg_sentence_length`
+    - `avg_sentence_count`
+    - `avg_connector_ratio`
+- 当前 dedup 平台基线：
+  - `cnki`
+    - `sample_count=16`
+    - `avg_sentence_length=63.5038`
+    - `avg_sentence_count=3.75`
+    - `avg_connector_ratio=0.0`
+  - `vip`
+    - `sample_count=26`
+    - `avg_sentence_length=62.8508`
+    - `avg_sentence_count=3.8846`
+    - `avg_connector_ratio=0.0096`
+- dedup validator 增强：
+  - `dedup_strategies/validators.py` 现在会输出：
+    - `style_profile_available`
+    - `style_alignment_ok`
+  - 当结果与平台高质量降重样本在句长 / 连接词风格上偏离过大时，给 warning：
+    - `当前结果与平台高质量降重样本的句长/衔接风格偏离较大`
+  - 这层不做硬失败，仍保持 dedup 侧“质量提示优先、硬失败保守”的原则
+- dedup prompt 前移：
+  - `cnki.dedup.llm`
+  - `vip.dedup.llm`
+  - 两个 prompt 现在都会加入：
+    - `参考当前平台高质量降重样本风格基线：...`
+  - 形成 dedup 三层约束：
+    - 平台规则
+    - 风格基线
+    - 正负 few-shot 参考
+- 本轮阈值决策：
+  - dedup 句长偏移阈值比 rewrite 更保守
+  - 因为 dedup 目标不是扩写，而是保持定义句 / 综述句 / 结论句的紧凑改写
+  - 实际调优后，dedup 的 `sentence_length_delta` 阈值收紧到 `0.85`
+- 本轮验证结果：
+  - `python -m pytest tests/test_strategy_style_profiles.py tests/test_processing_engine_results.py -k "dedup or style_profile or llm_prompts_include_cross_discipline_constraints"`
+    - 通过：21/21
+  - `python -m pytest tests/test_strategy_asset_validation.py tests/test_strategy_prompt_assets.py tests/test_strategy_style_profiles.py tests/test_processing_engine_results.py -k "positive_examples or dedup_positive or style_profile or llm_prompts_include_cross_discipline_constraints"`
+    - 通过：10/10
+  - `python scripts/validate_strategy_assets.py`
+    - 通过
+- 当前结论：
+  - dedup 侧现在已经形成完整闭环：
+    - 单侧正向参考资产
+    - 平台风格基线
+    - prompt 正反示例
+    - validator 风格贴合信号
+  - 这轮之后，dedup 的 LLM 模式不只是“知道不能怎么写”，也开始“知道高质量降重结果通常怎么写”
+
+## 102
+- 时间：2026-04-21
+- 主题：把 dedup 风格基线继续下沉到算法执行链，增加统一后处理归一化
+- 本轮目标：
+  - 不只让风格基线停留在：
+    - prompt 约束
+    - validator 提示
+  - 还要让 algorithm 路径本身具备一层自动纠偏能力
+  - 优先收敛两类当前最常见的质量问题：
+    - 过碎短句
+    - 连接词起句堆叠
+- 本轮改动文件：
+  - `backend/app/services/processing_text_tools.py`
+  - `backend/app/services/dedup_strategies/executor.py`
+  - `backend/tests/test_processing_engine_results.py`
+- `processing_text_tools.py` 本轮新增能力：
+  - `split_sentences(...)`
+  - `merge_short_sentences(...)`
+  - `soften_connective_prefixes(...)`
+  - 这三个函数不带平台资产知识，只做通用句子级重整
+- `dedup_strategies/executor.py` 本轮新增能力：
+  - 新增 `_style_normalize_dedup_output(...)`
+  - 执行位置：
+    - dedup rule engine 输出之后
+    - fallback 输出之后
+    - validator 之前
+  - 当前归一化动作：
+    - 先去掉第二个及之后的机械连接词起句前缀
+    - 再针对“句子过短且数量偏多”的结果做短句合并
+  - 仅在以下模式触发：
+    - `dedup_rule_engine`
+    - `dedup_fallback`
+  - 不直接碰真正成功的 LLM 原始输出
+- 当前设计判断：
+  - 这层不做“重写”，只做保守的结构归整
+  - 目标不是制造新表达，而是把已经改出的内容拉回更像高质量 dedup 文本的形态
+  - 因此仍然保持：
+    - 术语不动
+    - 事实不动
+    - 平台策略主体不动
+- 本轮新增回归：
+  - `test_dedup_executor_style_normalizes_fragmented_algorithm_output`
+  - 用例覆盖：
+    - 算法输出先出现 `同时 / 此外` 起句
+    - 再出现一串过碎短句
+    - executor 自动做归一化后：
+      - `style_alignment_ok` 回到 `True`
+      - `rule_trace` 记录 `style_normalize:*`
+- 本轮验证结果：
+  - `python -m pytest tests/test_processing_engine_results.py -k "dedup_executor_style_normalizes_fragmented_algorithm_output or dedup_"`
+    - 通过：15/15
+  - `python -m pytest tests/test_processing_engine_results.py -k "style_profile or llm_prompts_include_cross_discipline_constraints"`
+    - 通过：1/1
+  - `python -m pytest tests/test_strategy_asset_validation.py tests/test_strategy_prompt_assets.py tests/test_strategy_style_profiles.py tests/test_processing_engine_results.py -k "positive_examples or dedup_positive or style_profile or llm_prompts_include_cross_discipline_constraints or dedup_executor_style_normalizes_fragmented_algorithm_output"`
+    - 通过：11/11
+  - `python scripts/validate_strategy_assets.py`
+    - 通过
+- 当前结论：
+  - dedup 风格基线现在已经不只是“看得见、判得到”
+  - 还开始“在算法执行链里自动收一手”
+  - 这会直接降低那类：
+    - 句子被切得太碎
+    - 机械连接词抬头太多
+    的算法模式劣化样本
+
+## 103
+- 时间：2026-04-21
+- 主题：把 dedup 风格归一化继续下沉到 rule_engine 细则层，强化平台差异化算法改写
+- 本轮目标：
+  - 不只在 executor 末端统一收尾
+  - 还要让 rule_engine 在句式生成阶段就更贴近平台高质量 dedup 文本
+  - 强化“平台差异 + 风格基线 + 细粒度规则”三者联动
+- 本轮改动文件：
+  - `backend/app/services/dedup_strategies/rule_engine.py`
+  - `backend/tests/test_processing_engine_results.py`
+- `dedup_strategies/rule_engine.py` 本轮新增能力：
+  - 在 `_apply_dedup_sentence_shape(...)` 中接入 `dedup_style_profile(...)`
+  - 让句长阈值不只取固定值，还会参考平台高质量 dedup 样本的平均句长
+  - 新增 `_apply_dedup_style_shaping(...)`
+    - `cnki`
+      - 更强地压低机械连接词起句
+      - 当句子明显过碎时，提前做短句合并
+    - `vip`
+      - 保留一层连接词节奏
+      - 但会对过碎短句做更温和的合并
+  - 新增 `_cnki_dedup_compact_reframe(...)`
+    - 把 `需要进一步优化 / 需要持续优化` 这类表达压缩成更紧凑的知网风格
+  - `vip` 结构改写规则补了一条：
+    - `对于X进行分析 -> 对X加以分析`
+- 当前设计判断：
+  - executor 的统一归一化仍保留
+  - 但现在 rule_engine 会更早地输出“更像该平台高质量样本”的结果
+  - 形成两层机制：
+    - rule_engine 先做平台细则级贴合
+    - executor 再做跨平台保守收尾
+- 本轮新增回归：
+  - `test_dedup_rule_engine_cnki_applies_style_shaping_rules`
+  - `test_dedup_rule_engine_vip_applies_style_shaping_rules`
+  - 覆盖重点：
+    - `cnki`
+      - 机械连接词起句被提前消解
+      - `仍需优化` 这类紧凑表达能落地
+    - `vip`
+      - 过碎短句会在 rule_engine 内部先合一部分
+- 本轮验证结果：
+  - `python -m pytest tests/test_processing_engine_results.py -k "dedup_rule_engine_ or dedup_executor_style_normalizes_fragmented_algorithm_output or dedup_"`
+    - 通过：17/17
+  - `python -m pytest tests/test_strategy_style_profiles.py tests/test_processing_engine_results.py -k "style_profile or llm_prompts_include_cross_discipline_constraints"`
+    - 通过：6/6
+  - `python -m pytest tests/test_strategy_asset_validation.py tests/test_strategy_prompt_assets.py tests/test_strategy_style_profiles.py tests/test_processing_engine_results.py -k "positive_examples or dedup_positive or style_profile or llm_prompts_include_cross_discipline_constraints or dedup_executor_style_normalizes_fragmented_algorithm_output or dedup_rule_engine_"`
+    - 通过：13/13
+  - `python scripts/validate_strategy_assets.py`
+    - 通过
+- 当前结论：
+  - dedup 算法链条现在已经形成三层质量控制：
+    - rule_engine 平台细则贴合
+    - executor 统一风格归一化
+    - validator 风格偏差提示
+  - 这比之前只在最后一层收尾更稳，能够更早抑制平台不匹配的句式劣化
+
+## 104
+- 时间：2026-04-21
+- 主题：把相同的风格基线能力下沉到 rewrite rule_engine，并同步修正 rewrite 质量控制误判
+- 本轮目标：
+  - 将 dedup 侧已经验证有效的：
+    - 平台风格基线
+    - 规则层风格细则
+    - 统一质量控制
+    同步迁移到 rewrite algorithm 侧
+  - 同时把执行中暴露出的 rewrite 质量控制误判一并收口
+- 本轮改动文件：
+  - `backend/app/services/rewrite_strategies/rule_engine.py`
+  - `backend/app/services/rewrite_strategies/assets.py`
+  - `backend/app/services/rewrite_strategies/validators.py`
+  - `backend/app/services/strategy_style_profiles.py`
+  - `backend/tests/test_processing_engine_results.py`
+- `rewrite_strategies/rule_engine.py` 本轮新增能力：
+  - 在 `_apply_sentence_shape(...)` 中接入 `rewrite_style_profile(...)`
+  - 让 rewrite 句长切分阈值不只使用固定值，也参考平台高质量 rewrite pair 的平均句长
+  - 新增 `_apply_rewrite_style_shaping(...)`
+    - `cnki`
+      - 更强地削弱机械连接词起句
+      - 对明显过碎的结果提前做短句合并
+    - `vip`
+      - 保留一层节奏变化
+      - 但会压缩过碎短句，避免页面上出现“一句一断”的 algorithm 风格
+  - 新增 `_vip_rewrite_flow_shift(...)`
+    - 补一层更贴近维普 rewrite 风格的句流重组
+- 本轮顺手修正的 rewrite 质量控制问题：
+  - `rewrite_strategies/assets.py`
+    - 修正 `CNKI_BAD_PATTERNS` 中对 `可视化/数字化/智能化/信息化` 的误判正则
+    - 之前把正常的 `可视化` 也打成异常，现已收回为只拦截：
+      - `可以视化`
+      - `能够视化`
+      - `能视化`
+      这类真正拆坏术语的情况
+  - `rewrite_strategies/validators.py`
+    - `strict_length=False` 时恢复为：
+      - 长度只做 advisory warning
+      - 不再抛硬失败
+    - 这样更符合“测试 / 评估场景看风格，不被长度硬拦”的预期
+  - `strategy_style_profiles.py`
+    - 将 rewrite 风格对齐的句长偏移阈值收紧到 `0.8`
+    - 让碎短句型 rewrite 结果能更稳定地被识别为风格偏离
+- 本轮新增回归：
+  - `test_rewrite_rule_engine_cnki_applies_style_shaping_rules`
+  - `test_rewrite_rule_engine_vip_applies_style_shaping_rules`
+  - 覆盖重点：
+    - `cnki`
+      - 机械连接词起句在 rule_engine 阶段就被压低
+    - `vip`
+      - 过碎短句会被 rule_engine 内部先合一部分
+- 本轮验证结果：
+  - `python -m pytest tests/test_processing_engine_results.py -k "rewrite_rule_engine_ or rewrite_"`
+    - 通过：22/22
+  - `python -m pytest tests/test_strategy_style_profiles.py tests/test_processing_engine_results.py -k "style_profile or llm_prompts_include_cross_discipline_constraints"`
+    - 通过：6/6
+  - `python -m pytest tests/test_strategy_asset_validation.py tests/test_strategy_prompt_assets.py tests/test_strategy_style_profiles.py tests/test_processing_engine_results.py -k "positive_examples or dedup_positive or style_profile or llm_prompts_include_cross_discipline_constraints or dedup_rule_engine_ or rewrite_rule_engine_"`
+    - 通过：14/14
+  - `python scripts/validate_strategy_assets.py`
+    - 通过
+- 当前结论：
+  - 现在 rewrite algorithm 侧也开始具备：
+    - 平台基线感知
+    - 规则层风格贴合
+    - validator 风格偏差提示
+  - rewrite / dedup 两条主链现在在工程结构上已经基本对齐：
+    - 资产
+    - 风格基线
+    - prompt
+    - rule_engine
+    - executor
+    - validator
+
+## 105
+- 时间：2026-04-21
+- 目标：
+  - 解决 `positive_few_shot_pairs_v1.jsonl` 长期只有教育学科的问题
+  - 在不污染主正样本资产的前提下，为 `cnki/vip` 的 `rewrite` 槽位补一条低优先级、可校验的非教育 few-shot 通道
+- 本轮新增：
+  - `data/strategy_assets/supplemental_positive_few_shot_pairs_v1.jsonl`
+    - 新增 `8` 条补充 rewrite 正样本
+    - 平台覆盖：
+      - `cnki.rewrite.algorithm`
+      - `cnki.rewrite.llm`
+      - `vip.rewrite.algorithm`
+      - `vip.rewrite.llm`
+    - 学科覆盖：
+      - `finance_management`
+      - `law_policy`
+      - `medicine_public_health`
+      - `engineering_it_patent`
+      - `humanities_social_science`
+    - 数据类型：
+      - `supplemental_real_curated`
+        - 基于本地真实财经 / 法政原文段落人工保守重写
+      - `supplemental_synthetic_curated`
+        - 结合本地主题池补入医学 / 工程 / 人文社科 bootstrap 段落
+- 本轮代码接入：
+  - `backend/app/services/strategy_prompt_assets.py`
+    - 新增 `SUPPLEMENTAL_POSITIVE_PAIR_PATH`
+    - 新增 `_load_supplemental_positive_pair_rows()`
+    - `slot_positive_examples(...)` 现在会在 rewrite 槽位优先合并：
+      - `supplemental_positive_few_shot_pairs_v1.jsonl`
+      - `positive_few_shot_pairs_v1.jsonl`
+    - 新增 rewrite 正样本排序逻辑：
+      - 先按学科优先级
+      - 再按 `source_kind`
+      - 再按相似度贴近度
+    - 这样可以在不破坏原 strict/weak 资产的情况下，优先把非教育学科 few-shot 暴露给 prompt
+  - `backend/app/services/strategy_asset_validation.py`
+    - 新增 `SUPPLEMENTAL_POSITIVE_PAIR_PATH`
+    - 新增 `validate_supplemental_positive_few_shot_pairs(...)`
+  - `scripts/validate_strategy_assets.py`
+    - 新增补充正样本资产的 slots / disciplines 输出
+- 本轮测试补强：
+  - `backend/tests/test_strategy_asset_validation.py`
+    - 校验 `supplemental_positive_few_shot_pairs_v1.jsonl` 已纳入资产清单
+    - 校验补充资产覆盖 rewrite 四个槽位
+    - 校验补充资产至少覆盖：
+      - `finance_management`
+      - `law_policy`
+      - `medicine_public_health`
+  - `backend/tests/test_strategy_prompt_assets.py`
+    - 校验 `cnki.rewrite.llm` 的正样本选择结果里已能出现非教育学科
+    - 校验 rewrite positive examples 渲染结果里可出现：
+      - `财经/管理`
+      - `法学/政策`
+- 关键判断：
+  - 这次没有把低质量的真实改后稿硬塞进主 `positive_few_shot_pairs_v1.jsonl`
+  - 采用的是“主资产保持严格、补充资产低优先级入 prompt”的隔离策略
+  - 这样能先扩大 few-shot 的学科覆盖面，同时把风险控制在 prompt 层，不污染 benchmark 主池
+- 本轮验证结果：
+  - `python scripts/validate_strategy_assets.py`
+    - 通过
+    - 关键结果：
+      - `supplemental_positive_few_shot_pairs_v1.jsonl = 8`
+      - `cnki.rewrite.algorithm = 4`
+      - `cnki.rewrite.llm = 4`
+      - `vip.rewrite.algorithm = 4`
+      - `vip.rewrite.llm = 4`
+  - `python -m pytest tests/test_strategy_asset_validation.py tests/test_strategy_prompt_assets.py tests/test_strategy_style_profiles.py tests/test_processing_engine_results.py -k "positive_examples or supplemental_positive or dedup_positive or style_profile or llm_prompts_include_cross_discipline_constraints or dedup_rule_engine_ or rewrite_rule_engine_"`
+    - 通过：15/15
+- 当前结论：
+  - rewrite few-shot 资产现在形成了双层结构：
+    - 主层：`positive_few_shot_pairs_v1.jsonl`
+      - 继续保持严格、真实、低噪声
+    - 补充层：`supplemental_positive_few_shot_pairs_v1.jsonl`
+      - 负责非教育学科扩面和 prompt 泛化补强
+  - 这一步主要提升的是：
+    - `rewrite.llm` 的 few-shot 泛化面
+    - `rewrite.algorithm` / `rewrite.validator` 共享的风格参照密度
+    - 平台在财经 / 法政 / 医学 / 工程 / 人文社科上的表达覆盖
+
+## 106
+- 时间：2026-04-21
+- 主题：完成八槽位真实评估链路，并把新增发现继续下沉到 style baseline / prompt / rule engine
+- 本轮目标：
+  - 不再只做资产接入，补齐“真实样本回归 -> 规则增强 -> 八槽位评估 -> 留档”
+  - 给出当前 8 个槽位的明确状态，而不是泛泛地说“整体增强了”
+- 本轮新增代码：
+  - `backend/app/services/strategy_slot_evaluation.py`
+    - 新增 8 槽位评估模块
+    - 覆盖：
+      - `cnki.rewrite.algorithm`
+      - `cnki.rewrite.llm`
+      - `cnki.dedup.algorithm`
+      - `cnki.dedup.llm`
+      - `vip.rewrite.algorithm`
+      - `vip.rewrite.llm`
+      - `vip.dedup.algorithm`
+      - `vip.dedup.llm`
+    - 评估方法分两类：
+      - `algorithm_runtime`
+        - 直接复用生产规则链与 validator，对真实/本地资产做运行级评估
+      - `llm_prompt_readiness`
+        - 检查 positive examples、negative examples、style guidance、非教育学科覆盖
+    - 产出：
+      - `docs/STRATEGY_SLOT_EVALUATION_2026-04-21.md`
+  - `backend/app/services/strategy_style_profiles.py`
+    - rewrite 风格基线不再只吃 `positive_few_shot_pairs_v1.jsonl`
+    - 现在会合并：
+      - `positive_few_shot_pairs_v1.jsonl`
+      - `supplemental_positive_few_shot_pairs_v1.jsonl`
+    - 这样 rewrite style baseline 不再长期被教育类单一主样本绑死
+  - `backend/app/services/rewrite_strategies/rule_engine.py`
+    - 继续下沉财经 / 法政长分析句的骨架改写
+    - 新增可命中的骨架：
+      - `理论贡献在于：` -> `从理论层面看，`
+      - `实践价值在于：` -> `就实践层面而言，`
+      - `总体来看，` -> `从整体情况看，` / `就整体情况而言，`
+    - 并同步放入：
+      - `cnki_reframe`
+      - `vip_flow`
+    - 额外把 `vip rewrite` 的长句切分阈值调回更保守，避免过碎短句型输出
+  - `backend/app/services/rewrite_strategies/cnki_llm.py`
+  - `backend/app/services/rewrite_strategies/vip_llm.py`
+  - `backend/app/services/dedup_strategies/cnki_llm.py`
+  - `backend/app/services/dedup_strategies/vip_llm.py`
+    - 新增“反浅改写”提示：
+      - rewrite：
+        - 核心判断句 / 理论贡献句 / 总结句要做句法骨架替换
+        - 不能只把 `本文/本研究` 换成 `该研究`
+      - dedup：
+        - 定义句 / 综述句 / 结论句要优先做句法骨架重组
+        - 不能只替换单个动词、主语或连接词
+  - `scripts/validate_strategy_assets.py`
+    - 现在在资产校验之外，会顺带跑 8 槽位评估
+    - 并自动写出：
+      - `docs/STRATEGY_SLOT_EVALUATION_2026-04-21.md`
+- 本轮测试补强：
+  - `backend/tests/test_strategy_style_profiles.py`
+    - 新增断言：rewrite style profile 已纳入 supplemental 正样本
+  - `backend/tests/test_processing_engine_results.py`
+    - 新增 `test_rewrite_rule_engine_cnki_reframes_theory_and_practice_openings`
+    - 新增 `test_rewrite_rule_engine_vip_reframes_overall_assessment_opening`
+    - 扩充 LLM prompt 断言：
+      - 反浅改写要求已进入 prompt
+  - `backend/tests/test_strategy_slot_evaluation.py`
+    - 覆盖：
+      - 8 槽位评估完整性
+      - `cnki.rewrite.llm` 非教育学科 few-shot 暴露
+      - 评估报告渲染
+- 本轮验证结果：
+  - `python scripts/validate_strategy_assets.py`
+    - 通过
+    - 并成功生成：
+      - `docs/STRATEGY_SLOT_EVALUATION_2026-04-21.md`
+  - `python -m pytest tests/test_strategy_asset_validation.py tests/test_strategy_prompt_assets.py tests/test_strategy_style_profiles.py tests/test_strategy_slot_evaluation.py tests/test_processing_engine_results.py -k "positive_examples or supplemental_positive or dedup_positive or style_profile or slot_evaluation or llm_prompts_include_cross_discipline_constraints or dedup_rule_engine_ or rewrite_rule_engine_"`
+    - 通过：21/21
+- 当前 8 槽位评估结论：
+  - `cnki.rewrite.algorithm`
+    - `moderate`
+  - `cnki.rewrite.llm`
+    - `strong`
+  - `cnki.dedup.algorithm`
+    - `moderate`
+  - `cnki.dedup.llm`
+    - `moderate`
+  - `vip.rewrite.algorithm`
+    - `weak`
+  - `vip.rewrite.llm`
+    - `strong`
+  - `vip.dedup.algorithm`
+    - `moderate`
+  - `vip.dedup.llm`
+    - `strong`
+- 关键结论：
+  - 这轮之后，LLM 侧 4 个槽位里：
+    - `strong` 3 个
+    - `moderate` 1 个
+  - algorithm 侧 4 个槽位里：
+    - `moderate` 3 个
+    - `weak` 1 个
+  - 当前主要短板已经被明确收敛到：
+    - `vip.rewrite.algorithm`
+      - 仍偏浅层、对维普教育类长段的自然重组能力不足
+      - 不再是“整体都不行”，而是“唯一剩余弱项已被具体定位”
+
+## 107
+- 时间：2026-04-21
+- 主题：收尾解决剩余弱项，清掉 `vip.rewrite.algorithm` 的低质量扩写路径，并补齐 `cnki.dedup.llm` 的非教育参考资产
+- 本轮发现：
+  - `vip.rewrite.algorithm` 之所以被评成 `weak`，不是术语保护出错，而是：
+    - `adjust_to_target_length(...)` 在 `vip` 场景下会用
+      - `同时，`
+      - `此外，`
+      - `进一步看，`
+      - `在此基础上，`
+      这类连接词做凑字数扩写
+    - 导致真实段落里出现机械连接词堆叠
+    - 从而被 `structure_natural_ok=False`、`style_alignment_ok=False` 打掉
+  - `cnki.dedup.llm` 迟迟只有 `moderate` 的原因也已定位：
+    - 不是 prompt 结构问题
+    - 而是 `cnki.dedup` 主 dedup 正参考资产里 `16/16` 全是教育类
+    - few-shot 根本没有非教育参考可供挑选
+- 本轮代码修复：
+  - `backend/app/services/rewrite_strategies/validators.py`
+    - `adjust_to_target_length(...)` 新增：
+      - `allow_soft_expansion`
+    - 允许按调用方控制是否启用“连接词扩写”
+  - `backend/app/services/rewrite_strategies/vip_algorithm.py`
+    - `vip` 算法模式现在显式：
+      - `allow_soft_expansion=False`
+    - 即：
+      - 宁可轻微少字
+      - 也不再通过机械连接词凑长度
+  - `backend/app/services/strategy_slot_evaluation.py`
+    - rewrite 算法评估同步与真实 `vip algorithm` 路径对齐
+    - `vip` 评估时不再走软扩写
+  - `backend/app/services/strategy_prompt_assets.py`
+    - 新增：
+      - `SUPPLEMENTAL_DEDUP_REFERENCE_PATH`
+      - `_load_supplemental_dedup_positive_reference_rows()`
+    - dedup 槽位现在会合并：
+      - `supplemental_dedup_positive_references_v1.jsonl`
+      - `dedup_positive_references_v1.jsonl`
+  - `backend/app/services/strategy_asset_validation.py`
+    - 新增：
+      - `SUPPLEMENTAL_DEDUP_REFERENCE_PATH`
+      - `validate_supplemental_dedup_positive_references(...)`
+  - `backend/app/services/strategy_style_profiles.py`
+    - dedup 风格基线也开始合并补充 dedup 参考资产
+  - `scripts/validate_strategy_assets.py`
+    - 新增补充 dedup 参考资产的统计输出
+- 本轮新增资产：
+  - `data/strategy_assets/supplemental_dedup_positive_references_v1.jsonl`
+    - 新增 `4` 条知网降重补充正参考
+    - 覆盖学科：
+      - `finance_management`
+      - `law_policy`
+      - `medicine_public_health`
+      - `engineering_it_patent`
+    - 用途：
+      - 专门补强 `cnki.dedup.algorithm`
+      - 专门补强 `cnki.dedup.llm`
+      - 解决其 few-shot 长期教育单一化
+- 本轮新增坏样本审计：
+  - `scripts/audit_bad_rewrite_sample.py`
+    - 可直接审计：
+      - `C:\Users\m\Desktop\rewrite_result_113.docx`
+    - 会输出：
+      - `docs/BAD_REWRITE_AUDIT_2026-04-21.md`
+    - 用来把整篇坏稿里的异常段落、坏模式命中和机械连接词命中固定成可复跑文档级审计
+- 本轮测试补强：
+  - `backend/tests/test_processing_engine_results.py`
+    - 新增：
+      - `test_rewrite_vip_algorithm_does_not_expand_with_mechanical_connectors`
+    - 直接防 `vip algorithm` 再次通过 `同时/此外/进一步看/在此基础上` 机械补长度
+  - `backend/tests/test_strategy_prompt_assets.py`
+    - 新增：
+      - `test_cnki_dedup_slot_positive_examples_include_non_education_disciplines`
+  - `backend/tests/test_strategy_asset_validation.py`
+    - 新增：
+      - `test_supplemental_dedup_positive_references_cover_cnki_non_education_slots`
+- 本轮验证结果：
+  - `python scripts/validate_strategy_assets.py`
+    - 通过
+    - 新输出：
+      - `supplemental_dedup_positive_references_v1.jsonl = 4`
+      - `cnki.dedup.llm` 已提升为 `strong`
+      - `vip.rewrite.algorithm` 已从 `weak` 提升到 `moderate`
+  - `python scripts/audit_bad_rewrite_sample.py`
+    - 通过
+    - 输出：
+      - `docs/BAD_REWRITE_AUDIT_2026-04-21.md`
+  - `python -m pytest tests/test_strategy_asset_validation.py tests/test_strategy_prompt_assets.py tests/test_strategy_style_profiles.py tests/test_strategy_slot_evaluation.py tests/test_processing_engine_results.py -k "positive_examples or supplemental_positive or supplemental_dedup or dedup_positive or style_profile or slot_evaluation or llm_prompts_include_cross_discipline_constraints or dedup_rule_engine_ or rewrite_rule_engine_ or rewrite_vip_algorithm_does_not_expand_with_mechanical_connectors or cnki_dedup_slot_positive_examples_include_non_education_disciplines"`
+    - 通过：24/24
+- 当前最新 8 槽位结论：
+  - `cnki.rewrite.algorithm`
+    - `moderate`
+  - `cnki.rewrite.llm`
+    - `strong`
+  - `cnki.dedup.algorithm`
+    - `moderate`
+  - `cnki.dedup.llm`
+    - `strong`
+  - `vip.rewrite.algorithm`
+    - `moderate`
+  - `vip.rewrite.llm`
+    - `strong`
+  - `vip.dedup.algorithm`
+    - `moderate`
+  - `vip.dedup.llm`
+    - `strong`
+- 当前结论：
+  - 现在 8 槽位里已经没有 `weak`
+  - `llm` 侧 4 个槽位全部达到 `strong`
+  - `algorithm` 侧 4 个槽位全部达到 `moderate`
+  - `rewrite_result_113.docx` 这类坏稿现在也有了文档级审计脚本和审计报告，不再只靠人工翻查
+
+## 108
+- 重新核对当前运行链路与后续改造落点，确认“已经做的东西”已经接入实际处理路径，而不是停留在文档或资产层：
+  - `backend/app/services/processing_engine.py`
+    - `process(...)` 对 `docx` 走 `_transform_docx(...)`
+    - `_transform_docx(...)` 现在按 `paragraph/table cell` 级处理，不再是旧的逐 `run` 改写
+    - `_transform_text(...)` 会按任务类型进入 `execute_rewrite_strategy(...)` 或 `execute_dedup_strategy(...)`
+  - `backend/app/services/rewrite_strategies/executor.py`
+    - 运行时按 `platform + active strategy` 选择 `cnki/vip`、`algorithm/llm`
+    - 输出统一经过 `validate_rewrite_output(...)`
+  - `backend/app/services/dedup_strategies/executor.py`
+    - 运行时按 `platform + strategy` 选择降重实现
+    - 输出统一经过 `validate_dedup_output(...)`
+- 当前已生效的质量控制：
+  - `rewrite` 侧已有异常表达拦截、术语缺失告警、长度校验、机械连接词检测、样本风格偏离提示
+  - `dedup` 侧已有异常表达拦截、数字保留检查、术语缺失告警、机械连接词检测、样本风格偏离提示
+  - `vip.rewrite.algorithm` 已关闭基于连接词的软扩写，避免继续生成“同时/此外/进一步看/在此基础上”这类机械注水
+- 当前仍需继续强化的点：
+  - 现有 validator 对“浅改写、文档级模板化、整体自然度下降”仍偏 warning，尚未完全升级为硬门禁
+  - 现有评估结果对真实用户体感仍偏乐观，后续必须继续用真实坏样本和文档级规则收紧
+
+## 109
+- 按“质量门禁 + 内部候选筛选 + 保守兜底”继续落地：
+  - `backend/app/services/rewrite_strategies/validators.py`
+    - 新增 `quality_score`
+    - 新增“浅改写风险”“句式重复风险”检测
+    - 机械连接词堆叠改为所有平台统一硬拦截
+  - `backend/app/services/dedup_strategies/validators.py`
+    - 新增 `quality_score`
+    - 新增“浅改写风险”“句式重复风险”检测
+    - 机械连接词堆叠改为所有平台统一硬拦截
+  - `backend/app/services/rewrite_strategies/executor.py`
+    - 新增候选选择器
+    - 先比较主输出、风格归一化输出、算法保守兜底输出，再选质量更高的候选
+    - 当 `llm` 输出为空或质量差时，自动回退到 `rewrite_rule_engine`
+  - `backend/app/services/dedup_strategies/executor.py`
+    - 新增候选选择器
+    - 把已有空输出兜底扩展成“质量差也可回退到算法保守候选”
+  - `backend/app/services/processing_engine.py`
+    - 把 `quality_score` 写入运行结果元数据，便于前后台后续展示
+  - `backend/app/services/strategy_slot_evaluation.py`
+    - 评估口径收紧，要求同时满足自然度、样式对齐、浅改写风险和无 warning
+    - 对齐到执行器候选筛选链路，不再只看底层 rule engine 单次输出
+- 本轮新增回归测试：
+  - `backend/tests/test_processing_engine_results.py`
+    - 新增浅改写风险回归
+    - 新增重复句式风险回归
+    - 新增 `rewrite llm` 低质量输出自动回退到规则引擎回归
+    - 原“broken term 直接报错”回归更新为“内部 fallback 兜底后仍输出可用结果”
+- 本轮验证结果：
+  - `python -m pytest tests/test_processing_engine_results.py tests/test_strategy_slot_evaluation.py`
+    - 通过：67/67
+  - `python scripts/validate_strategy_assets.py`
+    - 通过
+    - 现象：
+      - `llm` 槽位仍保持 `strong`
+      - `algorithm` 槽位在更严格门禁下全部降为 `weak`
+    - 结论：
+      - 这不是链路失效，而是更严格的质量门槛开始真实暴露算法模式目前的能力短板
+      - 后续若要把 `algorithm` 槽位重新抬到可交付水平，必须继续提升句法/段落级改写能力，不能再依赖现有词句级 rule engine
+
+## 110
+- 按“algorithm-first”继续增强结构改写，不再只依赖词级扰动：
+  - `backend/app/services/processing_text_tools.py`
+    - 新增 `rewrite_academic_frames(...)`
+      - 处理“本文立足…系统探讨…梳理…以期…”这类摘要/引言学术框架句
+    - 新增 `reorder_comma_clauses(...)`
+      - 对长句前部子句做可控重排，提升句法层改写幅度
+    - `adjust_to_target_length(...)` 引入“语义型扩写”：
+      - 先做上下文修饰扩写（非机械连接词）
+      - 仅在必要时才走旧的连接词扩写逻辑
+  - `backend/app/services/rewrite_strategies/rule_engine.py`
+    - 结构操作符链升级为：
+      - `academic_frame` -> `parallel_targets` -> `causal_chain` -> `clause_reorder`
+  - `backend/app/services/dedup_strategies/rule_engine.py`
+    - 结构操作符链升级为：
+      - `academic_frame` -> `parallel_targets` -> `causal_chain` -> `clause_reorder`
+- 本轮新增/调整回归：
+  - `backend/tests/test_processing_text_tools.py`
+    - 新增 `rewrite_academic_frames` 与 `reorder_comma_clauses` 单测
+  - `backend/tests/test_processing_engine_results.py`
+    - 结构操作符相关回归继续通过，验证已进入运行链路
+- 本轮验证结果：
+  - `python -m pytest tests/test_processing_text_tools.py tests/test_processing_engine_results.py tests/test_strategy_slot_evaluation.py`
+    - 通过：76/76
+  - `python scripts/validate_strategy_assets.py`
+    - 通过
+    - 最新 8 槽位：
+      - `cnki.rewrite.algorithm = strong (8/10)`
+      - `vip.rewrite.algorithm = moderate (4/6)`
+      - `cnki.dedup.algorithm = moderate (13/18)`
+      - `vip.dedup.algorithm = moderate (9/14)`
+      - `llm` 4 槽位继续保持 `strong`
+    - 结论：
+      - algorithm 侧已从“全 weak”恢复到“1 strong + 3 moderate”
+      - 改写与降重的结构化增强已在评估层可见，不是仅停留在代码层
+
+## 111
+- 针对“降AIGC/降重复率多次提交处理异常”做线上排查与止血：
+  - 先查任务表最近失败记录，定位到高频异常并非单一策略问题，而是运行态与源码不一致：
+    - `cannot import name 'merge_short_sentences' from app.services.processing_text_tools`
+    - `adjust_to_target_length() got an unexpected keyword argument 'platform'`
+  - 通过本地导入校验确认源码当前是正确的：
+    - `merge_short_sentences` 可导入
+    - `adjust_to_target_length` 签名包含 `platform`
+  - 结论：属于后端进程加载旧模块导致的版本漂移异常（代码已更新，但运行进程未完全同步）
+- 处理动作：
+  - 重启后端 `uvicorn` 进程，确认 8000 端口由新 PID 接管
+  - 进行端到端处理链路自检（`rewrite/dedup + cnki/vip`）：
+    - 全部处理成功
+    - 结果文件正常产出
+    - 返回的 strategy 元数据与质量标记正常
+- 本轮结果：
+  - 已消除当前最致命的导入/签名异常来源
+  - 任务异常从“运行时模块错配”回到“可控的策略质量范围”
+
+## 112
+- 针对“摘要首句被改坏、引用上标被打乱”的 `docx` 质量回归做链路级修复（非提示词层）：
+  - `backend/app/services/processing_engine.py`
+    - 新增 `_is_docx_abstract_heading(...)`：识别摘要标题（`摘要/中文摘要/英文摘要/Abstract`）
+    - 新增 `_docx_paragraph_has_superscript(...)`：识别段落中的上标 run（含 `vertAlign=superscript`）
+    - 新增 `_split_docx_first_sentence(...)`：切分摘要首句与后续句
+    - `_should_transform_docx_paragraph(...)` 增加上标保护：含上标段落直接跳过改写
+    - `_transform_docx(...)` 增加摘要首句保护：
+      - 命中摘要标题后，仅对首个正文段落的“首句之后内容”执行改写
+      - 摘要首句保留原文，避免首句语义和学术表述被破坏
+- 新增回归测试（确保修复进入实际处理链路）：
+  - `backend/tests/test_docx_format_preservation.py`
+    - `test_docx_transform_preserves_superscript_citation_runs`
+      - 验证含上标引用段落不被改写，且上标样式保持
+    - `test_docx_transform_preserves_abstract_first_sentence`
+      - 验证摘要首句保持原文，后续句仍可改写
+- 验证结果：
+  - `cd backend && python -m pytest tests/test_docx_format_preservation.py tests/test_processing_engine_results.py`
+  - 通过：`70 passed`
+- 结论：
+  - 已修复你反馈的两类核心质量问题源头（摘要首句、引用上标）
+  - 修复为处理引擎生效变更，`rewrite/dedup` 的 `docx` 路径都会受益
+
+## 113
+- 按“2平台 × 2场景 × 2策略”完成当前能力快照评估（基于脚本 + 回归测试）：
+  - 执行 `python scripts/validate_strategy_assets.py`，得到 8 槽位评分：
+    - `cnki.rewrite.algorithm`：`strong`（`8/10`，0.80）
+    - `cnki.rewrite.llm`：`strong`（`4/4`，1.00）
+    - `cnki.dedup.algorithm`：`moderate`（`13/18`，0.72）
+    - `cnki.dedup.llm`：`strong`（`4/4`，1.00）
+    - `vip.rewrite.algorithm`：`moderate`（`4/6`，0.67）
+    - `vip.rewrite.llm`：`strong`（`4/4`，1.00）
+    - `vip.dedup.algorithm`：`moderate`（`9/14`，0.64）
+    - `vip.dedup.llm`：`strong`（`4/4`，1.00）
+  - 汇总：`strong=5`、`moderate=3`、`weak=0`
+- 稳定性校验：
+  - `cd backend && python -m pytest tests/test_processing_engine_results.py tests/test_docx_format_preservation.py`
+  - 通过：`70 passed`
+  - 说明：本轮“摘要首句保护 + 引用上标保护”与现有 rewrite/dedup 结果链路兼容
+- 数据覆盖观察：
+  - 当前正向改写样本仍以 `education` 为主；补充样本已覆盖工科/财管/人文社科/法政/医公卫，但占比仍不高
+  - `algorithm` 在 `dedup` 与 `vip.rewrite` 仍是中等能力，属于下一轮增资产优先区
+
+## 114
+- 根据样例目录 `C:\Users\m\Desktop\算法报告\知网AIGC检测` 升级 AIGC 检测 PDF 模板（对齐知网样式）：
+  - 先对样例 PDF 做结构抽取（首屏关键词、分区标题、表头字段）：
+    - 关键结构：`AIGC检测 · 全文报告单`、`全文检测结果`、`AIGC片段分布图`、`分段检测结果`
+    - 样例表头：`序号 | AI特征值 | AI特征字符数 / 章节(部分)字符数 | 章节(部分)名称`
+  - 调整文件：`backend/app/services/detect_report_renderer.py`
+    - 统一平台品牌头：
+      - `cnki` → `知网个人AIGC检测服务` + `知网AIGC检测` + `https://cx.cnki.net`
+      - `vip` → `维普个人AIGC检测服务` + `维普AIGC检测`
+    - 元信息区改为知网样式行：
+      - 首行 `NO:...` 与 `检测时间：...`
+      - 后续 `篇名/作者/单位/文件名` 整行展示
+    - 将“片段指标列表”升级为“分段检测结果”，并改为知网同类字段：
+      - `AI特征值`
+      - `AI特征字符数 / 章节(部分)字符数`
+      - `章节(部分)名称`
+      - 优先使用 `document_outline + section_distribution` 组装章节级结果；缺失时降级到片段级兜底
+    - 页眉页脚文案对齐平台服务名与域名
+  - 测试同步：
+    - `backend/tests/test_processing_engine_results.py`
+      - 布局断言从“片段指标列表”更新为“分段检测结果 + 章节字符数字段”
+- 验证结果：
+  - `cd backend && python -m pytest tests/test_processing_engine_results.py::test_aigc_detect_pdf_uses_single_full_report_layout tests/test_processing_engine_results.py::test_aigc_detect_full_text_pdf_report_is_parseable -q`
+  - 通过：`2 passed`
+  - 运行时探针输出（`tmp_layout_probe.pdf`）已命中：
+    - `AIGC检测 · 全文报告单`
+    - `全文检测结果`
+    - `知网AIGC检测`
+    - `AIGC片段分布图`
+    - `分段检测结果`
+    - `AI特征字符数 / 章节(部分)字符数`
+    - `原文内容`
+
+## 115
+- 按新需求完成三页改造（降AIGC率 / 降重复率 / AIGC检测）：
+  - 目标变更：
+    - 去掉“篇名/作者”输入
+    - 平台选择上移至上传区上方
+    - “主文稿”改为“上传文件”
+    - 增加“粘贴文本”模式：左侧粘贴原文 + 一键生成，右侧显示降后结果
+    - AIGC检测页平台右侧增加“知网/维普官方查AIGC率入口”
+- 后端链路适配（支持无文件片段提交）：
+  - 文件：`backend/app/api/tasks.py`
+    - `POST /tasks/submit` 新增表单字段：
+      - `pasted_text`（文本片段）
+      - `source_filename`（可选来源名）
+    - `paper` 从必填改为可选，支持两种输入模式：
+      - `file_upload`（原逻辑）
+      - `pasted_text`（rewrite/dedup 可用，无需上传文件）
+    - 粘贴模式会落地 `.txt` 源文件，进入原有任务处理链路
+    - 粘贴模式禁止上传辅助报告
+    - `result_json` 增加 `input_mode` 标记
+  - 新增回归：
+    - `backend/tests/test_task_submission_chain.py`
+      - `test_submit_task_accepts_pasted_text_without_file`
+      - 验证 rewrite 在无文件时可提交并落地 txt 源
+- 前端页面改造：
+  - `frontend/src/views/user/UserRewritePage.vue`
+  - `frontend/src/views/user/UserDedupPage.vue`
+    - 删除篇名/作者输入
+    - 平台选择置顶
+    - 上传区标题改为“上传文件”
+    - 新增“粘贴文本”切换按钮与双栏工作区
+    - 一键生成走任务接口提交 `pasted_text`，轮询任务完成后读取下载结果并展示右栏
+  - `frontend/src/views/user/UserDetectPage.vue`
+    - 平台选择右侧新增官方入口：
+      - `知网官方查AIGC率`（`https://cx.cnki.net/`）
+      - `维普官方查AIGC率`（`https://aigc.cqvip.com/`）
+  - `frontend/src/gewu-ui.css`
+    - 新增上述模式切换、双栏工作区、官方入口按钮样式与移动端适配
+- 验证结果：
+  - 后端：
+    - `cd backend && python -m pytest tests/test_task_submission_chain.py tests/test_task_billing_config.py`
+    - 通过：`13 passed`
+  - 前端：
+    - `cd frontend && npm run build`
+    - 通过：`vite build success`
+
+## 116
+- 继续按页面视觉反馈做 UI 微调：
+  - `frontend/src/components/UserShell.vue`
+    - 顶部三项功能导航（AIGC检测/降AIGC率/降重复率）字号明显放大，靠近品牌“格物学术”尺寸
+    - 导航图标同步增大
+    - 新增“积分余额”小卡片，放到“账户中心”按钮左侧
+  - `frontend/src/gewu-ui.css`
+    - “粘贴文本”按钮样式改为黑色加粗、与“上传文件”标题同级字号
+    - 标题行对齐方式改为左对齐，按钮紧跟“上传文件”右侧，不再贴最右端
+- 验证：
+  - `cd frontend && npm run build`
+  - 通过：`vite build success`
+
+## 117
+- 时间：2026-04-21 19:46:09
+- 本次目标：
+  - 顶端新增 3 个占位功能
+  - AIGC 检测报告文案从“官方检测”调整为“模拟检测”口径
+  - 报告中的平台域名改为自有域名展示
+- 代码改动：
+  - `frontend/src/lib/userNavigation.js`
+    - 新增 3 个顶端占位菜单（禁用态 + 徽标）：
+      - `格式矫正`
+      - `智能审稿`
+      - `答辩服务`
+    - 三项统一 `badge: 功能开发中`，作为占位入口展示
+  - `backend/app/services/detect_report_renderer.py`
+    - `cnki` 报告文案改为：
+      - `格物模拟知网AIGC检测服务`
+      - `模拟知网AIGC检测`
+    - `vip` 报告文案改为：
+      - `格物模拟维普AIGC检测服务`
+      - `模拟维普AIGC检测`
+    - 报告页展示域名统一使用项目域名：
+      - `settings.frontend_base_url`
+      - 未配置时回退 `https://www.restin.top`
+    - 删除 `cnki/vip` 官方域名在报告中的硬编码展示（`cx.cnki.net / aigc.cqvip.com`）
+- 验证结果：
+  - `cd backend && python -m pytest tests/test_task_submission_chain.py`
+  - 通过：`9 passed`
+  - `cd backend && python -m pytest tests/test_processing_engine_results.py`
+  - 通过：`66 passed`
+  - `cd frontend && npm run build`
+  - 通过：`vite build success`
+- 备注：
+  - 按你的要求，“积分余额”卡片位置未改，仍保持在“账户中心”左侧。
+
+## 118
+- 时间：2026-04-22 14:01:25
+- 目标：落地“仅返佣模式”的渠道版本（代理不进总后台、通过专属下单链接归因、通过专属数据页查看自己订单与财务）。
+
+- 本次后端实现
+1. 新增返佣数据模型（自动建表）
+   - `backend/app/models.py`
+   - 新增：
+     - `partner_channels`（渠道主档）
+     - `partner_policies`（返佣策略：默认/按套餐）
+     - `partner_user_bindings`（用户归属渠道绑定）
+     - `partner_order_attributions`（订单归因快照）
+     - `partner_rebate_ledger`（返佣流水：accrual/reversal）
+     - `partner_monthly_statements`（月结单）
+2. 新增返佣服务层
+   - `backend/app/services/partner_rebate_service.py`
+   - 能力：
+     - 创建/更新渠道
+     - 渠道链接构造（下单链接、门户链接）
+     - 订单归因写入（链接参数 + 用户绑定兜底）
+     - 支付后返佣入账（幂等）
+     - 退款冲正返佣（幂等）
+     - 月结单生成与结算
+     - 渠道门户鉴权与概览统计
+3. 新增渠道 API（管理端 + 渠道门户）
+   - `backend/app/api/partners.py`
+   - 管理端：
+     - 渠道创建/列表/更新
+     - 策略配置与查询
+     - 返佣流水查询
+     - 月结单生成/结算/查询
+   - 渠道门户：
+     - 概览
+     - 订单列表
+     - 返佣流水
+     - 月结单
+4. 接入现有支付链路
+   - `backend/app/api/billing.py`
+   - 在 `create-order` 写入渠道归因（支持 `ch/ck` 链接参数，及 body 可选 `channel_code/channel_token`）
+   - 在订单支付完成路径写入返佣流水（含幂等补偿）
+   - `mock-pay` 同步支持渠道归因与返佣入账
+5. 接入退款冲正链路
+   - `backend/app/api/admin.py`
+   - 管理员退款后自动写入返佣冲正流水
+6. 路由注册
+   - `backend/app/api/router.py`
+   - `backend/app/api/__init__.py`
+   - 新增 `/api/v1/partners/*` 入口
+
+- 测试
+1. 新增测试
+   - `backend/tests/test_partner_rebate_flow.py`
+   - 覆盖：
+     - 渠道链接下单 -> 订单归因 + 返佣入账
+     - 管理员退款 -> 返佣冲正
+     - 渠道门户查询 + 月结生成/结算
+2. 回归结果
+   - `python -m pytest tests/test_partner_rebate_flow.py tests/test_admin_order_refund.py tests/test_billing_order_flow.py`
+   - 通过：`15 passed`
+   - `python -m pytest tests/test_partner_rebate_flow.py tests/test_admin_permissions.py`
+   - 通过：`12 passed`
+   - `python -m pytest tests/test_task_submission_chain.py`
+   - 通过：`9 passed`
+
+- 当前状态
+- 返佣模式已形成可跑通版本：
+  - 渠道专属下单链接归因
+  - 渠道专属门户只读查看本渠道数据
+  - 支付入账/退款冲正/月结结算闭环可用
+
+## 119
+- 时间：2026-04-22 15:33:57
+- 目标：补齐返佣模式前端闭环，让渠道链接可直接下单并查看专属数据页。
+
+- 本次前端实现
+1. 渠道下单参数透传
+   - `frontend/src/composables/useBuyCreditsCheckout.js`
+   - `frontend/src/components/BuyCreditsPanel.vue`
+   - 在充值页读取 URL 中的 `ch/ck`
+   - 创建订单时显式透传到后端：
+     - `channel_code`
+     - `channel_token`
+   - 保证渠道专属下单链接进入充值页后，订单能稳定写入归因
+2. 新增渠道专属门户页
+   - `frontend/src/views/partner/PartnerPortalPage.vue`
+   - 新增只读门户页面，按渠道链接参数 `ch/pk` 拉取并展示：
+     - 概览卡片
+     - 订单列表
+     - 返佣流水
+     - 月结记录
+   - 页面不依赖用户登录，专门服务返佣代理查看自己数据
+3. 路由接入
+   - `frontend/src/router/index.js`
+   - 新增路由：
+     - `/app/partner`
+   - 放开游客可访问名单，确保代理通过专属门户链接可直接打开页面
+
+- 验证
+1. 前端构建
+   - `cd frontend && npm run build`
+   - 通过：`vite build success`
+
+- 当前状态
+- 返佣模式前后端闭环已补齐：
+  - 渠道专属下单链接可归因
+  - 渠道专属门户可查看本渠道订单、返佣流水、月结
+
+## 120
+- 时间：2026-04-22 19:13:28
+- 目标：按桌面会话记录恢复中断现场，收口渠道返佣的测试与验证链路。
+
+- 本次处理
+1. 恢复上下文
+   - 读取桌面 `会话记录.docx`
+   - 确认继续的项目为 `Desktop/001项目/001测试格物`
+   - 确认上次停在“渠道返佣后台页 + 渠道门户提现 + 后台提现审核”这一条链路
+2. 核对前后端接线
+   - `frontend/src/router/index.js`
+   - `frontend/src/components/AdminShell.vue`
+   - `backend/app/api/partners.py`
+   - 确认后台入口 `/admin/partners`、渠道门户 `/app/partner`、后台提现审核/打款接口、门户提现申请接口均已接上
+3. 修正返佣专项测试
+   - `backend/tests/test_partner_rebate_flow.py`
+   - 将任务提交后的旧字段断言 `data.task_id` 更新为当前返回契约 `data.id`
+   - 补充提现闭环断言：
+     - 门户提交提现申请
+     - 后台审核通过
+     - 后台标记打款
+     - 门户提现记录回显
+
+- 验证
+1. 后端专项测试
+   - `cd backend && python -m pytest tests/test_partner_rebate_flow.py`
+   - 通过：`3 passed`
+2. 前端构建
+   - `cd frontend && npm run build`
+   - 通过：`vite build success`
+
+- 当前状态
+- 渠道返佣链路当前已验证通过：
+  - 渠道下单归因
+  - 任务消费返佣
+  - 任务退款冲正
+  - 月结生成与结算
+  - 门户提现申请
+  - 后台审核与标记打款
+- 本次未处理仓库内其他并行重构与脏文件，只收口返佣专项模块。

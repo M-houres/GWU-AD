@@ -4,7 +4,6 @@ import re
 import statistics
 from dataclasses import dataclass
 from datetime import datetime
-from difflib import SequenceMatcher
 from pathlib import Path
 
 from docx import Document
@@ -12,8 +11,24 @@ from sqlalchemy.orm import Session
 
 from app.config import get_settings
 from app.models import LLMErrorLog, SwitchLog, SystemSwitch, TaskType
-from app.services.algo_package_service import run_active_package
+from app.models import Task
+from app.services.aigc_detect_strategies.executor import execute_aigc_detect_strategy
+from app.services.dedup_strategies.executor import (
+    STRATEGY_ALGORITHM as DEDUP_STRATEGY_ALGORITHM,
+    STRATEGY_LLM as DEDUP_STRATEGY_LLM,
+    execute_dedup_strategy,
+)
+from app.services.dedup_strategies.config import get_active_dedup_strategy
 from app.services.llm_service import generate_with_llm, load_llm_config
+from app.services.processing_detect_result_builder import (
+    build_detect_result_payload,
+    build_detect_summary,
+    enrich_detect_breakdown,
+)
+from app.services.processing_result_builder import build_transform_result
+from app.services.processing_report_summary import extract_percent, extract_report_summary
+from app.services.processing_text_tools import split_long_sentences
+from app.services.rewrite_strategies.executor import execute_rewrite_strategy
 from app.utils import count_billable_chars, extract_text_from_file
 
 MODE_LLM_PLUS_ALGO = "LLM_PLUS_ALGO"
@@ -33,8 +48,10 @@ class ProcessingEngine:
         self._current_switch: SystemSwitch | None = None
         self._current_task_id: int | None = None
         self._current_detect_source_text = ""
-        self._pipeline_usage = {"llm_used": False, "algo_package_used": False}
+        self._pipeline_usage = {"llm_used": False}
         self._effective_mode = MODE_ALGO_ONLY
+        self._rewrite_strategy_meta: dict | None = None
+        self._dedup_strategy_meta: dict | None = None
 
     def _get_or_init_switch(self) -> SystemSwitch:
         switch = self.db.query(SystemSwitch).first()
@@ -93,7 +110,9 @@ class ProcessingEngine:
         self._current_switch = switch
         self._current_task_id = task_id
         self._current_detect_source_text = ""
-        self._pipeline_usage = {"llm_used": False, "algo_package_used": False}
+        self._pipeline_usage = {"llm_used": False}
+        self._rewrite_strategy_meta = None
+        self._dedup_strategy_meta = None
 
         llm_cfg = load_llm_config(self.db)
         switch.llm_enabled = bool(llm_cfg.get("enabled", False))
@@ -111,18 +130,16 @@ class ProcessingEngine:
 
         if task_type == TaskType.AIGC_DETECT:
             self._current_detect_source_text = source_text
-            algo_result = self._run_algo_package(normalized_platform, task_type, source_text)
-            llm_detect_text = self._build_detect_llm_excerpt(source_text, normalized_platform)
-            llm_detect_result = self._parse_llm_detect_result(self._run_llm(task_type, llm_detect_text))
-            detect_result = self._build_detect_result(
+            detect_task = self.db.get(Task, task_id) if task_id else None
+            detect_result = execute_aigc_detect_strategy(
+                self.db,
+                task=detect_task,
                 text=source_text,
                 platform=normalized_platform,
-                mode=self._effective_mode,
                 report_summary=report_summary,
-                algo_result=algo_result,
-                llm_result=llm_detect_result,
+                mode=self._effective_mode,
             )
-            detect_result.setdefault("score_breakdown", {})["llm_excerpt_chars"] = len(llm_detect_text)
+            detect_result["report_view"] = self._build_detect_report_view(detect_result)
             self._write_detect_report_pdf(output_path, detect_result)
             return ProcessResult(output_path=str(output_path), result_json=detect_result)
 
@@ -176,6 +193,111 @@ class ProcessingEngine:
                             for run in para.runs:
                                 yield run
 
+    def _iter_body_paragraphs(self, doc: Document):
+        for para in doc.paragraphs:
+            yield para
+        if settings.docx_process_table_text:
+            for table in doc.tables:
+                for row in table.rows:
+                    for cell in row.cells:
+                        for para in cell.paragraphs:
+                            yield para
+
+    def _is_docx_reference_heading(self, text: str) -> bool:
+        normalized = re.sub(r"\s+", "", str(text or ""))
+        return normalized in {"参考文献", "参考文献:", "参考文献：", "references", "REFERENCES"}
+
+    def _is_docx_abstract_heading(self, text: str) -> bool:
+        normalized = re.sub(r"\s+", "", str(text or ""))
+        lowered = normalized.lower()
+        return lowered in {"摘要", "摘要:", "摘要：", "中文摘要", "英文摘要", "abstract", "abstract:", "abstract："}
+
+    def _is_docx_heading_or_caption(self, paragraph, text: str) -> bool:
+        content = str(text or "").strip()
+        if not content:
+            return True
+        if content.startswith(("关键词：", "关键词:", "关键字：", "关键字:")):
+            return True
+        style_name = str(getattr(getattr(paragraph, "style", None), "name", "") or "").lower()
+        if "heading" in style_name or "标题" in style_name:
+            return True
+        if re.match(r"^(图|表)\s*[0-9一二三四五六七八九十]+", content):
+            return True
+        if len(content) <= 24 and not re.search(r"[。！？；;:：]", content):
+            if re.match(r"^([一二三四五六七八九十]+[、.．]|第[一二三四五六七八九十百零0-9]+[章节部分篇]|[（(][一二三四五六七八九十百零0-9]+[)）])", content):
+                return True
+        return False
+
+    def _docx_paragraph_has_superscript(self, paragraph) -> bool:
+        for run in getattr(paragraph, "runs", []):
+            if not (run.text and run.text.strip()):
+                continue
+            if getattr(getattr(run, "font", None), "superscript", None) is True:
+                return True
+            run_xml = str(getattr(getattr(run, "_r", None), "xml", "") or "")
+            if "vertAlign" in run_xml and "superscript" in run_xml:
+                return True
+        return False
+
+    def _split_docx_first_sentence(self, text: str) -> tuple[str, str]:
+        content = str(text or "")
+        if not content:
+            return "", ""
+        sentence_end = -1
+        for idx, char in enumerate(content):
+            if char in "。！？!?":
+                sentence_end = idx
+                break
+            if char in ".．":
+                prev_char = content[idx - 1] if idx > 0 else ""
+                next_char = content[idx + 1] if idx + 1 < len(content) else ""
+                if prev_char.isdigit() and next_char.isdigit():
+                    continue
+                if idx + 1 < len(content) and next_char not in " \t\r\n\"'”’）)]】》":
+                    continue
+                sentence_end = idx
+                break
+        if sentence_end < 0:
+            return content, ""
+        split_at = sentence_end + 1
+        while split_at < len(content) and content[split_at] in " \t\r\n\"'”’）)]】》":
+            split_at += 1
+        return content[:split_at], content[split_at:]
+
+    def _redistribute_paragraph_text(self, paragraph, rewritten_text: str) -> None:
+        text_runs = [run for run in paragraph.runs if run.text and run.text.strip()]
+        if not text_runs:
+            return
+        if len(text_runs) == 1:
+            text_runs[0].text = rewritten_text
+            return
+
+        source_lengths = [max(len(run.text), 1) for run in text_runs]
+        total_length = sum(source_lengths)
+        cursor = 0
+        assigned_until = 0
+        for index, run in enumerate(text_runs):
+            if index == len(text_runs) - 1:
+                segment = rewritten_text[cursor:]
+            else:
+                assigned_until += source_lengths[index]
+                target_end = round(len(rewritten_text) * assigned_until / total_length)
+                target_end = max(cursor, min(len(rewritten_text), target_end))
+                segment = rewritten_text[cursor:target_end]
+                cursor = target_end
+            run.text = segment
+
+    def _should_transform_docx_paragraph(self, paragraph, text: str, *, in_reference_section: bool) -> bool:
+        if not text.strip():
+            return False
+        if in_reference_section:
+            return False
+        if self._docx_paragraph_has_superscript(paragraph):
+            return False
+        if self._is_docx_heading_or_caption(paragraph, text):
+            return False
+        return True
+
     def _transform_docx(
         self,
         input_path: Path,
@@ -186,26 +308,40 @@ class ProcessingEngine:
     ) -> None:
         doc = Document(str(input_path))
         summary = report_summary or {}
-        for run in self._iter_body_runs(doc):
-            if run.text:
-                run.text = self._transform_text(run.text, task_type, platform, summary)
+        in_reference_section = False
+        abstract_first_sentence_pending = False
+        for paragraph in self._iter_body_paragraphs(doc):
+            source_text = paragraph.text or ""
+            stripped = source_text.strip()
+            if not stripped:
+                continue
+            if self._is_docx_reference_heading(stripped):
+                in_reference_section = True
+                continue
+            if self._is_docx_abstract_heading(stripped):
+                abstract_first_sentence_pending = True
+                continue
+            preserve_abstract_first_sentence = False
+            if abstract_first_sentence_pending and not self._is_docx_heading_or_caption(paragraph, source_text):
+                preserve_abstract_first_sentence = True
+                abstract_first_sentence_pending = False
+            if not self._should_transform_docx_paragraph(paragraph, source_text, in_reference_section=in_reference_section):
+                continue
+            transform_input = source_text
+            preserved_prefix = ""
+            if preserve_abstract_first_sentence:
+                first_sentence, remaining = self._split_docx_first_sentence(source_text)
+                if not first_sentence:
+                    continue
+                if not remaining.strip():
+                    continue
+                preserved_prefix = first_sentence
+                transform_input = remaining
+            rewritten_payload = self._transform_text(transform_input, task_type, platform, summary)
+            rewritten_text = f"{preserved_prefix}{rewritten_payload}" if preserved_prefix else rewritten_payload
+            if rewritten_text and rewritten_text != source_text:
+                self._redistribute_paragraph_text(paragraph, rewritten_text)
         doc.save(str(output_path))
-
-    def _run_algo_package(self, platform: str, task_type: TaskType, text: str):
-        try:
-            result = run_active_package(
-                self.db,
-                platform=platform,
-                function_type=task_type.value,
-                text=text,
-            )
-        except Exception:
-            return None
-        if result is None:
-            return None
-        self._pipeline_usage["algo_package_used"] = True
-        value, _meta = result
-        return value
 
     def _run_llm(self, task_type: TaskType, text: str) -> str | None:
         switch = self._current_switch or self._get_or_init_switch()
@@ -314,108 +450,71 @@ class ProcessingEngine:
             return "low"
         return ""
 
-    def _iter_result_dicts(self, payload) -> list[dict]:
-        if not isinstance(payload, dict):
-            return []
-        queue: list[tuple[dict, int]] = [(payload, 0)]
-        visited: set[int] = set()
-        items: list[dict] = []
-        while queue:
-            current, depth = queue.pop(0)
-            marker = id(current)
-            if marker in visited:
-                continue
-            visited.add(marker)
-            items.append(current)
-            if depth >= 2:
-                continue
-            for value in current.values():
-                if isinstance(value, dict):
-                    queue.append((value, depth + 1))
-        return items
-
-    def _extract_algo_score(self, algo_result) -> float | None:
-        keys = (
-            "ai_score",
-            "aigc_score",
-            "score",
-            "risk_score",
-            "probability",
-            "ai_probability",
-        )
-        for current in self._iter_result_dicts(algo_result):
-            for key in keys:
-                if key not in current:
-                    continue
-                score = self._coerce_ratio(current.get(key))
-                if score is not None:
-                    return score
-        return None
-
-    def _extract_algo_label(self, algo_result) -> str:
-        keys = (
-            "label",
-            "level",
-            "risk_level",
-            "risk",
-            "grade",
-        )
-        for current in self._iter_result_dicts(algo_result):
-            for key in keys:
-                if key not in current:
-                    continue
-                label = self._normalize_detect_label(current.get(key))
-                if label:
-                    return label
-        return ""
-
-    def _extract_algo_text(self, algo_result) -> str | None:
-        if isinstance(algo_result, str) and algo_result.strip():
-            return algo_result
-        keys = (
-            "text",
-            "rewritten_text",
-            "rewrite_text",
-            "output_text",
-            "result_text",
-            "content",
-            "body",
-            "output",
-            "result",
-        )
-        for current in self._iter_result_dicts(algo_result):
-            for key in keys:
-                if key not in current:
-                    continue
-                value = current.get(key)
-                if isinstance(value, str) and value.strip():
-                    return value
-        return None
-
     def _transform_text(self, text: str, task_type: TaskType, platform: str, report_summary: dict) -> str:
         normalized_input = self._normalize_text(text)
 
-        # In combined mode, enforce algorithm package -> LLM chaining so both links
-        # can contribute to dedup/rewrite when available.
+        if task_type == TaskType.REWRITE and platform in {"cnki", "vip"}:
+            result = execute_rewrite_strategy(
+                self.db,
+                task=None,
+                platform=platform,
+                text=normalized_input,
+                report_summary=report_summary,
+            )
+            self._rewrite_strategy_meta = {
+                "strategy": result.get("strategy"),
+                "platform": result.get("platform"),
+                "task_type": result.get("task_type"),
+                "length_before": result.get("length_before"),
+                "length_after": result.get("length_after"),
+                "change_ratio": result.get("change_ratio"),
+                "quality_score": result.get("quality_score"),
+                "quality_flags": result.get("quality_flags") or {},
+                "warnings": result.get("warnings") or [],
+                "rule_trace": result.get("rule_trace") or {},
+            }
+            if result.get("strategy") == "llm":
+                self._pipeline_usage["llm_used"] = True
+            return str(result.get("rewritten_text") or "")
+
+        if task_type == TaskType.DEDUP and platform in {"cnki", "vip"}:
+            dedup_strategy = get_active_dedup_strategy(self.db, platform=platform)
+            result = execute_dedup_strategy(
+                self.db,
+                task=None,
+                platform=platform,
+                text=normalized_input,
+                report_summary=report_summary,
+                strategy=dedup_strategy,
+            )
+            self._dedup_strategy_meta = {
+                "strategy": result.get("strategy"),
+                "platform": result.get("platform"),
+                "task_type": result.get("task_type"),
+                "length_before": result.get("length_before"),
+                "length_after": result.get("length_after"),
+                "length_delta_ratio": result.get("length_delta_ratio"),
+                "similarity_ratio": result.get("similarity_ratio"),
+                "change_ratio": result.get("change_ratio"),
+                "quality_score": result.get("quality_score"),
+                "quality_flags": result.get("quality_flags") or {},
+                "warnings": result.get("warnings") or [],
+                "rule_trace": result.get("rule_trace") or {},
+            }
+            if result.get("strategy") == DEDUP_STRATEGY_LLM:
+                self._pipeline_usage["llm_used"] = True
+            return str(result.get("rewritten_text") or "")
+
         if self._effective_mode == MODE_LLM_PLUS_ALGO:
-            algo_result = self._run_algo_package(platform, task_type, normalized_input)
-            algo_text = self._extract_algo_text(algo_result)
-            llm_input = algo_text or normalized_input
-            llm_output = self._run_llm(task_type, llm_input)
+            llm_output = self._run_llm(task_type, normalized_input)
             if isinstance(llm_output, str) and llm_output.strip():
                 return llm_output
-            if algo_text:
-                return algo_text
             return self._heuristic_transform_text(
                 text=normalized_input,
                 task_type=task_type,
                 report_summary=report_summary,
             )
 
-        algo_result = self._run_algo_package(platform, task_type, normalized_input)
-        algo_text = self._extract_algo_text(algo_result)
-        if algo_text:
-            return algo_text
         return self._heuristic_transform_text(
             text=normalized_input,
             task_type=task_type,
@@ -463,30 +562,7 @@ class ProcessingEngine:
         return output
 
     def _split_long_sentences(self, text: str, threshold: int) -> str:
-        chunks = re.split(r"([。！？!?])", text)
-        rebuilt: list[str] = []
-        for index in range(0, len(chunks), 2):
-            sentence = chunks[index].strip()
-            punct = chunks[index + 1] if index + 1 < len(chunks) else ""
-            if len(sentence) > threshold and "，" in sentence:
-                parts = [part.strip() for part in sentence.split("，") if part.strip()]
-                current: list[str] = []
-                current_len = 0
-                groups: list[str] = []
-                for part in parts:
-                    if current and current_len + len(part) > threshold:
-                        groups.append("，".join(current))
-                        current = [part]
-                        current_len = len(part)
-                    else:
-                        current.append(part)
-                        current_len += len(part)
-                if current:
-                    groups.append("，".join(current))
-                rebuilt.append("。".join(groups) + punct)
-            else:
-                rebuilt.append(sentence + punct)
-        return "".join(rebuilt).strip()
+        return split_long_sentences(text, threshold)
 
     def _text_stats(self, text: str) -> dict:
         clean = text.strip()
@@ -502,73 +578,10 @@ class ProcessingEngine:
         }
 
     def _extract_report_summary(self, task_type: TaskType, report_text: str) -> dict:
-        content = " ".join((report_text or "").split())
-        summary = {
-            "available": bool(content),
-            "metrics": [],
-            "highlights": [],
-            "recommended_actions": [],
-            "pressure": "low",
-        }
-        if not content:
-            summary["recommended_actions"] = ["未上传辅助报告，本次按正文通用策略处理。"]
-            return summary
-
-        if task_type == TaskType.DEDUP:
-            total_ratio = self._extract_percent(content, ["总文字复制比", "全文总重复率", "重复率", "总复制比"])
-            quote_ratio = self._extract_percent(content, ["去除引用复制比"])
-            self_ratio = self._extract_percent(content, ["去除本人已发表文献复制比"])
-            for label, value in (
-                ("总文字复制比", total_ratio),
-                ("去除引用复制比", quote_ratio),
-                ("去除本人已发表文献复制比", self_ratio),
-            ):
-                if value is not None:
-                    summary["metrics"].append({"label": label, "value": value, "unit": "%"})
-            summary["highlights"] = [word for word in ["全文", "检测报告", "总文字复制比", "去除引用复制比"] if word in content][:4]
-            if total_ratio is not None and total_ratio >= 25:
-                summary["recommended_actions"].append("重复率偏高，优先处理定义、综述和结论性长句。")
-                summary["pressure"] = "high"
-            elif total_ratio is not None and total_ratio >= 15:
-                summary["recommended_actions"].append("重复率中等，优先改写高频连接词和段首句。")
-                summary["pressure"] = "medium"
-            if quote_ratio is not None and quote_ratio >= 10:
-                summary["recommended_actions"].append("检查引用说明是否过少，必要时补充规范引文表达。")
-            if self_ratio is not None and self_ratio >= 10:
-                summary["recommended_actions"].append("留意与本人历史文本重合的定义和结论段。")
-        else:
-            ai_ratio = self._extract_percent(content, ["AIGC总体风险", "总体风险", "AIGC疑似度", "AI生成疑似度", "疑似AI生成"])
-            high_ratio = self._extract_percent(content, ["高风险占比", "高风险段落占比"])
-            for label, value in (
-                ("总体风险", ai_ratio),
-                ("高风险占比", high_ratio),
-            ):
-                if value is not None:
-                    summary["metrics"].append({"label": label, "value": value, "unit": "%"})
-            summary["highlights"] = [word for word in ["AIGC", "疑似AI", "高风险段落", "全文"] if word.lower() in content.lower()][:4]
-            if ai_ratio is not None and ai_ratio >= 50:
-                summary["recommended_actions"].append("AIGC 风险偏高，优先拆分长句并弱化模板化连接词。")
-                summary["pressure"] = "high"
-            elif ai_ratio is not None and ai_ratio >= 30:
-                summary["recommended_actions"].append("AIGC 风险中等，建议提升句式变化和论证层次。")
-                summary["pressure"] = "medium"
-            if high_ratio is not None and high_ratio >= 20:
-                summary["recommended_actions"].append("重点复核高风险段落，尤其是定义句和总结句。")
-
-        if not summary["recommended_actions"]:
-            if task_type == TaskType.DEDUP:
-                summary["recommended_actions"].append("建议重点复核连续长句、定义表述和文献综述段落。")
-            else:
-                summary["recommended_actions"].append("建议优先调整摘要、结论和高频模板化表达。")
-        return summary
+        return extract_report_summary(task_type, report_text)
 
     def _extract_percent(self, text: str, keywords: list[str]) -> float | None:
-        for keyword in keywords:
-            pattern = rf"{re.escape(keyword)}[^0-9]{{0,12}}(\d+(?:\.\d+)?)\s*%"
-            match = re.search(pattern, text, flags=re.IGNORECASE)
-            if match:
-                return round(float(match.group(1)), 2)
-        return None
+        return extract_percent(text, keywords)
 
 
     def _clamp_score(self, value: float) -> float:
@@ -631,76 +644,6 @@ class ProcessingEngine:
             },
         }
         return score, profile, breakdown
-
-    def _legacy_build_detect_result_v00(
-        self,
-        *,
-        text: str,
-        platform: str,
-        mode: str,
-        report_summary: dict,
-        algo_result,
-        llm_result: dict | None,
-    ) -> dict:
-        base_score = self._heuristic_ai_score(text)
-        score, profile, breakdown = self._simulate_platform_detect_score(platform, text, base_score)
-        label = "high" if score >= profile["high"] else "medium" if score >= profile["medium"] else "low"
-        algo_has_label = False
-
-        if isinstance(algo_result, dict):
-            package_score = self._extract_algo_score(algo_result)
-            if package_score is not None:
-                score = round(self._clamp_score(score * 0.65 + package_score * 0.35), 4)
-                breakdown["algo_package_score"] = round(package_score, 4)
-                breakdown["blended"] = True
-            else:
-                breakdown["blended"] = False
-
-            algo_label = self._extract_algo_label(algo_result)
-            if algo_label:
-                label = algo_label
-                algo_has_label = True
-        else:
-            breakdown["blended"] = False
-
-        if isinstance(llm_result, dict):
-            llm_score = self._coerce_ratio(llm_result.get("ai_score"))
-            if llm_score is not None:
-                score = round(self._clamp_score(score * 0.8 + llm_score * 0.2), 4)
-                breakdown["llm_score"] = round(llm_score, 4)
-                breakdown["llm_blended"] = True
-            else:
-                breakdown["llm_blended"] = False
-
-            llm_label = self._normalize_detect_label(llm_result.get("label"))
-            if llm_label and not algo_has_label:
-                label = llm_label
-
-            reason = llm_result.get("reason")
-            if isinstance(reason, str) and reason.strip():
-                breakdown["llm_reason"] = reason.strip()[:180]
-        else:
-            breakdown["llm_blended"] = False
-
-        band = self._risk_band(score, high=profile["high"], medium=profile["medium"])
-        risk_paragraphs = self._top_risk_paragraphs(text, platform=platform)
-        return {
-            "type": TaskType.AIGC_DETECT.value,
-            "platform": platform,
-            "simulation_profile": profile["name"],
-            "mode": mode,
-            "llm_used": self._pipeline_usage["llm_used"],
-            "algo_package_used": self._pipeline_usage["algo_package_used"],
-            "ai_score": score,
-            "score_pct": round(score * 100, 2),
-            "label": label,
-            "risk_band": band,
-            "summary": f"AIGC detection completed. Current risk level: {band}.",
-            "source_stats": self._text_stats(text),
-            "report_summary": report_summary,
-            "score_breakdown": breakdown,
-            "risk_paragraphs": risk_paragraphs,
-        }
 
     def _risk_band(self, score: float, *, high: float = 0.65, medium: float = 0.35) -> str:
         if score >= high:
@@ -1481,182 +1424,6 @@ class ProcessingEngine:
             )
         return items[:6]
 
-    def _legacy_build_detect_result_v0(
-        self,
-        *,
-        text: str,
-        platform: str,
-        mode: str,
-        report_summary: dict,
-        algo_result,
-        llm_result: dict | None,
-    ) -> dict:
-        base_score = self._heuristic_ai_score(text)
-        score, profile, breakdown = self._simulate_platform_detect_score(platform, text, base_score)
-        paragraph_details = self._build_detect_paragraph_details(text, platform, profile, algo_result)
-        distribution = self._build_detect_distribution(paragraph_details)
-        document_outline = self._build_document_outline(text)
-        section_distribution = self._build_section_distribution(paragraph_details, document_outline=document_outline)
-        suspicious_segments = self._collect_suspicious_segments(paragraph_details)
-        fragment_distribution = self._build_fragment_distribution(
-            text,
-            platform,
-            profile,
-            paragraph_details,
-            document_outline=document_outline,
-            algo_doc_label=self._extract_algo_label(algo_result),
-            algo_doc_score=self._extract_algo_score(algo_result) or 0.0,
-        )
-        document_metrics = self._build_document_metrics(
-            text=text,
-            paragraph_details=paragraph_details,
-            section_distribution=section_distribution,
-            document_outline=document_outline,
-            profile=profile,
-        )
-
-        mean_paragraph_ratio = round(float(distribution.get("avg_score") or 0.0) / 100.0, 4)
-        max_paragraph_ratio = round(float(distribution.get("max_score") or 0.0) / 100.0, 4)
-        segment_ratio = round(
-            min(
-                1.0,
-                (
-                    sum(float(item.get("score") or 0.0) for item in suspicious_segments[:5])
-                    / max(len(suspicious_segments[:5]), 1)
-                )
-                / 100.0,
-            ),
-            4,
-        )
-        fragment_weighted_ratio = round(float(fragment_distribution.get("weighted_score_pct") or 0.0) / 100.0, 4)
-        high_middle_text_ratio = round(
-            float(fragment_distribution.get("high_and_middle_suspected_text_ratio") or 0.0) / 100.0,
-            4,
-        )
-        coverage_ratio = round(float(document_metrics.get("high_medium_paragraph_ratio") or 0.0) / 100.0, 4)
-        section_coverage_ratio = round(float(document_metrics.get("section_coverage_ratio") or 0.0) / 100.0, 4)
-        streak_ratio = round(float(document_metrics.get("longest_risk_streak_ratio") or 0.0) / 100.0, 4)
-        opening_similarity_ratio = round(float(document_metrics.get("opening_similarity_ratio") or 0.0) / 100.0, 4)
-        evidence_relief_ratio = round(float(document_metrics.get("evidence_relief_pct") or 0.0) / 100.0, 4)
-        abstract_section_ratio = round(float(document_metrics.get("abstract_avg_score") or 0.0) / 100.0, 4)
-        intro_section_ratio = round(float(document_metrics.get("intro_avg_score") or 0.0) / 100.0, 4)
-        score = round(
-            self._clamp_score(
-                score * 0.32
-                + mean_paragraph_ratio * 0.22
-                + max_paragraph_ratio * 0.14
-                + segment_ratio * 0.10
-                + fragment_weighted_ratio * 0.12
-                + high_middle_text_ratio * 0.10
-                + coverage_ratio * float(profile.get("coverage_weight", 0.0))
-                + section_coverage_ratio * float(profile.get("section_weight", 0.0))
-                + streak_ratio * float(profile.get("streak_weight", 0.0))
-                + opening_similarity_ratio * float(profile.get("opening_similarity_weight", 0.0))
-                + abstract_section_ratio * float(profile.get("abstract_section_weight", 0.0))
-                + intro_section_ratio * float(profile.get("intro_section_weight", 0.0))
-                - evidence_relief_ratio * float(profile.get("evidence_relief_weight", 0.0))
-            ),
-            4,
-        )
-
-        algo_label = ""
-        llm_label = ""
-        if isinstance(algo_result, dict):
-            package_score = self._extract_algo_score(algo_result)
-            if package_score is not None:
-                score = round(self._clamp_score(score * 0.7 + package_score * 0.3), 4)
-                breakdown["algo_package_score"] = round(package_score, 4)
-                breakdown["algo_package_blended"] = True
-            else:
-                breakdown["algo_package_blended"] = False
-            algo_label = self._extract_algo_label(algo_result)
-        else:
-            breakdown["algo_package_blended"] = False
-
-        if isinstance(llm_result, dict):
-            llm_score = self._coerce_ratio(llm_result.get("ai_score"))
-            if llm_score is not None:
-                score = round(self._clamp_score(score * 0.82 + llm_score * 0.18), 4)
-                breakdown["llm_score"] = round(llm_score, 4)
-                breakdown["llm_blended"] = True
-            else:
-                breakdown["llm_blended"] = False
-            llm_label = self._normalize_detect_label(llm_result.get("label"))
-            reason = llm_result.get("reason")
-            if isinstance(reason, str) and reason.strip():
-                breakdown["llm_reason"] = reason.strip()[:180]
-        else:
-            breakdown["llm_blended"] = False
-
-        if algo_label:
-            label = algo_label
-        elif llm_label:
-            label = llm_label
-        else:
-            label = self._score_to_detect_label(score, profile)
-
-        decision_basis = self._build_decision_basis_v2(
-            breakdown=breakdown,
-            document_metrics=document_metrics,
-            fragment_distribution=fragment_distribution,
-            suspicious_segments=suspicious_segments,
-        )
-        band = self._risk_band(score, high=profile["high"], medium=profile["medium"])
-        risk_paragraphs = sorted(paragraph_details, key=lambda item: item["score"], reverse=True)[:5]
-        report_no = f"GW-AIGC-{platform.upper()}-{datetime.now().strftime('%Y%m%d%H%M%S')}-{self._current_task_id or 0}"
-        generated_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        breakdown["paragraph_mean_score"] = mean_paragraph_ratio
-        breakdown["peak_paragraph_score"] = max_paragraph_ratio
-        breakdown["segment_signal"] = segment_ratio
-        breakdown["fragment_weighted_score"] = fragment_weighted_ratio
-        breakdown["high_middle_text_ratio"] = high_middle_text_ratio
-        breakdown["outline_sections"] = len(document_outline)
-        breakdown["coverage_ratio"] = coverage_ratio
-        breakdown["section_coverage_ratio"] = section_coverage_ratio
-        breakdown["streak_ratio"] = streak_ratio
-        breakdown["opening_similarity_ratio"] = opening_similarity_ratio
-        breakdown["evidence_relief_ratio"] = evidence_relief_ratio
-
-        basis_titles = [str(item.get("title") or "").strip() for item in decision_basis if item.get("direction") == "risk"]
-        summary = (
-            f"{profile['provider_label']}全文检测完成，{profile['score_label']} {round(score * 100, 2)}%，"
-            f"高风险段落占比 {distribution.get('high_ratio', 0.0)}%，"
-            f"高中风险文字占比 {fragment_distribution.get('high_and_middle_suspected_text_ratio', 0.0)}%。"
-        )
-        if basis_titles:
-            summary += f" 主要依据：{'、'.join(basis_titles[:2])}。"
-        summary += " 结果用于内部研判与人工复核，不等同于官方报告。"
-
-        return {
-            "type": TaskType.AIGC_DETECT.value,
-            "platform": platform,
-            "provider_label": profile["provider_label"],
-            "score_label": profile["score_label"],
-            "simulation_profile": profile["name"],
-            "report_no": report_no,
-            "generated_at": generated_at,
-            "mode": mode,
-            "llm_used": self._pipeline_usage["llm_used"],
-            "algo_package_used": self._pipeline_usage["algo_package_used"],
-            "ai_score": score,
-            "score_pct": round(score * 100, 2),
-            "label": label,
-            "risk_band": band,
-            "summary": summary,
-            "source_stats": self._text_stats(text),
-            "report_summary": report_summary,
-            "score_breakdown": breakdown,
-            "distribution": distribution,
-            "fragment_distribution": fragment_distribution,
-            "document_metrics": document_metrics,
-            "decision_basis": decision_basis,
-            "document_outline": document_outline,
-            "section_distribution": section_distribution,
-            "risk_paragraphs": risk_paragraphs,
-            "paragraph_details": paragraph_details,
-            "suspicious_segments": suspicious_segments,
-        }
-
     def _split_detect_sentences(self, text: str) -> list[str]:
         return [seg.strip() for seg in re.split(r"[。！？!?；;\n]+", str(text or "")) if seg.strip()]
 
@@ -2132,7 +1899,6 @@ class ProcessingEngine:
         colloquial_pct = float(breakdown.get("colloquial_relief") or 0.0) * 100.0
         specificity_pct = float(breakdown.get("specificity_relief") or 0.0) * 100.0
         human_case_pct = float(breakdown.get("human_case_relief") or 0.0) * 100.0
-        algo_pct = float(breakdown.get("algo_package_score") or 0.0) * 100.0
         weighted_fragment_pct = float(fragment_distribution.get("weighted_score_pct") or 0.0)
         high_middle_text_pct = float(fragment_distribution.get("high_and_middle_suspected_text_ratio") or 0.0)
         high_ratio_pct = float(distribution.get("high_ratio") or 0.0)
@@ -2148,7 +1914,6 @@ class ProcessingEngine:
                 + opening_pct * 0.20
                 + weighted_fragment_pct * 0.08
                 + high_ratio_pct * 0.12
-                + algo_pct * 0.18
                 - citation_pct * 0.12
                 - evidence_pct * 0.60
                 - colloquial_pct * 0.40
@@ -2157,12 +1922,10 @@ class ProcessingEngine:
                 - long_doc_relief * 0.30
                 - 0.60
             )
-            if template_pct < 8.0 and weighted_fragment_pct < 10.0 and algo_pct < 25.0:
+            if template_pct < 8.0 and weighted_fragment_pct < 10.0:
                 calibrated_pct -= 1.5
             if raw_pct >= 20.0:
                 calibrated_pct = max(calibrated_pct, raw_pct * 0.38)
-            if algo_pct >= 55.0:
-                calibrated_pct = max(calibrated_pct, algo_pct * 0.45)
             if calibrated_pct < 2.0:
                 calibrated_pct = 0.0
         elif key == "vip":
@@ -2356,69 +2119,6 @@ class ProcessingEngine:
             return left
         return left if rank.get(left, -1) >= rank.get(right, -1) else right
 
-    def _extract_algo_paragraphs(self, algo_result) -> list[dict]:
-        candidates: list = []
-        if not isinstance(algo_result, dict):
-            return []
-        for current in self._iter_result_dicts(algo_result):
-            for key in ("paragraphs", "paragraph_details", "risk_paragraphs", "full_text_analysis"):
-                value = current.get(key)
-                if isinstance(value, list):
-                    candidates = value
-                    break
-            if candidates:
-                break
-
-        rows: list[dict] = []
-        for fallback_index, item in enumerate(candidates, start=1):
-            if not isinstance(item, dict):
-                continue
-            score = self._coerce_ratio(
-                item.get("score_ratio")
-                or item.get("ai_score")
-                or item.get("score")
-                or item.get("score_pct")
-                or item.get("risk_score")
-            )
-            segments: list[dict] = []
-            raw_segments = item.get("suspicious_segments") or item.get("fragments") or item.get("sentences") or []
-            if isinstance(raw_segments, list):
-                for raw_segment in raw_segments[:6]:
-                    if isinstance(raw_segment, dict):
-                        text = raw_segment.get("text") or raw_segment.get("excerpt") or raw_segment.get("content") or ""
-                        segment_score = self._coerce_ratio(
-                            raw_segment.get("score") or raw_segment.get("score_pct") or raw_segment.get("risk_score")
-                        )
-                        reason = raw_segment.get("reason") or raw_segment.get("signal") or ""
-                    else:
-                        text = str(raw_segment or "")
-                        segment_score = None
-                        reason = ""
-                    compact = self._clip_text(str(text), 72)
-                    if not compact:
-                        continue
-                    segments.append(
-                        {
-                            "text": compact,
-                            "score": round((segment_score or 0.0) * 100, 2) if segment_score is not None else 0.0,
-                            "reason": str(reason).strip(),
-                        }
-                    )
-
-            rows.append(
-                {
-                    "index": int(item.get("index") or fallback_index),
-                    "score_ratio": score,
-                    "label": self._normalize_detect_label(item.get("label") or item.get("risk_level")),
-                    "excerpt": self._clip_text(
-                        str(item.get("excerpt") or item.get("text") or item.get("content") or ""),
-                        110,
-                    ),
-                    "segments": segments,
-                }
-            )
-        return rows
-
     def _local_suspicious_segments(self, paragraph: str, platform: str, profile: dict) -> list[dict]:
         segments: list[dict] = []
         for sentence in self._split_detect_sentences(paragraph):
@@ -2564,12 +2264,9 @@ class ProcessingEngine:
             tags.append("英文摘要镜像痕迹")
         return tags[:3]
 
-    def _build_detect_paragraph_details(self, text: str, platform: str, profile: dict, algo_result) -> list[dict]:
+    def _build_detect_paragraph_details(self, text: str, platform: str, profile: dict) -> list[dict]:
         paragraphs = self._split_detect_paragraphs(text)
 
-        algo_map = {item["index"]: item for item in self._extract_algo_paragraphs(algo_result)}
-        algo_doc_label = self._extract_algo_label(algo_result)
-        algo_doc_score = self._extract_algo_score(algo_result) or 0.0
         heading_map = {
             index: (self._detect_outline_heading(paragraph)[1] or "")
             for index, paragraph in enumerate(paragraphs, start=1)
@@ -2578,15 +2275,9 @@ class ProcessingEngine:
         for index, paragraph in enumerate(paragraphs, start=1):
             base_score = self._heuristic_ai_score(paragraph)
             score_ratio, _profile, breakdown = self._simulate_platform_detect_score(platform, paragraph, base_score)
-            algo_row = algo_map.get(index)
-            if algo_row and algo_row.get("score_ratio") is not None:
-                score_ratio = round(
-                    self._clamp_score(score_ratio * 0.68 + float(algo_row["score_ratio"]) * 0.32),
-                    4,
-                )
 
             local_segments = self._local_suspicious_segments_v2(paragraph, platform, profile)
-            merged_segments = self._merge_suspicious_segments(local_segments, (algo_row or {}).get("segments") or [])
+            merged_segments = self._merge_suspicious_segments(local_segments, [])
             if merged_segments:
                 score_ratio = round(self._clamp_score(score_ratio + min(0.04, len(merged_segments) * 0.01)), 4)
 
@@ -2598,24 +2289,13 @@ class ProcessingEngine:
                 and self._detect_outline_heading(paragraph)[0] is None
             ):
                 score_label = "low"
-            label = self._prefer_higher_risk_detect_label(
-                self._normalize_detect_label((algo_row or {}).get("label")),
-                score_label,
-            )
+            label = score_label
             segment_rows = []
             for segment in merged_segments:
-                segment_label = "low"
-                if (
-                    platform == "cnki"
-                    and algo_doc_label in ("low", "medium", "high")
-                    and algo_doc_score >= 0.16
-                    and score_ratio >= 0.25
-                ):
-                    segment_label = "high"
                 segment_rows.append(
                     {
                         **segment,
-                        "label": segment_label,
+                        "label": "low",
                     }
                 )
             rows.append(
@@ -2652,11 +2332,7 @@ class ProcessingEngine:
                             "text": self._clip_text(heading_text, 76),
                             "score": round(avg_follow_score, 2),
                             "reason": "风险区标题延续",
-                            "label": (
-                                "high"
-                                if algo_doc_label in ("low", "medium", "high") and algo_doc_score >= 0.16
-                                else "low"
-                            ),
+                            "label": "low",
                         }
                     ]
         return rows
@@ -2818,9 +2494,6 @@ class ProcessingEngine:
         profile: dict,
         paragraph_details: list[dict],
         document_outline: list[dict] | None = None,
-        *,
-        algo_doc_label: str = "",
-        algo_doc_score: float = 0.0,
     ) -> dict:
         paragraphs = self._split_detect_paragraphs(text)
         paragraph_score_map = {
@@ -2863,26 +2536,16 @@ class ProcessingEngine:
                     label = self._score_to_detect_label(score_ratio, profile)
                     if platform == "cnki" and paragraph_index in cnki_focus_indexes:
                         paragraph_label = paragraph_label_map.get(paragraph_index, "")
-                        if algo_doc_label in ("low", "medium", "high") and algo_doc_score >= 0.16:
-                            if paragraph_label != "clean" and paragraph_ratio >= 0.30:
-                                label = "high"
-                            elif paragraph_label != "clean" and paragraph_ratio >= 0.22 and label == "low":
-                                label = "medium"
-                        elif algo_doc_label == "clean" and algo_doc_score <= 0.12:
-                            if label == "medium" and paragraph_ratio < 0.40:
-                                label = "low"
-                            elif label == "low" and paragraph_ratio < 0.34:
-                                label = "no_ai"
+                        if paragraph_label != "clean" and paragraph_ratio >= 0.30:
+                            label = "high"
+                        elif paragraph_label != "clean" and paragraph_ratio >= 0.22 and label == "low":
+                            label = "medium"
                     elif platform == "cnki" and cnki_focus_indexes and paragraph_index != 1:
                         wrapup_relief = float(_breakdown.get("summary_wrapup_relief") or 0.0)
                         if wrapup_relief >= 0.10:
                             label = "no_ai"
-                        elif algo_doc_label in ("low", "medium", "high") and algo_doc_score >= 0.16:
-                            if label in ("low", "medium") and paragraph_ratio < 0.30:
-                                label = "no_ai"
-                        elif algo_doc_label == "clean" and algo_doc_score <= 0.12:
-                            if label != "high" and paragraph_ratio < 0.36:
-                                label = "no_ai"
+                        elif label in ("low", "medium") and paragraph_ratio < 0.30:
+                            label = "no_ai"
                     if label == "clean":
                         label = "no_ai"
                     else:
@@ -3343,12 +3006,11 @@ class ProcessingEngine:
         platform: str,
         mode: str,
         report_summary: dict,
-        algo_result,
         llm_result: dict | None,
     ) -> dict:
         base_score = self._heuristic_ai_score(text)
         score, profile, breakdown = self._simulate_platform_detect_score(platform, text, base_score)
-        paragraph_details = self._build_detect_paragraph_details(text, platform, profile, algo_result)
+        paragraph_details = self._build_detect_paragraph_details(text, platform, profile)
         distribution = self._build_detect_distribution(paragraph_details)
         document_outline = self._build_document_outline(text)
         section_distribution = self._build_section_distribution(paragraph_details, document_outline=document_outline)
@@ -3360,8 +3022,6 @@ class ProcessingEngine:
             profile,
             paragraph_details,
             document_outline=document_outline,
-            algo_doc_label=self._extract_algo_label(algo_result),
-            algo_doc_score=self._extract_algo_score(algo_result) or 0.0,
         )
         document_metrics = self._build_document_metrics(
             text=text,
@@ -3414,24 +3074,7 @@ class ProcessingEngine:
             ),
             4,
         )
-        algo_label = ""
         llm_label = ""
-        package_score = None
-
-        if isinstance(algo_result, dict):
-            package_score = self._extract_algo_score(algo_result)
-            if package_score is not None:
-                score = round(self._clamp_score(score * 0.7 + package_score * 0.3), 4)
-                breakdown["algo_package_score"] = round(package_score, 4)
-                breakdown["algo_package_blended"] = True
-            else:
-                breakdown["algo_package_blended"] = False
-
-            algo_label = self._extract_algo_label(algo_result)
-            if algo_label:
-                breakdown["algo_package_label"] = algo_label
-        else:
-            breakdown["algo_package_blended"] = False
 
         if isinstance(llm_result, dict):
             llm_score = self._coerce_ratio(llm_result.get("ai_score"))
@@ -3460,17 +3103,9 @@ class ProcessingEngine:
             document_metrics=document_metrics,
             source_stats=source_stats,
         )
-        if platform == "cnki" and package_score is not None:
-            if algo_label == "clean" and package_score <= 0.12:
-                score = min(score, round(self._clamp_score(package_score * 0.82), 4))
-            elif algo_label == "low" and package_score >= 0.16 and raw_score >= 0.22:
-                package_floor = self._clamp_score(min(0.26, raw_score, package_score * 1.24))
-                score = max(score, round(package_floor, 4))
         score_pct = round(score * 100, 2)
 
-        if algo_label:
-            label = algo_label
-        elif llm_label:
+        if llm_label:
             label = llm_label
         else:
             label = self._score_to_detect_label(score, profile)
@@ -3488,85 +3123,63 @@ class ProcessingEngine:
         risk_paragraphs = sorted(paragraph_details, key=lambda item: item["score"], reverse=True)[:5] if detail_expanded else []
         report_no = f"GW-AIGC-{platform.upper()}-{datetime.now().strftime('%Y%m%d%H%M%S')}-{self._current_task_id or 0}"
         generated_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        breakdown["paragraph_mean_score"] = mean_paragraph_ratio
-        breakdown["peak_paragraph_score"] = max_paragraph_ratio
-        breakdown["segment_signal"] = segment_ratio
-        breakdown["fragment_weighted_score"] = fragment_weighted_ratio
-        breakdown["high_middle_text_ratio"] = high_middle_text_ratio
-        breakdown["outline_sections"] = len(document_outline)
-        breakdown["coverage_ratio"] = coverage_ratio
-        breakdown["section_coverage_ratio"] = section_coverage_ratio
-        breakdown["streak_ratio"] = streak_ratio
-        breakdown["opening_similarity_ratio"] = opening_similarity_ratio
-        breakdown["evidence_relief_ratio"] = evidence_relief_ratio
-        breakdown["abstract_section_ratio"] = abstract_section_ratio
-        breakdown["intro_section_ratio"] = intro_section_ratio
-        breakdown["raw_score_pct"] = round(raw_score * 100, 2)
-        breakdown["calibrated_score_pct"] = score_pct
+        breakdown = enrich_detect_breakdown(
+            breakdown,
+            mean_paragraph_ratio=mean_paragraph_ratio,
+            max_paragraph_ratio=max_paragraph_ratio,
+            segment_ratio=segment_ratio,
+            fragment_weighted_ratio=fragment_weighted_ratio,
+            high_middle_text_ratio=high_middle_text_ratio,
+            outline_sections=len(document_outline),
+            coverage_ratio=coverage_ratio,
+            section_coverage_ratio=section_coverage_ratio,
+            streak_ratio=streak_ratio,
+            opening_similarity_ratio=opening_similarity_ratio,
+            evidence_relief_ratio=evidence_relief_ratio,
+            abstract_section_ratio=abstract_section_ratio,
+            intro_section_ratio=intro_section_ratio,
+            raw_score=raw_score,
+            score_pct=score_pct,
+        )
 
         basis_titles = [str(item.get("title") or "").strip() for item in decision_basis if item.get("direction") == "risk"]
-        reported_ai_chars = round(int(source_stats.get("char_count") or 0) * score_pct / 100.0)
-        if platform == "cnki":
-            summary = (
-                f"{profile['provider_label']}检测完成，{profile['score_label']} {score_pct}%，"
-                f"AI特征字符数 {reported_ai_chars}，总字符数 {int(source_stats.get('char_count') or 0)}。"
-            )
-            if detail_expanded and basis_titles:
-                summary += f" 主要依据：{'、'.join(basis_titles[:2])}。"
-            elif not detail_expanded:
-                summary += " 当前未识别到稳定可计入的高置信片段。"
-            summary += " 结果用于内部研判与人工复核。"
-        elif platform == "vip":
-            summary = (
-                f"{profile['provider_label']}检测完成，{profile['score_label']} {score_pct}%，"
-                f"全文人写概率 {round(max(0.0, 100.0 - score_pct), 2)}%。"
-                f" AI生成文字 {reported_ai_chars}。"
-            )
-            if detail_expanded and basis_titles:
-                summary += f" 主要依据：{'、'.join(basis_titles[:2])}。"
-            elif not detail_expanded:
-                summary += " 当前报告侧重低风险结论提示。"
-            summary += " 结果用于内部研判与人工复核。"
-        else:
-            summary = (
-                f"{profile['provider_label']}全文检测完成，{profile['score_label']} {score_pct}%，"
-                f"片段加权结果 {fragment_distribution.get('weighted_score_pct', 0.0)}%，"
-                f"高风险段落占比 {distribution.get('high_ratio', 0.0)}%。"
-            )
-            if basis_titles:
-                summary += f" 主要依据：{'、'.join(basis_titles[:2])}。"
-            summary += " 结果用于内部研判与人工复核。"
+        summary = build_detect_summary(
+            platform=platform,
+            profile=profile,
+            score_pct=score_pct,
+            source_stats=source_stats,
+            detail_expanded=detail_expanded,
+            basis_titles=basis_titles,
+            fragment_distribution=fragment_distribution,
+            distribution=distribution,
+        )
 
-        result = {
-            "type": TaskType.AIGC_DETECT.value,
-            "platform": platform,
-            "provider_label": profile["provider_label"],
-            "score_label": profile["score_label"],
-            "simulation_profile": profile["name"],
-            "report_no": report_no,
-            "generated_at": generated_at,
-            "mode": mode,
-            "llm_used": self._pipeline_usage["llm_used"],
-            "algo_package_used": self._pipeline_usage["algo_package_used"],
-            "ai_score": score,
-            "score_pct": score_pct,
-            "label": label,
-            "risk_band": band,
-            "summary": summary,
-            "source_stats": source_stats,
-            "report_summary": report_summary,
-            "score_breakdown": breakdown,
-            "distribution": distribution,
-            "fragment_distribution": fragment_distribution,
-            "document_metrics": document_metrics,
-            "decision_basis": decision_basis,
-            "document_outline": document_outline,
-            "section_distribution": section_distribution,
-            "detail_expanded": detail_expanded,
-            "risk_paragraphs": risk_paragraphs,
-            "paragraph_details": paragraph_details,
-            "suspicious_segments": display_segments,
-        }
+        result = build_detect_result_payload(
+            platform=platform,
+            profile=profile,
+            report_no=report_no,
+            generated_at=generated_at,
+            mode=mode,
+            pipeline_usage=self._pipeline_usage,
+            score=score,
+            score_pct=score_pct,
+            label=label,
+            band=band,
+            summary=summary,
+            source_stats=source_stats,
+            report_summary=report_summary,
+            breakdown=breakdown,
+            distribution=distribution,
+            fragment_distribution=fragment_distribution,
+            document_metrics=document_metrics,
+            decision_basis=decision_basis,
+            document_outline=document_outline,
+            section_distribution=section_distribution,
+            detail_expanded=detail_expanded,
+            risk_paragraphs=risk_paragraphs,
+            paragraph_details=paragraph_details,
+            suspicious_segments=display_segments,
+        )
         result["report_view"] = self._build_detect_report_view(result)
         return result
 
@@ -3579,7 +3192,7 @@ class ProcessingEngine:
 
     def _legacy_top_risk_paragraphs_v0(self, text: str, platform: str = "cnki") -> list[dict]:
         profile = self._platform_detect_profile(platform)
-        rows = self._build_detect_paragraph_details(text, platform, profile, None)
+        rows = self._build_detect_paragraph_details(text, platform, profile)
         return sorted(rows, key=lambda item: item["score"], reverse=True)[:5]
 
     def _wrap_pdf_line(self, text: str, width: int = 56) -> list[str]:
@@ -3712,31 +3325,19 @@ class ProcessingEngine:
         output_text: str,
         report_summary: dict,
     ) -> dict:
-        source_stats = self._text_stats(source_text)
-        output_stats = self._text_stats(output_text)
-        sample_before = source_text[:4000]
-        sample_after = output_text[:4000]
-        similarity = SequenceMatcher(None, sample_before, sample_after).ratio() if sample_before or sample_after else 1.0
-        change_ratio = round((1 - similarity) * 100, 2)
-        task_label = "降重" if task_type == TaskType.DEDUP else "学术润色"
-        review_points = list(report_summary.get("recommended_actions") or [])
-        review_points.append("建议下载结果文档后结合原文进行人工终审。")
-        review_points.append("重点检查摘要、结论、数据表述和引用位置。")
-        deduped_points = list(dict.fromkeys(review_points))
-        return {
-            "type": task_type.value,
-            "platform": platform,
-            "mode": mode,
-            "llm_used": self._pipeline_usage["llm_used"],
-            "algo_package_used": self._pipeline_usage["algo_package_used"],
-            "summary": f"{task_label}任务已完成，本次结果已结合正文与辅助报告生成处理摘要。",
-            "source_stats": source_stats,
-            "output_stats": output_stats,
-            "change_ratio": change_ratio,
-            "report_summary": report_summary,
-            "review_points": deduped_points[:4],
-            "output_preview": self._clip_text(output_text, 220),
-        }
+        return build_transform_result(
+            task_type=task_type,
+            platform=platform,
+            mode=mode,
+            source_text=source_text,
+            output_text=output_text,
+            report_summary=report_summary,
+            text_stats=self._text_stats,
+            clip_text=self._clip_text,
+            pipeline_usage=self._pipeline_usage,
+            rewrite_strategy_meta=self._rewrite_strategy_meta,
+            dedup_strategy_meta=self._dedup_strategy_meta,
+        )
 
     def _clip_text(self, text: str, limit: int) -> str:
         compact = " ".join((text or "").split())
@@ -3915,7 +3516,15 @@ class ProcessingEngine:
         try:
             from app.services.detect_report_renderer import render_detect_report_pdf_reportlab
 
-            return render_detect_report_pdf_reportlab(self, result)
+            return render_detect_report_pdf_reportlab(
+                result,
+                meta=self._current_task_report_meta(),
+                source_text=self._current_detect_source_text,
+                build_detect_band_rows=self._build_detect_band_rows,
+                split_detect_paragraphs=self._split_detect_paragraphs,
+                escape_pdf_text=self._escape_pdf_text,
+                detect_outline_heading=self._detect_outline_heading,
+            )
         except Exception as exc:
             if isinstance(exc, ModuleNotFoundError):
                 module_name = (getattr(exc, "name", "") or "").split(".", 1)[0]
@@ -4470,7 +4079,9 @@ class ProcessingEngine:
         add_line(f"3) {view.get('report_note') or '报告样式由格物学术统一设计。'}")
         return lines
 
-    def _wrap_pdf_line(self, text: str, max_units: float = 34.0) -> list[str]:
+    def _wrap_pdf_line(self, text: str, max_units: float = 34.0, width: float | None = None) -> list[str]:
+        if width is not None:
+            max_units = float(width)
         compact = " ".join(str(text or "").split())
         if not compact:
             return [""]

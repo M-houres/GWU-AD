@@ -218,9 +218,10 @@ body::after {
 
 .aigc-page-head__divider {
   width: 100%;
-  height: 1px;
-  background: #d9d9d9;
-  margin: 2px 0 8px;
+  height: 3px;
+  border-radius: 999px;
+  background: #111111;
+  margin: 4px 0 12px;
 }
 
 .aigc-page-head__notice {
@@ -420,6 +421,95 @@ body::after {
 
 .aigc-platform-grid--inline {
   flex-wrap: nowrap;
+}
+
+.aigc-platform-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+}
+
+.aigc-official-links {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.aigc-official-links a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 30px;
+  padding: 0 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: #ffffff;
+  color: var(--primary);
+  font-size: 12px;
+  line-height: 1;
+}
+
+.aigc-group__title-row {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.aigc-group__title-row .aigc-group__title {
+  margin-bottom: 0;
+}
+
+.aigc-mode-switch {
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #111111;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.5;
+  text-decoration: none;
+}
+
+.aigc-mode-switch:hover {
+  text-decoration: underline;
+}
+
+.aigc-snippet-workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 12px;
+}
+
+.aigc-snippet-pane {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px;
+  background: #ffffff;
+}
+
+.aigc-snippet-pane h4 {
+  margin: 0 0 8px;
+  font-size: 13px;
+  color: var(--text-main);
+}
+
+.aigc-input--snippet {
+  min-height: 180px;
+  height: auto;
+  resize: vertical;
+  padding: 10px 12px;
+}
+
+.aigc-snippet-actions {
+  margin-top: 8px;
+  display: flex;
+  justify-content: flex-start;
 }
 
 .aigc-platform-card {
@@ -981,6 +1071,19 @@ textarea + .aigc-counter {
 
   .aigc-platform-grid--inline {
     flex-wrap: wrap;
+  }
+
+  .aigc-platform-row {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .aigc-official-links {
+    justify-content: flex-start;
+  }
+
+  .aigc-snippet-workspace {
+    grid-template-columns: 1fr;
   }
 
   .aigc-platform-card {

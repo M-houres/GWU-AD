@@ -372,6 +372,156 @@ def test_save_local_mock_llm_config_without_api_key(
     assert readiness["status"] == "ready"
 
 
+def test_save_rewrite_strategy_config_and_readiness(
+    client: TestClient,
+    admin_override,
+) -> None:
+    resp = client.post(
+        "/api/v1/admin/configs/rewrite_strategy",
+        json={
+            "cnki": {"rewrite": {"enabled": True, "active_strategy": "llm"}},
+            "vip": {"rewrite": {"enabled": False, "active_strategy": "algorithm"}},
+        },
+    )
+    assert resp.status_code == 200
+    value = resp.json()["data"]["value"]
+    assert value["cnki"]["rewrite"]["enabled"] is True
+    assert value["cnki"]["rewrite"]["active_strategy"] == "llm"
+    assert value["vip"]["rewrite"]["enabled"] is False
+
+    readiness = _readiness_item(client, "rewrite_strategy")
+    assert readiness["status"] == "ready"
+    assert "知网:大模型策略" in readiness["message"]
+    assert "维普:未启用" in readiness["message"]
+
+
+def test_save_dedup_strategy_config_and_readiness(
+    client: TestClient,
+    admin_override,
+) -> None:
+    resp = client.post(
+        "/api/v1/admin/configs/dedup_strategy",
+        json={
+            "cnki": {"dedup": {"enabled": True, "active_strategy": "llm"}},
+            "vip": {"dedup": {"enabled": False, "active_strategy": "algorithm"}},
+        },
+    )
+    assert resp.status_code == 200
+    value = resp.json()["data"]["value"]
+    assert value["cnki"]["dedup"]["enabled"] is True
+    assert value["cnki"]["dedup"]["active_strategy"] == "llm"
+    assert value["vip"]["dedup"]["enabled"] is False
+
+    readiness = _readiness_item(client, "dedup_strategy")
+    assert readiness["status"] == "ready"
+    assert "知网:大模型策略" in readiness["message"]
+    assert "维普:未启用" in readiness["message"]
+
+
+def test_save_aigc_detect_strategy_config_and_readiness(
+    client: TestClient,
+    admin_override,
+) -> None:
+    resp = client.post(
+        "/api/v1/admin/configs/aigc_detect_strategy",
+        json={
+            "cnki": {"aigc_detect": {"enabled": True}},
+            "vip": {"aigc_detect": {"enabled": False}},
+        },
+    )
+    assert resp.status_code == 200
+    value = resp.json()["data"]["value"]
+    assert value["cnki"]["aigc_detect"]["enabled"] is True
+    assert value["vip"]["aigc_detect"]["enabled"] is False
+
+    readiness = _readiness_item(client, "aigc_detect_strategy")
+    assert readiness["status"] == "ready"
+    assert "知网:算法策略" in readiness["message"]
+    assert "维普:未启用" in readiness["message"]
+
+
+def test_aigc_detect_strategy_readiness_errors_when_all_platforms_disabled(
+    client: TestClient,
+    admin_override,
+) -> None:
+    resp = client.post(
+        "/api/v1/admin/configs/aigc_detect_strategy",
+        json={
+            "cnki": {"aigc_detect": {"enabled": False}},
+            "vip": {"aigc_detect": {"enabled": False}},
+        },
+    )
+    assert resp.status_code == 200
+
+    readiness = _readiness_item(client, "aigc_detect_strategy")
+    assert readiness["status"] == "error"
+    assert "均未启用" in readiness["message"]
+
+
+def test_dedup_strategy_rejects_unsupported_strategy(
+    client: TestClient,
+    admin_override,
+) -> None:
+    resp = client.post(
+        "/api/v1/admin/configs/dedup_strategy",
+        json={
+            "cnki": {"dedup": {"enabled": True, "active_strategy": "package"}},
+        },
+    )
+    assert resp.status_code == 400
+    assert "algorithm 或 llm" in resp.json()["message"]
+
+
+def test_dedup_strategy_readiness_errors_when_all_platforms_disabled(
+    client: TestClient,
+    admin_override,
+) -> None:
+    resp = client.post(
+        "/api/v1/admin/configs/dedup_strategy",
+        json={
+            "cnki": {"dedup": {"enabled": False, "active_strategy": "algorithm"}},
+            "vip": {"dedup": {"enabled": False, "active_strategy": "llm"}},
+        },
+    )
+    assert resp.status_code == 200
+
+    readiness = _readiness_item(client, "dedup_strategy")
+    assert readiness["status"] == "error"
+    assert "均未启用" in readiness["message"]
+
+
+def test_rewrite_strategy_rejects_unsupported_strategy(
+    client: TestClient,
+    admin_override,
+) -> None:
+    resp = client.post(
+        "/api/v1/admin/configs/rewrite_strategy",
+        json={
+            "cnki": {"rewrite": {"enabled": True, "active_strategy": "package"}},
+        },
+    )
+    assert resp.status_code == 400
+    assert "algorithm 或 llm" in resp.json()["message"]
+
+
+def test_rewrite_strategy_readiness_errors_when_all_platforms_disabled(
+    client: TestClient,
+    admin_override,
+) -> None:
+    resp = client.post(
+        "/api/v1/admin/configs/rewrite_strategy",
+        json={
+            "cnki": {"rewrite": {"enabled": False, "active_strategy": "algorithm"}},
+            "vip": {"rewrite": {"enabled": False, "active_strategy": "llm"}},
+        },
+    )
+    assert resp.status_code == 200
+
+    readiness = _readiness_item(client, "rewrite_strategy")
+    assert readiness["status"] == "error"
+    assert "均未启用" in readiness["message"]
+
+
 
 
 def test_login_readiness_warns_when_miniapp_login_fields_are_incomplete(

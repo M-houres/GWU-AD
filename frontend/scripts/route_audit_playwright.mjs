@@ -48,7 +48,6 @@ const ADMIN_ROUTES = [
   "/admin/users/1",
   "/admin/tasks",
   "/admin/orders",
-  "/admin/algo-packages",
   "/admin/referrals",
   "/admin/configs",
   "/admin/configs/notice",
@@ -383,4 +382,3 @@ main().catch((error) => {
   console.error(error);
   process.exitCode = 1;
 });
-

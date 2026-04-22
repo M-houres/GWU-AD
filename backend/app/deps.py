@@ -125,7 +125,6 @@ LEGACY_OPERATOR_DEFAULT_PERMISSIONS = {
     "orders:refund",
     "logs:view",
     "credits:view",
-    "algo:view",
 }
 
 
@@ -262,12 +261,8 @@ def normalize_admin_permissions(value) -> set[str]:
 
 def _expand_permission_compat(permissions: set[str]) -> set[str]:
     expanded = set(permissions)
-    # Backward compatibility:
-    # historical operator accounts often had config permissions but no algo permissions.
     if "configs:manage" in expanded:
-        expanded.update({"configs:view", "algo:view", "algo:manage"})
-    elif "configs:view" in expanded:
-        expanded.add("algo:view")
+        expanded.add("configs:view")
     return expanded
 
 

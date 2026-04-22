@@ -5,39 +5,7 @@ from app.deps import current_user
 from app.main import app
 from app.config import get_settings
 from app.models import CreditType, Task, TaskStatus, TaskType, User
-from app.services.algo_package_service import install_algorithm_package
 from app.services.credit_service import change_credits
-
-
-def _build_package_zip(*, platform: str, function_type: str) -> bytes:
-    import io
-    import json
-    import zipfile
-
-    manifest = {
-        "name": f"{function_type}_engine",
-        "version": "1.0.0",
-        "platform": platform,
-        "function_type": function_type,
-        "entry": "main.py",
-    }
-    buf = io.BytesIO()
-    with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_DEFLATED) as zf:
-        zf.writestr("manifest.json", json.dumps(manifest, ensure_ascii=False))
-        zf.writestr("main.py", "def process(text):\n    return {'text': str(text)}\n")
-    return buf.getvalue()
-
-
-def _activate_slot(db_session, *, platform: str, function_type: str) -> None:
-    install_algorithm_package(
-        db_session,
-        file_bytes=_build_package_zip(platform=platform, function_type=function_type),
-        platform=platform,
-        function_type=function_type,
-        uploaded_by=1,
-        activate_after_upload=True,
-    )
-    db_session.commit()
 
 
 def test_aigc_daily_free_quota_applies_to_first_six_submissions(
@@ -50,7 +18,6 @@ def test_aigc_daily_free_quota_applies_to_first_six_submissions(
     db_session.add(user)
     db_session.commit()
     db_session.refresh(user)
-    _activate_slot(db_session, platform="cnki", function_type="aigc_detect")
 
     monkeypatch.setattr("app.worker_tasks.process_task_async.delay", lambda *_args, **_kwargs: None)
     app.dependency_overrides[current_user] = lambda: user
