@@ -3,7 +3,7 @@ from __future__ import annotations
 from app.services.processing_text_tools import merge_short_sentences, soften_connective_prefixes, split_sentences
 from app.exceptions import BizError
 from app.models import Task, TaskType
-from app.services.rewrite_strategies.assets import CNKI_ASSETS, VIP_ASSETS
+from app.services.rewrite_strategies.assets import VIP_ASSETS
 from app.services.rewrite_strategies.config import STRATEGY_ALGORITHM, STRATEGY_LLM, get_active_rewrite_strategy
 from app.services.rewrite_strategies.rule_engine import apply_platform_rules
 from app.services.rewrite_strategies.validators import adjust_to_target_length
@@ -24,7 +24,7 @@ def execute_rewrite_strategy(
 
     strategy = get_active_rewrite_strategy(db, platform=normalized_platform)
     if normalized_platform == "cnki" and strategy == STRATEGY_ALGORITHM:
-        from app.services.rewrite_strategies.cnki_algorithm import rewrite
+        from app.services.rewrite_strategies.cnki_rule_rewrite import rewrite
     elif normalized_platform == "cnki" and strategy == STRATEGY_LLM:
         from app.services.rewrite_strategies.cnki_llm import rewrite
     elif normalized_platform == "vip" and strategy == STRATEGY_ALGORITHM:
@@ -135,20 +135,44 @@ def _build_algorithm_fallback_candidate(
     report_summary: dict,
     current_strategy: str,
 ) -> tuple[str, dict]:
-    assets = CNKI_ASSETS if platform == "cnki" else VIP_ASSETS
-    fallback_output, fallback_trace = apply_platform_rules(
-        db,
-        text=source_text,
-        assets=assets,
-        report_summary=report_summary or {},
-    )
-    if current_strategy == STRATEGY_LLM and fallback_output.strip():
-        refined_output, refined_trace = apply_platform_rules(
+    if platform == "cnki":
+        from app.services.rewrite_strategies.cnki_rule_rewrite import rewrite as cnki_rule_rewrite
+
+        fallback_result = cnki_rule_rewrite(
             db,
-            text=fallback_output,
+            task=task,
+            text=source_text,
+            report_summary=report_summary or {},
+        )
+        fallback_output = str(fallback_result.get("text") or "")
+        fallback_trace = dict(fallback_result.get("rule_trace") or {})
+    else:
+        assets = VIP_ASSETS
+        fallback_output, fallback_trace = apply_platform_rules(
+            db,
+            text=source_text,
             assets=assets,
             report_summary=report_summary or {},
         )
+    if current_strategy == STRATEGY_LLM and fallback_output.strip():
+        if platform == "cnki":
+            from app.services.rewrite_strategies.cnki_rule_rewrite import rewrite as cnki_rule_rewrite
+
+            refined_result = cnki_rule_rewrite(
+                db,
+                task=task,
+                text=fallback_output,
+                report_summary=report_summary or {},
+            )
+            refined_output = str(refined_result.get("text") or "")
+            refined_trace = dict(refined_result.get("rule_trace") or {})
+        else:
+            refined_output, refined_trace = apply_platform_rules(
+                db,
+                text=fallback_output,
+                assets=VIP_ASSETS,
+                report_summary=report_summary or {},
+            )
         if refined_output != fallback_output:
             fallback_output = refined_output
             fallback_trace = _merge_rule_trace(

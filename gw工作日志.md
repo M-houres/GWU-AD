@@ -6154,3 +6154,298 @@
   - 门户提现申请
   - 后台审核与标记打款
 - 本次未处理仓库内其他并行重构与脏文件，只收口返佣专项模块。
+## 121
+- 时间：2026-04-23 11:15:00
+- 目标：落实新知网降AIGC策略（1000组分层规则+分块+统一闸门+LLM双候选），并删除旧知网策略实现，保持后台双策略可选。
+
+- 本次处理
+1. 先清障并恢复策略口径
+   - 回滚此前“知网强制LLM”限制，恢复后台 `algorithm/llm` 双选可生效。
+   - 修改：
+     - `backend/app/services/rewrite_strategies/config.py`
+     - `backend/app/services/rewrite_strategies/executor.py`
+     - `frontend/src/lib/adminConfig.js`
+     - `frontend/src/views/admin/AdminConfigPage.vue`
+2. 新规则体系落地（知网）
+   - 规则库扩展到 1000 组（配额：L1=180, L2=420, L3=280, L5=120）。
+   - 规则分层字段落地：`layer/quality_tier/risk_level/forbidden_contexts`。
+   - 质量分级策略：默认仅激活 `S+A`，`B/C`灰度保留。
+   - 修改：`backend/app/services/rewrite_strategies/assets.py`
+3. 统一执行流程改造（LLM与算法共用）
+   - 新增语义分块：按 180~260 字分块处理，禁止整段硬改。
+   - 每块执行 L1→L5 顺序规则，按层限制改写密度；再做合并统一衔接。
+   - 结果 trace 新增：`chunk_count`、`active_quality_tiers`。
+   - 修改：`backend/app/services/rewrite_strategies/rule_engine.py`
+4. 知网策略重构
+   - LLM策略改为“2候选生成 + 统一质检择优 + 不达标回退算法候选”。
+   - 算法策略切换为新版统一规则引擎入口。
+   - 旧文件删除：`backend/app/services/rewrite_strategies/cnki_algorithm.py`
+   - 新文件新增：`backend/app/services/rewrite_strategies/cnki_rule_rewrite.py`
+   - 同步替换引用：
+     - `backend/app/services/rewrite_strategies/cnki_llm.py`
+     - `backend/app/services/rewrite_strategies/executor.py`
+5. 回归与稳定性修正
+   - 修复 dedup 受影响问题：为 `_apply_synonyms` 增加向后兼容默认参数，避免共用函数签名变更波及 dedup。
+   - 修复知网句法骨架回归：保护“从理论层面看/实践层面”短语不被L3名词替换破坏。
+6. 测试补充
+   - 新增/增强知网策略trace断言：`rule_pool_size>=1000`、`chunk_count`、`active_quality_tiers`。
+   - 修改：`backend/tests/test_processing_engine_results.py`
+
+- 验证
+1. 后端全量测试
+   - `cd backend && python -m pytest`
+   - 结果：`282 passed`
+2. 前端构建
+   - `cd frontend && npm run build`
+   - 结果：构建成功（vite build success）
+
+- 当前状态
+- 新知网策略已上线为可用实现：
+  - 1000组分层规则库（默认S/A激活）
+  - 长段落语义分块改写
+  - LLM双候选+统一质检+算法回退
+  - 算法与LLM共用同一规则执行与闸门体系
+- 旧知网策略文件已删除并完成引用替换。
+- 后台仍保留 `algorithm/llm` 双策略可选，符合当前运营要求。
+
+## 122
+- 时间：2026-04-23 16:40:00
+- 目标：将知网降AIGC率“算法+大模型”分块与每块改写数量参数改为后台可配置，并确保两条策略都生效。
+
+- 本次处理
+1. 重写策略配置扩展（后端）
+   - 在 `rewrite_strategy` 下新增 `runtime` 配置块，按平台存储：
+     - `chunk_min_chars`
+     - `chunk_max_chars`
+     - `algorithm_chunk_max_changes`
+     - `llm_short_chunk_max_changes`
+     - `llm_medium_chunk_max_changes`
+     - `llm_standard_chunk_max_changes`
+     - `llm_long_chunk_max_changes`
+     - `llm_xlong_chunk_max_changes`
+   - 加入归一化与边界收敛：
+     - 分块上下限保护
+     - `chunk_max_chars >= chunk_min_chars + 20`
+     - LLM五档预算单调递增
+   - 修改：`backend/app/services/rewrite_strategies/config.py`
+2. 算法策略接入 runtime（知网+维普）
+   - `cnki_rule_rewrite` 与 `vip_algorithm` 改为按 runtime 覆写 `chunk_min/chunk_max/chunk_max_changes` 后执行规则引擎。
+   - rule_trace 增加 `runtime` 回显，便于线上排查。
+   - 修改：
+     - `backend/app/services/rewrite_strategies/cnki_rule_rewrite.py`
+     - `backend/app/services/rewrite_strategies/vip_algorithm.py`
+3. 大模型策略接入 runtime（知网）
+   - LLM分块改写读取 runtime 分块阈值与五档预算上限。
+   - 每块预算按段长映射到 runtime 档位，不再写死常量。
+   - rule_trace 增加 `runtime` 回显。
+   - 修改：`backend/app/services/rewrite_strategies/cnki_llm.py`
+4. 后台页面可配置化（前端）
+   - 扩展 `rewrite_strategy` 默认配置与归一化逻辑，支持 `runtime` 入参与提交。
+   - 在后台“降AIGC率策略”页为知网/维普分别新增运行时参数输入区。
+   - 修改：
+     - `frontend/src/lib/adminConfig.js`
+     - `frontend/src/views/admin/AdminConfigPage.vue`
+5. 测试更新
+   - 扩展后台配置测试，验证 `rewrite_strategy.runtime` 可保存并按规则归一化。
+   - 修改：`backend/tests/test_admin_config_validation.py`
+
+- 验证
+1. 后端配置测试
+   - `cd backend && python -m pytest tests/test_admin_config_validation.py -k rewrite_strategy -q`
+   - 结果：`3 passed`
+2. 后端改写关键测试
+   - `cd backend && python -m pytest tests/test_processing_engine_results.py -k "cnki_llm_rewrite_uses_chunked_prompt_and_records_budget or rewrite_cnki_algorithm" -q`
+   - 结果：`5 passed`
+3. 维普算法回归测试
+   - `cd backend && python -m pytest tests/test_processing_engine_results.py -k "test_rewrite_vip_algorithm_uses_structural_rules_and_rule_trace or test_rewrite_vip_uses_configured_algorithm_strategy" -q`
+   - 结果：`2 passed`
+4. 前端构建
+   - `cd frontend && npm run build`
+   - 结果：构建成功
+
+- 当前状态
+- 知网降AIGC率算法与大模型策略都已可在后台配置：
+  - 分块大小
+  - 算法每块改写上限
+  - LLM按段长五档每块预算上限
+- 维普算法策略也已接入同一 runtime 配置结构，前后端口径一致。
+
+## 123
+- 时间：2026-04-23 19:10:00
+- 目标：把“知网降重复率”升级为与知网降AIGC率同级的新策略体系（算法+大模型单候选），并删除旧知网dedup策略实现。
+
+- 本次处理
+1. 知网 dedup 新算法入口落地
+   - 新增：`backend/app/services/dedup_strategies/cnki_rule_dedup.py`
+   - 执行逻辑：运行时参数注入 -> 规则引擎分块改写 -> 统一trace输出
+   - trace新增：`strategy_version=cnki_v3_rule_engine`、`rule_pool_size`、`runtime`
+2. dedup 规则引擎升级为分块执行
+   - 修改：`backend/app/services/dedup_strategies/rule_engine.py`
+   - 新增：语义分块（chunk_min/chunk_max）、块级改写、块合并与连接词协调
+   - trace新增：`chunk_count`
+3. 知网 dedup LLM 改造成单候选分块链路
+   - 修改：`backend/app/services/dedup_strategies/cnki_llm.py`
+   - 单候选（不再双候选）+ 分块提示 + 每块预算控制 + 预算偏离惩罚
+   - 统一质检：`validate_dedup_output`；不达标回退算法
+   - trace新增：`chunk_count`、`chunk_change_budget`、`chunk_budget_penalty`、`runtime`
+4. dedup 后台 runtime 可配置化
+   - 后端配置扩展：`backend/app/services/dedup_strategies/config.py`
+   - 新增 `runtime`：
+     - `chunk_min_chars / chunk_max_chars`
+     - `algorithm_chunk_max_changes`
+     - `llm_short/medium/standard/long/xlong_chunk_max_changes`
+   - 增加归一化与边界收敛（区间限制、chunk上下界关系、LLM档位单调）
+5. 前台后台配置页面同步
+   - 修改：
+     - `frontend/src/lib/adminConfig.js`
+     - `frontend/src/views/admin/AdminConfigPage.vue`
+   - dedup策略页新增运行时参数输入区，保存即生效
+6. 执行器与回退链路切换
+   - 修改：`backend/app/services/dedup_strategies/executor.py`
+   - `cnki + algorithm` 改为调用 `cnki_rule_dedup`
+   - fallback中的知网算法候选改为新入口
+7. 旧策略删除与测试适配
+   - 删除：`backend/app/services/dedup_strategies/cnki_algorithm.py`
+   - 测试猴子补丁路径改为新文件：
+     - `backend/tests/test_processing_engine_results.py`
+   - dedup配置测试补 runtime断言：
+     - `backend/tests/test_admin_config_validation.py`
+
+- 验证
+1. 后端配置测试
+   - `cd backend && python -m pytest tests/test_admin_config_validation.py -k "dedup_strategy" -q`
+   - 结果：`3 passed`
+2. 知网dedup关键回归
+   - `cd backend && python -m pytest tests/test_processing_engine_results.py -k "dedup_cnki_algorithm or dedup_cnki_llm or dedup_algorithm_empty_output" -q`
+   - 结果：`4 passed`
+3. 前端构建
+   - `cd frontend && npm run build`
+   - 结果：构建成功
+
+- 当前状态
+- 知网降重复率已完成新策略升级：
+  - 算法：分块规则引擎（可配置）
+  - 大模型：单候选分块改写 + 统一质检 + 算法回退
+- 旧知网dedup算法文件已删除，执行器与测试已切换到新入口。
+- dedup后台支持runtime调参，运营可直接改分块和每块改写上限。
+
+## 124
+- 时间：2026-04-23 20:10:00
+- 目标：统一“降AIGC率 / 降重复率 / AIGC检测”的下载文件名，并在前台任务记录中展示“原文件名 + 结果文件名”。
+
+- 本次处理
+1. 新增任务结果文件名生成工具
+   - 新增：`backend/app/services/task_filename.py`
+   - 按任务类型统一生成语义化结果名：
+     - 降AIGC率：`原名_降AIGC率结果.xxx`
+     - 降重复率：`原名_降重复率结果.xxx`
+     - AIGC检测：`原名_AIGC检测报告.pdf`
+   - 新增组合展示字段：`filename_pair = source_filename + result_filename`
+2. 后端任务返回结构补充双文件名
+   - 修改：`backend/app/services/task_response_builder.py`
+   - `submit/list/detail/recover` 全部补充：
+     - `result_filename`
+     - `filename_pair`
+3. 用户端 / 管理端下载接口统一返回新下载名
+   - 修改：
+     - `backend/app/api/tasks.py`
+     - `backend/app/api/admin.py`
+   - `FileResponse(filename=...)` 不再使用物理文件名，而是使用统一结果文件名
+4. 前台任务记录页展示双文件名
+   - 修改：
+     - `frontend/src/views/user/UserRewriteRecordsPage.vue`
+     - `frontend/src/views/user/UserDedupRecordsPage.vue`
+     - `frontend/src/views/user/UserDetectRecordsPage.vue`
+     - `frontend/src/views/user/UserProfilePage.vue`
+   - 新增展示：`文件名：原文件名 + 结果文件名`
+   - 下载回退名同步改为 `result_filename`
+5. 测试补充
+   - 修改：
+     - `backend/tests/test_task_response_builder.py`
+     - `backend/tests/test_admin_task_download.py`
+     - `backend/tests/test_user_task_download_and_batch_submit.py`
+   - 增加对返回字段与 `content-disposition` 下载文件名的断言
+
+- 验证
+1. 后端定向测试
+   - `cd backend && python -m pytest tests/test_task_response_builder.py tests/test_user_task_download_and_batch_submit.py tests/test_admin_task_download.py`
+   - 结果：`7 passed`
+2. 后端语法检查
+   - `cd backend && python -m py_compile app/services/task_filename.py app/services/task_response_builder.py app/api/tasks.py app/api/admin.py`
+   - 结果：通过
+3. 前端构建
+   - `cd frontend && npm run build`
+   - 结果：构建成功
+
+- 当前状态
+- 这三类任务的下载文件名已统一语义化，用户下载时不再看到 `task_xxx_result` 这类内部命名。
+- 前台任务记录与个人中心已可直接看到“原文件名 + 结果文件名”。
+
+## 125
+- 时间：2026-04-23 21:20:00
+- 目标：取消知网降AIGC率 / 降重复率策略中的“分块配额思路”，改成“全文命中即改”；LLM默认整文处理，仅在超长文本时做技术性切分。
+
+- 本次处理
+1. 重写算法规则引擎改为全文触发式改写
+   - 修改：`backend/app/services/rewrite_strategies/rule_engine.py`
+   - 去掉“按块循环 + 每块最多改几处”的执行方式
+   - 改为：
+     - 全文保护术语
+     - 全文同义替换命中即改
+     - 全文模板 / 句法 / 结构调整
+     - 全文连接词统一收口
+   - `applied_rules` 新增全局标记：`global:soften_connective_prefixes`
+2. 降重算法规则引擎同步改造
+   - 修改：`backend/app/services/dedup_strategies/rule_engine.py`
+   - 同样去掉块级改写配额，改为全文命中式执行
+3. 知网 LLM 改写链路改为“默认整文一次处理”
+   - 修改：
+     - `backend/app/services/rewrite_strategies/cnki_llm.py`
+     - `backend/app/services/dedup_strategies/cnki_llm.py`
+   - 默认：整文一次送入提示词
+   - 仅当文本超过 `llm_single_pass_max_chars`（默认 6000）时，才做技术性切分
+   - 删除每块：
+     - `chunk_min_changes`
+     - `chunk_max_changes`
+     - `chunk_change_budget`
+     - `chunk_budget_penalty`
+   - 新 trace 改为：
+     - `mode=llm_prompt_global / dedup_llm_prompt_global`
+     - 超长时：`*_technical_chunking`
+     - `technical_chunking`
+     - `single_pass_max_chars`
+4. v5 提示词头部改为“命中规则即改”
+   - 修改：`backend/app/services/cnki_v5_prompt.py`
+   - 删掉“本块改写预算：x-y处”
+   - 改成：
+     - `执行原则：命中规则即改（以句法骨架改写为主，词替换为辅），禁止机械扩写。`
+5. 配置兼容修复
+   - 修改：
+     - `backend/app/services/rewrite_strategies/config.py`
+     - `backend/app/services/dedup_strategies/config.py`
+   - 当离线评估链路传入 `db=None` 时，自动回落默认配置，避免策略评估报错
+6. 测试调整
+   - 修改：`backend/tests/test_processing_engine_results.py`
+   - 原“chunked_prompt + budget”断言改为“global_prompt”断言
+   - 补充对 `rule_pool_size / active_quality_tiers / chunk_count / technical_chunking` 的新口径检查
+
+- 验证
+1. 定向策略测试
+   - `cd backend && python -m pytest tests/test_processing_engine_results.py::test_cnki_llm_rewrite_uses_global_prompt_by_default tests/test_processing_engine_results.py::test_rewrite_cnki_algorithm_keeps_protected_terms_and_records_rule_trace tests/test_processing_engine_results.py::test_rewrite_rule_engine_cnki_applies_style_shaping_rules tests/test_processing_engine_results.py::test_llm_prompts_include_cross_discipline_constraints`
+   - 结果：`4 passed`
+2. 策略评估测试
+   - `cd backend && python -m pytest tests/test_strategy_slot_evaluation.py`
+   - 结果：`3 passed`
+3. 后端全量测试
+   - `cd backend && python -m pytest`
+   - 结果：`283 passed`
+4. 前端构建
+   - `cd frontend && npm run build`
+   - 结果：构建成功
+
+- 当前状态
+- 知网降AIGC率与知网降重复率的“分块配额”思路已从执行链路中移除。
+- 当前策略改为：
+  - 算法：全文命中即改
+  - 大模型：默认整文一次处理，超长仅做技术切分，不再限制“每块改多少处”
+- 代码已验证通过，剩余仅需在实际运行环境重启服务后即可在线测试新链路。

@@ -277,8 +277,32 @@ export const DEFAULT_PROMO_CENTER_CONFIG = {
 }
 
 export const DEFAULT_REWRITE_STRATEGY_CONFIG = {
-  cnki: { rewrite: { enabled: true, active_strategy: "algorithm" } },
-  vip: { rewrite: { enabled: true, active_strategy: "algorithm" } },
+  cnki: {
+    rewrite: { enabled: true, active_strategy: "algorithm" },
+    runtime: {
+      chunk_min_chars: 180,
+      chunk_max_chars: 260,
+      algorithm_chunk_max_changes: 6,
+      llm_short_chunk_max_changes: 2,
+      llm_medium_chunk_max_changes: 3,
+      llm_standard_chunk_max_changes: 4,
+      llm_long_chunk_max_changes: 5,
+      llm_xlong_chunk_max_changes: 6,
+    },
+  },
+  vip: {
+    rewrite: { enabled: true, active_strategy: "algorithm" },
+    runtime: {
+      chunk_min_chars: 180,
+      chunk_max_chars: 260,
+      algorithm_chunk_max_changes: 6,
+      llm_short_chunk_max_changes: 2,
+      llm_medium_chunk_max_changes: 3,
+      llm_standard_chunk_max_changes: 4,
+      llm_long_chunk_max_changes: 5,
+      llm_xlong_chunk_max_changes: 6,
+    },
+  },
 }
 
 export const DEFAULT_AIGC_DETECT_STRATEGY_CONFIG = {
@@ -287,8 +311,32 @@ export const DEFAULT_AIGC_DETECT_STRATEGY_CONFIG = {
 }
 
 export const DEFAULT_DEDUP_STRATEGY_CONFIG = {
-  cnki: { dedup: { enabled: true, active_strategy: "algorithm" } },
-  vip: { dedup: { enabled: true, active_strategy: "algorithm" } },
+  cnki: {
+    dedup: { enabled: true, active_strategy: "algorithm" },
+    runtime: {
+      chunk_min_chars: 180,
+      chunk_max_chars: 260,
+      algorithm_chunk_max_changes: 6,
+      llm_short_chunk_max_changes: 2,
+      llm_medium_chunk_max_changes: 3,
+      llm_standard_chunk_max_changes: 4,
+      llm_long_chunk_max_changes: 5,
+      llm_xlong_chunk_max_changes: 6,
+    },
+  },
+  vip: {
+    dedup: { enabled: true, active_strategy: "algorithm" },
+    runtime: {
+      chunk_min_chars: 180,
+      chunk_max_chars: 260,
+      algorithm_chunk_max_changes: 6,
+      llm_short_chunk_max_changes: 2,
+      llm_medium_chunk_max_changes: 3,
+      llm_standard_chunk_max_changes: 4,
+      llm_long_chunk_max_changes: 5,
+      llm_xlong_chunk_max_changes: 6,
+    },
+  },
 }
 
 export const AIGC_DETECT_STRATEGY_PLATFORMS = [
@@ -312,7 +360,7 @@ export const DEDUP_STRATEGY_OPTIONS = [
 ]
 
 export const REWRITE_STRATEGY_OPTIONS = [
-  { value: "algorithm", label: "算法策略" },
+  { value: "algorithm", label: "算法策略（推荐）" },
   { value: "llm", label: "大模型策略" },
 ]
 
@@ -404,21 +452,40 @@ function clampAdminInt(value, fallback, min, max) {
 export function normalizeRewriteStrategyConfig(raw = {}) {
   const source = raw && typeof raw === "object" ? raw : {}
   return {
-    cnki: normalizeRewriteStrategyEntry(source.cnki, DEFAULT_REWRITE_STRATEGY_CONFIG.cnki),
-    vip: normalizeRewriteStrategyEntry(source.vip, DEFAULT_REWRITE_STRATEGY_CONFIG.vip),
+    cnki: normalizeRewriteStrategyEntry(source.cnki, DEFAULT_REWRITE_STRATEGY_CONFIG.cnki, "cnki"),
+    vip: normalizeRewriteStrategyEntry(source.vip, DEFAULT_REWRITE_STRATEGY_CONFIG.vip, "vip"),
   }
 }
 
-export function normalizeRewriteStrategyEntry(raw, fallback) {
+export function normalizeRewriteStrategyEntry(raw, fallback, platform = "") {
   const source = raw && typeof raw === "object" ? raw : {}
   const rewrite = source.rewrite && typeof source.rewrite === "object" ? source.rewrite : {}
+  const runtime = source.runtime && typeof source.runtime === "object" ? source.runtime : {}
   const defaultRewrite = fallback?.rewrite || DEFAULT_REWRITE_STRATEGY_CONFIG.cnki.rewrite
+  const defaultRuntime = fallback?.runtime || DEFAULT_REWRITE_STRATEGY_CONFIG.cnki.runtime
   const strategy = String(rewrite.active_strategy || defaultRewrite.active_strategy || "algorithm").trim().toLowerCase()
+  const resolvedStrategy = strategy === "llm" ? "llm" : "algorithm"
+  const normalizedRuntime = {
+    chunk_min_chars: clampAdminInt(runtime.chunk_min_chars, Number(defaultRuntime.chunk_min_chars) || 180, 80, 1200),
+    chunk_max_chars: clampAdminInt(runtime.chunk_max_chars, Number(defaultRuntime.chunk_max_chars) || 260, 100, 1600),
+    algorithm_chunk_max_changes: clampAdminInt(runtime.algorithm_chunk_max_changes, Number(defaultRuntime.algorithm_chunk_max_changes) || 6, 1, 20),
+    llm_short_chunk_max_changes: clampAdminInt(runtime.llm_short_chunk_max_changes, Number(defaultRuntime.llm_short_chunk_max_changes) || 2, 1, 20),
+    llm_medium_chunk_max_changes: clampAdminInt(runtime.llm_medium_chunk_max_changes, Number(defaultRuntime.llm_medium_chunk_max_changes) || 3, 1, 20),
+    llm_standard_chunk_max_changes: clampAdminInt(runtime.llm_standard_chunk_max_changes, Number(defaultRuntime.llm_standard_chunk_max_changes) || 4, 1, 20),
+    llm_long_chunk_max_changes: clampAdminInt(runtime.llm_long_chunk_max_changes, Number(defaultRuntime.llm_long_chunk_max_changes) || 5, 1, 20),
+    llm_xlong_chunk_max_changes: clampAdminInt(runtime.llm_xlong_chunk_max_changes, Number(defaultRuntime.llm_xlong_chunk_max_changes) || 6, 1, 20),
+  }
+  normalizedRuntime.chunk_max_chars = Math.max(normalizedRuntime.chunk_max_chars, normalizedRuntime.chunk_min_chars + 20)
+  normalizedRuntime.llm_medium_chunk_max_changes = Math.max(normalizedRuntime.llm_medium_chunk_max_changes, normalizedRuntime.llm_short_chunk_max_changes)
+  normalizedRuntime.llm_standard_chunk_max_changes = Math.max(normalizedRuntime.llm_standard_chunk_max_changes, normalizedRuntime.llm_medium_chunk_max_changes)
+  normalizedRuntime.llm_long_chunk_max_changes = Math.max(normalizedRuntime.llm_long_chunk_max_changes, normalizedRuntime.llm_standard_chunk_max_changes)
+  normalizedRuntime.llm_xlong_chunk_max_changes = Math.max(normalizedRuntime.llm_xlong_chunk_max_changes, normalizedRuntime.llm_long_chunk_max_changes)
   return {
     rewrite: {
       enabled: rewrite.enabled !== undefined ? rewrite.enabled === true : defaultRewrite.enabled !== false,
-      active_strategy: strategy === "llm" ? "llm" : "algorithm",
+      active_strategy: resolvedStrategy,
     },
+    runtime: normalizedRuntime,
   }
 }
 
@@ -433,13 +500,31 @@ export function normalizeDedupStrategyConfig(raw = {}) {
 export function normalizeDedupStrategyEntry(raw, fallback) {
   const source = raw && typeof raw === "object" ? raw : {}
   const dedup = source.dedup && typeof source.dedup === "object" ? source.dedup : {}
+  const runtime = source.runtime && typeof source.runtime === "object" ? source.runtime : {}
   const defaultDedup = fallback?.dedup || DEFAULT_DEDUP_STRATEGY_CONFIG.cnki.dedup
+  const defaultRuntime = fallback?.runtime || DEFAULT_DEDUP_STRATEGY_CONFIG.cnki.runtime
   const strategy = String(dedup.active_strategy || defaultDedup.active_strategy || "algorithm").trim().toLowerCase()
+  const normalizedRuntime = {
+    chunk_min_chars: clampAdminInt(runtime.chunk_min_chars, Number(defaultRuntime.chunk_min_chars) || 180, 80, 1200),
+    chunk_max_chars: clampAdminInt(runtime.chunk_max_chars, Number(defaultRuntime.chunk_max_chars) || 260, 100, 1600),
+    algorithm_chunk_max_changes: clampAdminInt(runtime.algorithm_chunk_max_changes, Number(defaultRuntime.algorithm_chunk_max_changes) || 6, 1, 20),
+    llm_short_chunk_max_changes: clampAdminInt(runtime.llm_short_chunk_max_changes, Number(defaultRuntime.llm_short_chunk_max_changes) || 2, 1, 20),
+    llm_medium_chunk_max_changes: clampAdminInt(runtime.llm_medium_chunk_max_changes, Number(defaultRuntime.llm_medium_chunk_max_changes) || 3, 1, 20),
+    llm_standard_chunk_max_changes: clampAdminInt(runtime.llm_standard_chunk_max_changes, Number(defaultRuntime.llm_standard_chunk_max_changes) || 4, 1, 20),
+    llm_long_chunk_max_changes: clampAdminInt(runtime.llm_long_chunk_max_changes, Number(defaultRuntime.llm_long_chunk_max_changes) || 5, 1, 20),
+    llm_xlong_chunk_max_changes: clampAdminInt(runtime.llm_xlong_chunk_max_changes, Number(defaultRuntime.llm_xlong_chunk_max_changes) || 6, 1, 20),
+  }
+  normalizedRuntime.chunk_max_chars = Math.max(normalizedRuntime.chunk_max_chars, normalizedRuntime.chunk_min_chars + 20)
+  normalizedRuntime.llm_medium_chunk_max_changes = Math.max(normalizedRuntime.llm_medium_chunk_max_changes, normalizedRuntime.llm_short_chunk_max_changes)
+  normalizedRuntime.llm_standard_chunk_max_changes = Math.max(normalizedRuntime.llm_standard_chunk_max_changes, normalizedRuntime.llm_medium_chunk_max_changes)
+  normalizedRuntime.llm_long_chunk_max_changes = Math.max(normalizedRuntime.llm_long_chunk_max_changes, normalizedRuntime.llm_standard_chunk_max_changes)
+  normalizedRuntime.llm_xlong_chunk_max_changes = Math.max(normalizedRuntime.llm_xlong_chunk_max_changes, normalizedRuntime.llm_long_chunk_max_changes)
   return {
     dedup: {
       enabled: dedup.enabled !== undefined ? dedup.enabled === true : defaultDedup.enabled !== false,
       active_strategy: strategy === "llm" ? "llm" : "algorithm",
     },
+    runtime: normalizedRuntime,
   }
 }
 
@@ -463,10 +548,10 @@ export function normalizeAigcDetectStrategyEntry(raw, fallback) {
 }
 
 export function strategyDescription(strategy) {
-  if (String(strategy || "").trim().toLowerCase() === "llm") {
-    return "走专用大模型 prompt，适合语义重组更强的场景，同时依赖 LLM 配置可用。"
+  if (String(strategy || "").trim().toLowerCase() === "algorithm") {
+    return "走新版统一规则引擎（1000词对分层 + 质量闸门 + 分块改写），默认启用。"
   }
-  return "走内置规则算法，适合先建立稳定、可控、低复杂度的 MVP 处理链。"
+  return "走大模型改写链路，生成多候选后走同一质检闸门，不达标回退算法策略。"
 }
 
 export function resolvePaymentNotifyPreview(paymentForm) {

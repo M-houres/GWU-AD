@@ -4,7 +4,7 @@ from app.exceptions import BizError
 from app.models import Task, TaskType
 from app.services.processing_text_tools import merge_short_sentences, soften_connective_prefixes, split_long_sentences
 from app.services.strategy_style_profiles import dedup_style_profile
-from app.services.dedup_strategies.assets import CNKI_DEDUP_ASSETS, VIP_DEDUP_ASSETS
+from app.services.dedup_strategies.assets import VIP_DEDUP_ASSETS
 from app.services.dedup_strategies.rule_engine import apply_dedup_rules
 from app.services.dedup_strategies.validators import validate_dedup_output
 
@@ -133,7 +133,7 @@ def execute_dedup_strategy(
         raise BizError(code=4116, message="不支持的平台")
 
     if normalized_platform == "cnki" and normalized_strategy == STRATEGY_ALGORITHM:
-        from app.services.dedup_strategies.cnki_algorithm import rewrite
+        from app.services.dedup_strategies.cnki_rule_dedup import rewrite
     elif normalized_platform == "cnki" and normalized_strategy == STRATEGY_LLM:
         from app.services.dedup_strategies.cnki_llm import rewrite
     elif normalized_platform == "vip" and normalized_strategy == STRATEGY_ALGORITHM:
@@ -251,13 +251,24 @@ def _build_algorithm_fallback_candidate(
     report_summary: dict,
     current_strategy: str,
 ) -> tuple[str, dict]:
-    assets = CNKI_DEDUP_ASSETS if platform == "cnki" else VIP_DEDUP_ASSETS
-    fallback_output, fallback_trace = apply_dedup_rules(
-        db,
-        text=source_text,
-        assets=assets,
-        report_summary=report_summary or {},
-    )
+    if platform == "cnki":
+        from app.services.dedup_strategies.cnki_rule_dedup import rewrite as cnki_rule_dedup
+
+        fallback_result = cnki_rule_dedup(
+            db,
+            task=task,
+            text=source_text,
+            report_summary=report_summary or {},
+        )
+        fallback_output = str(fallback_result.get("text") or "")
+        fallback_trace = dict(fallback_result.get("rule_trace") or {})
+    else:
+        fallback_output, fallback_trace = apply_dedup_rules(
+            db,
+            text=source_text,
+            assets=VIP_DEDUP_ASSETS,
+            report_summary=report_summary or {},
+        )
     if str(fallback_trace.get("mode") or "") in {"dedup_rule_engine", ""}:
         fallback_output, style_trace = _style_normalize_dedup_output(
             platform=platform,

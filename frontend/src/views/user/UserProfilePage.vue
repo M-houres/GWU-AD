@@ -93,7 +93,10 @@
                     <tbody>
                       <tr v-for="item in pagedTasks" :key="item.id">
                         <td>{{ item.id }}</td>
-                        <td>{{ taskLabel(item) }}</td>
+                        <td>
+                          <div>{{ taskLabel(item) }}</div>
+                          <div class="profile-file-pair">{{ taskFilenamePair(item) }}</div>
+                        </td>
                         <td>{{ mapTaskType(item.task_type) }}</td>
                         <td>{{ mapPlatform(item.platform, item.task_type) }}</td>
                         <td><span class="scholar-badge" :class="statusClass(item.status)">{{ mapStatus(item.status) }}</span></td>
@@ -103,7 +106,7 @@
                         <td>
                           <div class="scholar-inline-actions">
                             <button class="scholar-button scholar-button--secondary" type="button" @click="openResult(item)">查看</button>
-                            <button class="scholar-button" type="button" :disabled="item.status !== 'completed'" @click="download(item.id)">下载</button>
+                            <button class="scholar-button" type="button" :disabled="item.status !== 'completed'" @click="download(item)">下载</button>
                           </div>
                         </td>
                       </tr>
@@ -117,6 +120,7 @@
                       <div>
                         <div class="profile-mobile-card__eyebrow">任务 #{{ item.id }}</div>
                         <strong class="profile-mobile-card__title">{{ taskLabel(item) }}</strong>
+                        <div class="profile-file-pair">{{ taskFilenamePair(item) }}</div>
                       </div>
                       <span class="scholar-badge" :class="statusClass(item.status)">{{ mapStatus(item.status) }}</span>
                     </div>
@@ -129,7 +133,7 @@
                     </div>
                     <div class="profile-mobile-actions">
                       <button class="scholar-button scholar-button--secondary" type="button" @click="openResult(item)">查看</button>
-                      <button class="scholar-button" type="button" :disabled="item.status !== 'completed'" @click="download(item.id)">下载</button>
+                      <button class="scholar-button" type="button" :disabled="item.status !== 'completed'" @click="download(item)">下载</button>
                     </div>
                   </article>
                   <div v-if="pagedTasks.length === 0" class="scholar-empty">暂无任务记录</div>
@@ -238,7 +242,7 @@
               </div>
             </section>
             <div class="scholar-inline-actions" style="margin-top: 18px">
-              <button class="scholar-button" type="button" :disabled="selectedTask.status !== 'completed'" @click="download(selectedTask.id)">下载结果文件</button>
+              <button class="scholar-button" type="button" :disabled="selectedTask.status !== 'completed'" @click="download(selectedTask)">下载结果文件</button>
               <button class="scholar-button scholar-button--secondary" type="button" @click="closeResult">返回列表</button>
             </div>
           </div>
@@ -371,14 +375,23 @@ function closeResult() {
   selectedTask.value = null
 }
 
-async function download(taskId) {
+async function download(taskOrId) {
+  const taskId = Number(typeof taskOrId === "object" ? taskOrId?.id : taskOrId)
+  if (!taskId) return
   if (!ensureUserLogin(router, route, "/app/profile?tab=history")) return
   const resp = await userHttp.get(`/tasks/${taskId}/download`, { responseType: "blob" })
-  downloadAxiosBlobResponse(resp, `task_${taskId}_result`)
+  const task = typeof taskOrId === "object" ? taskOrId : tasks.value.find((item) => item.id === taskId)
+  downloadAxiosBlobResponse(resp, task?.result_filename || `task_${taskId}_result`)
 }
 
 function taskLabel(item) {
   return String(item?.result_json?.paper_title || "").trim() || item?.source_filename || `任务 #${item?.id}`
+}
+
+function taskFilenamePair(item) {
+  const sourceName = String(item?.source_filename || "-").trim() || "-"
+  const resultName = String(item?.result_filename || "").trim() || `task_${item?.id || ""}_result`
+  return `${sourceName} + ${resultName}`
 }
 
 function mapCreditType(type) {
@@ -497,6 +510,7 @@ function goLogin() {
 .profile-feedback{margin:10px 0 0;font-size:13px}
 .profile-feedback.is-success{color:#106c4f}
 .profile-feedback.is-error{color:#b24439}
+.profile-file-pair{margin-top:4px;font-size:12px;line-height:1.5;color:#5a6773;word-break:break-all}
 .profile-list{display:grid;gap:12px}
 .profile-list__item{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:12px 0;border-bottom:1px solid rgba(17,17,17,.06)}
 .profile-list__item:last-child{border-bottom:0;padding-bottom:0}

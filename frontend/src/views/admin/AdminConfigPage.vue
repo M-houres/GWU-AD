@@ -269,6 +269,49 @@
                     当前说明：{{ strategyDescription(forms.dedup_strategy[platform.key].dedup.active_strategy) }}
                   </div>
                 </div>
+
+                <div class="mt-4 rounded-2xl border border-[#dce4eb] bg-[#fbfcfd] p-3">
+                  <div class="text-sm font-semibold text-[#1f2c35]">运行时参数（算法 + 大模型共用）</div>
+                  <div class="mt-1 text-xs leading-5 text-[#5f6d79]">修改后立即影响该平台降重复率处理：分块大小、算法每块改写上限、LLM每块改写预算上限。</div>
+                  <div class="mt-3 grid gap-3 md:grid-cols-2">
+                    <label class="space-y-1 text-sm">
+                      <span>分块最小字数</span>
+                      <input v-model.number="forms.dedup_strategy[platform.key].runtime.chunk_min_chars" type="number" min="80" max="1200" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" />
+                    </label>
+                    <label class="space-y-1 text-sm">
+                      <span>分块最大字数</span>
+                      <input v-model.number="forms.dedup_strategy[platform.key].runtime.chunk_max_chars" type="number" min="100" max="1600" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" />
+                    </label>
+                    <label class="space-y-1 text-sm">
+                      <span>算法每块最大改写数</span>
+                      <input v-model.number="forms.dedup_strategy[platform.key].runtime.algorithm_chunk_max_changes" type="number" min="1" max="20" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" />
+                    </label>
+                    <div class="rounded-xl border border-[#dce4eb] bg-white px-3 py-3 text-xs leading-5 text-[#5f6d79]">
+                      LLM 每块预算上限会按段长分档：
+                      ≤120、121-200、201-260、261-360、>360。
+                    </div>
+                    <label class="space-y-1 text-sm">
+                      <span>LLM ≤120字 每块上限</span>
+                      <input v-model.number="forms.dedup_strategy[platform.key].runtime.llm_short_chunk_max_changes" type="number" min="1" max="20" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" />
+                    </label>
+                    <label class="space-y-1 text-sm">
+                      <span>LLM 121-200字 每块上限</span>
+                      <input v-model.number="forms.dedup_strategy[platform.key].runtime.llm_medium_chunk_max_changes" type="number" min="1" max="20" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" />
+                    </label>
+                    <label class="space-y-1 text-sm">
+                      <span>LLM 201-260字 每块上限</span>
+                      <input v-model.number="forms.dedup_strategy[platform.key].runtime.llm_standard_chunk_max_changes" type="number" min="1" max="20" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" />
+                    </label>
+                    <label class="space-y-1 text-sm">
+                      <span>LLM 261-360字 每块上限</span>
+                      <input v-model.number="forms.dedup_strategy[platform.key].runtime.llm_long_chunk_max_changes" type="number" min="1" max="20" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" />
+                    </label>
+                    <label class="space-y-1 text-sm md:col-span-2">
+                      <span>LLM >360字 每块上限</span>
+                      <input v-model.number="forms.dedup_strategy[platform.key].runtime.llm_xlong_chunk_max_changes" type="number" min="1" max="20" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" />
+                    </label>
+                  </div>
+                </div>
               </article>
             </section>
           </template>
@@ -318,6 +361,49 @@
                   </label>
                   <div class="rounded-xl border border-[#dce4eb] bg-[#fbfcfd] px-3 py-3 text-sm leading-6 text-[#4f5d69]">
                     当前说明：{{ strategyDescription(forms.rewrite_strategy[platform.key].rewrite.active_strategy) }}
+                  </div>
+                </div>
+
+                <div class="mt-4 rounded-2xl border border-[#dce4eb] bg-[#fbfcfd] p-3">
+                  <div class="text-sm font-semibold text-[#1f2c35]">运行时参数（算法 + 大模型共用）</div>
+                  <div class="mt-1 text-xs leading-5 text-[#5f6d79]">修改后立即影响该平台降AIGC处理：分块大小、算法每块改写上限、LLM每块改写预算上限。</div>
+                  <div class="mt-3 grid gap-3 md:grid-cols-2">
+                    <label class="space-y-1 text-sm">
+                      <span>分块最小字数</span>
+                      <input v-model.number="forms.rewrite_strategy[platform.key].runtime.chunk_min_chars" type="number" min="80" max="1200" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" />
+                    </label>
+                    <label class="space-y-1 text-sm">
+                      <span>分块最大字数</span>
+                      <input v-model.number="forms.rewrite_strategy[platform.key].runtime.chunk_max_chars" type="number" min="100" max="1600" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" />
+                    </label>
+                    <label class="space-y-1 text-sm">
+                      <span>算法每块最大改写数</span>
+                      <input v-model.number="forms.rewrite_strategy[platform.key].runtime.algorithm_chunk_max_changes" type="number" min="1" max="20" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" />
+                    </label>
+                    <div class="rounded-xl border border-[#dce4eb] bg-white px-3 py-3 text-xs leading-5 text-[#5f6d79]">
+                      LLM 每块预算上限会按段长分档：
+                      ≤120、121-200、201-260、261-360、>360。
+                    </div>
+                    <label class="space-y-1 text-sm">
+                      <span>LLM ≤120字 每块上限</span>
+                      <input v-model.number="forms.rewrite_strategy[platform.key].runtime.llm_short_chunk_max_changes" type="number" min="1" max="20" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" />
+                    </label>
+                    <label class="space-y-1 text-sm">
+                      <span>LLM 121-200字 每块上限</span>
+                      <input v-model.number="forms.rewrite_strategy[platform.key].runtime.llm_medium_chunk_max_changes" type="number" min="1" max="20" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" />
+                    </label>
+                    <label class="space-y-1 text-sm">
+                      <span>LLM 201-260字 每块上限</span>
+                      <input v-model.number="forms.rewrite_strategy[platform.key].runtime.llm_standard_chunk_max_changes" type="number" min="1" max="20" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" />
+                    </label>
+                    <label class="space-y-1 text-sm">
+                      <span>LLM 261-360字 每块上限</span>
+                      <input v-model.number="forms.rewrite_strategy[platform.key].runtime.llm_long_chunk_max_changes" type="number" min="1" max="20" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" />
+                    </label>
+                    <label class="space-y-1 text-sm md:col-span-2">
+                      <span>LLM >360字 每块上限</span>
+                      <input v-model.number="forms.rewrite_strategy[platform.key].runtime.llm_xlong_chunk_max_changes" type="number" min="1" max="20" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" />
+                    </label>
                   </div>
                 </div>
               </article>

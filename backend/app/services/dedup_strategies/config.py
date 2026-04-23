@@ -14,20 +14,52 @@ STRATEGY_LLM = "llm"
 SUPPORTED_DEDUP_PLATFORMS = ("cnki", "vip")
 SUPPORTED_DEDUP_STRATEGIES = {STRATEGY_ALGORITHM, STRATEGY_LLM}
 
+DEFAULT_DEDUP_RUNTIME_CONFIG: dict[str, int] = {
+    "chunk_min_chars": 180,
+    "chunk_max_chars": 260,
+    "algorithm_chunk_max_changes": 6,
+    "llm_short_chunk_max_changes": 2,
+    "llm_medium_chunk_max_changes": 3,
+    "llm_standard_chunk_max_changes": 4,
+    "llm_long_chunk_max_changes": 5,
+    "llm_xlong_chunk_max_changes": 6,
+}
+
 DEFAULT_DEDUP_STRATEGY_CONFIG: dict[str, Any] = {
     "cnki": {
         "dedup": {
             "enabled": True,
             "active_strategy": STRATEGY_ALGORITHM,
-        }
+        },
+        "runtime": deepcopy(DEFAULT_DEDUP_RUNTIME_CONFIG),
     },
     "vip": {
         "dedup": {
             "enabled": True,
             "active_strategy": STRATEGY_ALGORITHM,
-        }
+        },
+        "runtime": deepcopy(DEFAULT_DEDUP_RUNTIME_CONFIG),
     },
 }
+
+_RUNTIME_BOUNDS: dict[str, tuple[int, int]] = {
+    "chunk_min_chars": (80, 1200),
+    "chunk_max_chars": (100, 1600),
+    "algorithm_chunk_max_changes": (1, 20),
+    "llm_short_chunk_max_changes": (1, 20),
+    "llm_medium_chunk_max_changes": (1, 20),
+    "llm_standard_chunk_max_changes": (1, 20),
+    "llm_long_chunk_max_changes": (1, 20),
+    "llm_xlong_chunk_max_changes": (1, 20),
+}
+
+_LLM_CHUNK_KEYS: tuple[str, ...] = (
+    "llm_short_chunk_max_changes",
+    "llm_medium_chunk_max_changes",
+    "llm_standard_chunk_max_changes",
+    "llm_long_chunk_max_changes",
+    "llm_xlong_chunk_max_changes",
+)
 
 
 def normalize_strategy_name(raw: Any) -> str:
@@ -39,6 +71,34 @@ def normalize_strategy_name(raw: Any) -> str:
     if value in SUPPORTED_DEDUP_STRATEGIES:
         return value
     raise BizError(code=4341, message="降重复率策略仅支持 algorithm 或 llm")
+
+
+def _as_runtime_int(raw: Any, *, field: str, fallback: int) -> int:
+    minimum, maximum = _RUNTIME_BOUNDS[field]
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        value = int(fallback)
+    return max(minimum, min(maximum, value))
+
+
+def normalize_dedup_runtime_config(raw: dict | None, *, fallback: dict | None = None) -> dict[str, int]:
+    source = raw if isinstance(raw, dict) else {}
+    base = fallback if isinstance(fallback, dict) else DEFAULT_DEDUP_RUNTIME_CONFIG
+    result = {
+        key: _as_runtime_int(
+            source.get(key, base.get(key, DEFAULT_DEDUP_RUNTIME_CONFIG[key])),
+            field=key,
+            fallback=base.get(key, DEFAULT_DEDUP_RUNTIME_CONFIG[key]),
+        )
+        for key in DEFAULT_DEDUP_RUNTIME_CONFIG.keys()
+    }
+    result["chunk_max_chars"] = max(result["chunk_max_chars"], result["chunk_min_chars"] + 20)
+    previous = 1
+    for key in _LLM_CHUNK_KEYS:
+        result[key] = max(previous, result[key])
+        previous = result[key]
+    return result
 
 
 def normalize_dedup_strategy_config(raw: dict | None) -> dict[str, Any]:
@@ -55,10 +115,22 @@ def normalize_dedup_strategy_config(raw: dict | None) -> dict[str, Any]:
         result[platform]["dedup"]["active_strategy"] = normalize_strategy_name(
             dedup_source.get("active_strategy", result[platform]["dedup"]["active_strategy"])
         )
+        runtime_source = platform_source.get("runtime")
+        result[platform]["runtime"] = normalize_dedup_runtime_config(
+            runtime_source,
+            fallback=result[platform].get("runtime"),
+        )
+    for platform in SUPPORTED_DEDUP_PLATFORMS:
+        result[platform]["runtime"] = normalize_dedup_runtime_config(
+            result[platform].get("runtime"),
+            fallback=DEFAULT_DEDUP_RUNTIME_CONFIG,
+        )
     return result
 
 
 def load_dedup_strategy_config(db: Session) -> dict[str, Any]:
+    if db is None:
+        return normalize_dedup_strategy_config({})
     row = (
         db.query(SystemConfig)
         .filter(SystemConfig.category == "system", SystemConfig.config_key == CONFIG_KEY)
@@ -77,6 +149,16 @@ def get_active_dedup_strategy(db: Session, *, platform: str) -> str:
     if not bool(slot.get("enabled", True)):
         raise BizError(code=4117, message="当前平台暂不支持降重复率")
     return normalize_strategy_name(slot.get("active_strategy"))
+
+
+def get_dedup_runtime_config(db: Session, *, platform: str) -> dict[str, int]:
+    normalized_platform = str(platform or "").strip().lower()
+    if normalized_platform not in SUPPORTED_DEDUP_PLATFORMS:
+        raise BizError(code=4116, message="不支持的平台")
+    config = load_dedup_strategy_config(db)
+    slot = config.get(normalized_platform) if isinstance(config, dict) else {}
+    runtime = slot.get("runtime") if isinstance(slot, dict) else {}
+    return normalize_dedup_runtime_config(runtime, fallback=DEFAULT_DEDUP_RUNTIME_CONFIG)
 
 
 def dedup_strategy_readiness(value: dict) -> dict:

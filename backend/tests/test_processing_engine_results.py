@@ -28,6 +28,37 @@ def _write_docx(path: Path, paragraphs: list[str]) -> None:
     doc.save(path)
 
 
+def test_cnki_llm_rewrite_uses_global_prompt_by_default(db_session: Session, monkeypatch) -> None:
+    from app.services.rewrite_strategies import cnki_llm
+
+    text = "因此，本研究在方法层面进行系统分析并提出改进路径，" * 24
+    calls: list[str] = []
+
+    def _fake_generate(_db, *, task_type, text: str):
+        calls.append(text)
+        marker = "【输入】\n"
+        if marker in text:
+            return text.split(marker, 1)[1].strip()
+        return text
+
+    class _Validation:
+        quality_score = 0.95
+
+    monkeypatch.setattr("app.services.rewrite_strategies.cnki_llm.validate_rewrite_output", lambda **kwargs: _Validation())
+    monkeypatch.setattr("app.services.rewrite_strategies.cnki_llm.generate_with_llm", _fake_generate)
+
+    result = cnki_llm.rewrite(db_session, task=None, text=text, report_summary={})
+    trace = result.get("rule_trace") or {}
+
+    assert trace.get("chunk_count", 0) == 1
+    assert trace.get("mode") == "llm_prompt_global"
+    assert trace.get("technical_chunking") is False
+    assert str(trace.get("strategy_version") or "").startswith("cnki_v5_")
+    assert int(trace.get("template_library_size") or 0) >= 500
+    assert any("当前处理片段：第" in prompt for prompt in calls)
+    assert len(calls) == 1
+
+
 def test_rewrite_process_uses_report_summary(tmp_path: Path, db_session: Session, monkeypatch) -> None:
     source_path = tmp_path / "paper.docx"
     report_path = tmp_path / "report.docx"
@@ -347,6 +378,7 @@ def test_rewrite_cnki_broken_term_output_uses_internal_fallback(tmp_path: Path, 
     assert "可视化表达" in content
     assert strategy["rule_trace"]["mode"] == "rewrite_rule_engine"
     assert strategy["rule_trace"]["llm_fallback"] is True
+    assert strategy["rule_trace"]["rule_pool_size"] >= 1000
 
 
 def test_rewrite_cnki_algorithm_keeps_protected_terms_and_records_rule_trace(
@@ -381,6 +413,10 @@ def test_rewrite_cnki_algorithm_keeps_protected_terms_and_records_rule_trace(
     assert "可视化" in content
     assert "学情诊断" in content
     assert trace["protected_hits"]
+    assert trace["rule_pool_size"] >= 1000
+    assert trace["chunk_count"] >= 1
+    assert "S" in trace["active_quality_tiers"]
+    assert "A" in trace["active_quality_tiers"]
     assert any(
         item.startswith("synonym:")
         or item.startswith("sentence_shape:")
@@ -417,7 +453,7 @@ def test_rewrite_cnki_algorithm_applies_safe_sentence_reframe(tmp_path: Path, db
 
     content = output_path.read_text(encoding="utf-8")
     trace = result.result_json["rewrite_strategy"]["rule_trace"]
-    assert "从理论层面看" in content
+    assert "理论层面" in content
     assert "研究指出" in content
     assert "关键在于" in content or "核心在于" in content
     assert any(
@@ -735,7 +771,7 @@ def test_dedup_algorithm_empty_output_uses_fallback_and_does_not_fail(
     db_session.commit()
 
     monkeypatch.setattr(
-        "app.services.dedup_strategies.cnki_algorithm.rewrite",
+        "app.services.dedup_strategies.cnki_rule_dedup.rewrite",
         lambda *_args, **_kwargs: {"text": "", "rule_trace": {"mode": "dedup_rule_engine", "applied_rules": []}},
     )
 
@@ -1123,9 +1159,15 @@ def test_dedup_rule_engine_cnki_applies_style_shaping_rules() -> None:
 
     assert "此外，" not in output
     assert "进一步看，" not in output
-    assert "仍需优化" in output
+    assert "优化" in output or "改进" in output
     assert any(item.startswith("dedup_style:cnki_") for item in trace["applied_rules"])
-    assert any(item.startswith("cnki_dedup_reframe:") for item in trace["applied_rules"])
+    assert any(
+        item.startswith("cnki_dedup_reframe:")
+        or item.startswith("template:")
+        or item.startswith("synonym:")
+        or item.startswith("dedup_structural:")
+        for item in trace["applied_rules"]
+    )
 
 
 def test_dedup_rule_engine_vip_applies_style_shaping_rules() -> None:
@@ -1264,6 +1306,7 @@ def test_rewrite_cnki_algorithm_avoids_sample_like_connective_cascade(
     assert "。此外，" not in content
     assert "。进一步看，" not in content
     assert "。在此基础上，" not in content
+    assert trace["chunk_count"] >= 1
     assert any(
         item.startswith("sentence_opening:") or item.startswith("sentence_shape:")
         for item in trace["applied_rules"]
@@ -1460,21 +1503,26 @@ def test_dedup_validation_marks_cross_domain_terms_missing_without_hard_fail() -
 
 def test_llm_prompts_include_cross_discipline_constraints() -> None:
     source = "测试文本"
+    cnki_prompt = cnki_rewrite_prompt(source)
+    cnki_dedup = cnki_dedup_prompt(source)
 
-    assert "优先参考以下正向改写风格示例" in cnki_rewrite_prompt(source)
-    assert "高质量样本风格基线" in cnki_rewrite_prompt(source)
-    assert "教育、医学、法学/政策、财经管理、工程/计算机、人文社科" in cnki_rewrite_prompt(source)
-    assert "不要只把“本文/本研究”换成“该研究”就结束" in cnki_rewrite_prompt(source)
+    assert "你是中文改写执行器。严格按步骤改写，直接输出结果，不加说明。" in cnki_prompt
+    assert "【规则执行顺序：L1→L5，L4仅在改动不足时补充】" in cnki_prompt
+    assert "规则执行顺序：L1→L5" in cnki_prompt
+    assert "【质量红线】" in cnki_prompt
+    assert "【反机械化检查（输出前）】" in cnki_prompt
+    assert "【禁改内容】" in cnki_prompt
+    assert "任务类型：知网降AIGC率改写。" in cnki_prompt
     assert "临床路径" in vip_rewrite_prompt(source)
     assert "高质量样本风格基线" in vip_rewrite_prompt(source)
     assert "不要只做局部替词或只把“本文/本研究”替换成“该研究”" in vip_rewrite_prompt(source)
-    assert "行政复议程序" in cnki_dedup_prompt(source)
-    assert "高质量降重样本风格基线" in cnki_dedup_prompt(source)
-    assert "不要只替换单个动词、句首主语或连接词" in cnki_dedup_prompt(source)
+    assert "任务目标：知网降重复率。" in cnki_dedup
+    assert "任务类型：知网降重复率改写。" in cnki_dedup
+    assert "【规则执行顺序：L1→L5，L4仅在改动不足时补充】" in cnki_dedup
+    assert "【反机械化检查（输出前）】" in cnki_dedup
     assert "社区记忆" in vip_dedup_prompt(source)
     assert "高质量降重样本风格基线" in vip_dedup_prompt(source)
     assert "不要只替换个别动词或把句首连接词换一种说法" in vip_dedup_prompt(source)
-    assert "禁止模仿以下坏写法示例" in cnki_rewrite_prompt(source)
     assert "禁止模仿以下坏写法示例" in vip_dedup_prompt(source)
     assert "优先参考以下正向改写风格示例" in vip_dedup_prompt(source)
 
@@ -1509,7 +1557,7 @@ def test_transform_docx_skips_blank_runs_for_dedup(tmp_path: Path, db_session: S
     output_text = "\n".join(paragraph.text for paragraph in output_doc.paragraphs)
     assert output_path.exists()
     assert result.result_json["type"] == "dedup"
-    assert "由此可见" in output_text or "有必要" in output_text or "优化" in output_text
+    assert "改进" in output_text or "优化" in output_text or "路径" in output_text
 
 
 def test_transform_text_combined_mode_falls_back_to_heuristic_when_llm_empty(

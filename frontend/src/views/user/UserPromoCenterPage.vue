@@ -13,7 +13,7 @@
       <p v-if="hintText" class="aigc-alert aigc-alert--success">{{ hintText }}</p>
 
       <section class="aigc-page-head promo-head">
-        <div>
+        <div class="promo-head__title-wrap">
           <h2 class="aigc-page-head__title">推广中心</h2>
           <p class="aigc-page-head__quota">
             邀请好友注册并填写邀请码，邀请人与被邀请人可各得 <strong>{{ rewardPointsLabel }}</strong>。
@@ -233,6 +233,11 @@ function normalizeInt(value, fallback) {
   gap: 12px;
 }
 
+.promo-head__title-wrap {
+  flex: 1;
+  text-align: center;
+}
+
 .promo-head__refresh {
   min-height: 38px;
   padding: 0 14px;
@@ -378,6 +383,10 @@ function normalizeInt(value, fallback) {
 @media (max-width: 720px) {
   .promo-head {
     flex-direction: column;
+  }
+
+  .promo-head__title-wrap {
+    width: 100%;
   }
 }
 </style>

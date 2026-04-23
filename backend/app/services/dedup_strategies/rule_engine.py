@@ -29,17 +29,29 @@ from app.services.rewrite_strategies.rule_engine import (
 def apply_dedup_rules(db, *, text: str, assets: PlatformAssets, report_summary: dict | None = None) -> tuple[str, dict]:
     context = RewriteContext(platform=assets.platform, report_summary=report_summary or {})
     protected_text, placeholders = _protect_terms(text, assets, context)
-    output = _apply_synonyms(protected_text, assets, context)
+    output = _apply_synonyms(
+        protected_text,
+        assets,
+        context,
+        max_changes=None,
+    )
     output = _apply_templates(output, assets, context)
     output = _apply_dedup_sentence_shape(output, assets, context)
     output = _apply_cohesion(output, assets, context)
+    output = _harmonize_connectives(output, context)
     output = _restore_terms(output, placeholders)
     output = _polish_rewrite_output(output, context)
     return output, {
         "mode": "dedup_rule_engine",
         "applied_rules": context.applied_rules,
         "protected_hits": sorted(set(context.protected_hits)),
+        "chunk_count": 1 if str(protected_text or "").strip() else 0,
     }
+def _harmonize_connectives(text: str, context: RewriteContext) -> str:
+    normalized = soften_connective_prefixes(text, keep_first=1)
+    if normalized != text:
+        context.applied_rules.append("global:soften_connective_prefixes")
+    return normalized
 
 
 def _apply_dedup_sentence_shape(text: str, assets: PlatformAssets, context: RewriteContext) -> str:

@@ -80,6 +80,7 @@
             <div>计费字数：{{ item.char_count || 0 }}</div>
             <div>消耗通用点数：{{ formatCredits(taskCostFen(item)) }}</div>
             <div>平台：{{ mapPlatform(item.platform, item.task_type) }}</div>
+            <div>文件名：{{ filenamePair(item) }}</div>
           </div>
         </div>
 
@@ -411,8 +412,15 @@ async function removeTask(item) {
 }
 
 async function downloadReport(taskId) {
+  const item = tasks.value.find((row) => row.id === taskId)
   const resp = await userHttp.get(`/tasks/${taskId}/download`, { responseType: "blob" })
-  downloadAxiosBlobResponse(resp, `aigc_report_${taskId}`)
+  downloadAxiosBlobResponse(resp, item?.result_filename || `aigc_report_${taskId}`)
+}
+
+function filenamePair(item) {
+  const sourceName = String(item?.source_filename || "-").trim() || "-"
+  const resultName = String(item?.result_filename || "").trim() || `aigc_report_${item?.id || ""}`
+  return `${sourceName} + ${resultName}`
 }
 
 async function afterPaid() {

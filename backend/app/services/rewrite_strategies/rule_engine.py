@@ -1,4 +1,5 @@
 from __future__ import annotations
+from collections import defaultdict
 import re
 from dataclasses import dataclass, field
 
@@ -27,15 +28,26 @@ class RewriteContext:
 def apply_platform_rules(db, *, text: str, assets: PlatformAssets, report_summary: dict | None = None) -> tuple[str, dict]:
     context = RewriteContext(platform=assets.platform, report_summary=report_summary or {})
     protected_text, placeholders = _protect_terms(text, assets, context)
-    output = _apply_synonyms(protected_text, assets, context)
+    quality_tiers = _resolve_active_quality_tiers(assets)
+    output = _apply_synonyms(
+        protected_text,
+        assets,
+        context,
+        active_quality_tiers=quality_tiers,
+        max_changes=None,
+    )
     output = _apply_templates(output, assets, context)
     output = _apply_sentence_shape(db, output, assets, context)
+
     output = _apply_cohesion(output, assets, context)
+    output = _harmonize_connectives(output, context)
     output = _restore_terms(output, placeholders)
     output = _polish_rewrite_output(output, context)
     return output, {
         "applied_rules": context.applied_rules,
         "protected_hits": sorted(set(context.protected_hits)),
+        "chunk_count": 1 if str(protected_text or "").strip() else 0,
+        "active_quality_tiers": list(quality_tiers),
     }
 
 
@@ -67,13 +79,29 @@ def _restore_terms(text: str, placeholders: dict[str, str]) -> str:
     return output
 
 
-def _apply_synonyms(text: str, assets: PlatformAssets, context: RewriteContext) -> str:
+def _apply_synonyms(
+    text: str,
+    assets: PlatformAssets,
+    context: RewriteContext,
+    *,
+    active_quality_tiers: tuple[str, ...] | None = None,
+    max_changes: int | None = None,
+) -> str:
     output = text
-    max_changes = 6 if assets.platform == "cnki" else 8
+    enabled_quality_tiers = active_quality_tiers or _resolve_active_quality_tiers(assets)
+    if isinstance(max_changes, int) and max_changes > 0:
+        resolved_max_changes = max_changes
+    else:
+        resolved_max_changes = max(len(tuple(assets.synonyms or ())), 1)
     changes = 0
-    for rule in sorted(assets.synonyms, key=lambda item: item.priority, reverse=True):
-        if changes >= max_changes:
+    layer_limits = _layer_limits_for_assets(assets, max_changes=resolved_max_changes)
+    layer_changes: dict[str, int] = defaultdict(int)
+    for rule in _iter_synonym_rules(assets, active_quality_tiers=enabled_quality_tiers):
+        if changes >= resolved_max_changes:
             break
+        layer = str(getattr(rule, "layer", "L2") or "L2").upper()
+        if layer_changes[layer] >= layer_limits.get(layer, resolved_max_changes):
+            continue
         if rule.source not in output:
             continue
         if any(token and token in output for token in rule.forbidden_contexts):
@@ -85,8 +113,42 @@ def _apply_synonyms(text: str, assets: PlatformAssets, context: RewriteContext) 
         if next_output != output:
             output = next_output
             changes += 1
+            layer_changes[layer] += 1
             context.applied_rules.append(f"synonym:{rule.category}:{rule.source}->{target}")
     return output
+
+
+def _resolve_active_quality_tiers(assets: PlatformAssets) -> tuple[str, ...]:
+    tiers = tuple(str(item or "").strip().upper() for item in (assets.active_quality_tiers or ("S", "A")) if str(item or "").strip())
+    return tiers or ("S", "A")
+
+
+def _iter_synonym_rules(assets: PlatformAssets, *, active_quality_tiers: tuple[str, ...]):
+    layer_order = {"L1": 0, "L2": 1, "L3": 2, "L4": 3, "L5": 4}
+    enabled = set(active_quality_tiers)
+    eligible = [
+        item
+        for item in assets.synonyms
+        if str(getattr(item, "quality_tier", "A") or "A").upper() in enabled
+    ]
+    eligible.sort(
+        key=lambda item: (
+            layer_order.get(str(getattr(item, "layer", "L2") or "L2").upper(), 9),
+            -int(getattr(item, "priority", 0) or 0),
+        )
+    )
+    return eligible
+
+
+def _layer_limits_for_assets(assets: PlatformAssets, *, max_changes: int) -> dict[str, int]:
+    configured = {
+        str(layer).upper(): max(0, int(limit))
+        for layer, limit in tuple(getattr(assets, "layer_change_limits", ()) or ())
+        if str(layer or "").strip()
+    }
+    if not configured:
+        return {"L1": max_changes}
+    return configured
 
 
 def _pick_target(targets: tuple[str, ...], current_text: str) -> str:
@@ -96,6 +158,13 @@ def _pick_target(targets: tuple[str, ...], current_text: str) -> str:
         if target and target not in current_text:
             return target
     return targets[0]
+
+
+def _harmonize_connectives(text: str, context: RewriteContext) -> str:
+    normalized = soften_connective_prefixes(text, keep_first=1)
+    if normalized != text:
+        context.applied_rules.append("global:soften_connective_prefixes")
+    return normalized
 
 
 def _apply_templates(text: str, assets: PlatformAssets, context: RewriteContext) -> str:

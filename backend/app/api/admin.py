@@ -84,6 +84,7 @@ from app.services.rewrite_strategies.config import (
     normalize_rewrite_strategy_config,
     rewrite_strategy_readiness,
 )
+from app.services.task_filename import build_task_filename_pair, build_task_result_filename
 from app.services.user_navigation_service import default_user_navigation_config, normalize_user_navigation_config
 from app.services.partner_rebate_service import record_refund_order_rebate
 
@@ -2677,6 +2678,11 @@ def user_detail(
                     "cost_points": int(t.cost_credits or 0),
                     "cost_credits": t.cost_credits,
                     "source_filename": t.source_filename,
+                    "result_filename": build_task_result_filename(t.task_type, t.source_filename, t.output_path),
+                    "filename_pair": build_task_filename_pair(
+                        t.source_filename,
+                        build_task_result_filename(t.task_type, t.source_filename, t.output_path),
+                    ),
                     "report_path": t.report_path,
                     "output_path": t.output_path,
                     "error_message": t.error_message,
@@ -2798,6 +2804,11 @@ def admin_task_detail(
             "cost_credits": row.cost_credits,
             "refund_done": bool(row.refund_done),
             "source_filename": row.source_filename,
+            "result_filename": build_task_result_filename(row.task_type, row.source_filename, row.output_path),
+            "filename_pair": build_task_filename_pair(
+                row.source_filename,
+                build_task_result_filename(row.task_type, row.source_filename, row.output_path),
+            ),
             "source_path": row.source_path,
             "report_path": row.report_path,
             "output_path": row.output_path,
@@ -2823,7 +2834,8 @@ def admin_task_download(
     path = Path(row.output_path)
     if not path.exists():
         raise BizError(code=4109, message="输出文件不存在")
-    return FileResponse(path=str(path), filename=path.name)
+    download_name = build_task_result_filename(row.task_type, row.source_filename, path)
+    return FileResponse(path=str(path), filename=download_name)
 
 
 @router.get("/orders", response_model=APIResp)

@@ -47,6 +47,8 @@ def test_task_response_builder_preserves_public_task_fields(db_session) -> None:
 
     assert submit_payload["id"] == task.id
     assert submit_payload["has_report"] is True
+    assert submit_payload["result_filename"] == "paper_AIGC检测报告.pdf"
+    assert submit_payload["filename_pair"] == "paper.docx + paper_AIGC检测报告.pdf"
     assert submit_payload["balance_after"] == 3210
     assert submit_payload["balance_after_fen"] == 3210
     assert submit_payload["idempotent"] is True
@@ -58,12 +60,18 @@ def test_task_response_builder_preserves_public_task_fields(db_session) -> None:
     assert list_item["cost_fen"] == 567
     assert list_item["cost_points"] == 567
     assert list_item["refund_done"] is True
+    assert list_item["result_filename"] == "paper_AIGC检测报告.pdf"
+    assert list_item["filename_pair"] == "paper.docx + paper_AIGC检测报告.pdf"
     assert "download_ready" not in list_item
 
     assert detail_payload["download_ready"] is True
     assert detail_payload["source_filename"] == "paper.docx"
+    assert detail_payload["result_filename"] == "paper_AIGC检测报告.pdf"
+    assert detail_payload["filename_pair"] == "paper.docx + paper_AIGC检测报告.pdf"
 
     assert recover_payload["id"] == task.id
     assert recover_payload["task_type"] == "aigc_detect"
     assert recover_payload["cost_fen"] == 567
+    assert recover_payload["result_filename"] == "paper_AIGC检测报告.pdf"
+    assert recover_payload["filename_pair"] == "paper.docx + paper_AIGC检测报告.pdf"
     assert "result_json" not in recover_payload

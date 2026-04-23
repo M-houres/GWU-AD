@@ -7,6 +7,7 @@ from app.services.rewrite_strategies.assets import (
     ProtectedTerm,
     SynonymRule,
     TemplateRule,
+    CNKI_ASSETS,
     COMMON_BAD_PATTERNS,
     COMMON_PROTECTED_TERMS,
 )
@@ -30,24 +31,7 @@ VIP_DEDUP_PROTECTED_TERMS: tuple[ProtectedTerm, ...] = COMMON_PROTECTED_TERMS + 
     ProtectedTerm("蚌埠", "proper_noun"),
 )
 
-CNKI_DEDUP_SYNONYMS: tuple[SynonymRule, ...] = (
-    SynonymRule("依托", ("借助", "依靠"), "cnki_stable_synonym", priority=90),
-    SynonymRule("研究表明", ("相关研究显示", "已有研究指出"), "cnki_intro_rewrite", priority=88),
-    SynonymRule("可以看出", ("据此可见", "由此能够看出"), "cnki_connector_rewrite", priority=86),
-    SynonymRule("因此", ("据此可见", "所以"), "cnki_connector_rewrite", priority=82),
-    SynonymRule("但是", ("然而", "不过"), "cnki_connector_rewrite", priority=80),
-    SynonymRule("首先", ("第一", "一方面"), "cnki_sequence_rewrite", priority=78),
-    SynonymRule("其次", ("第二", "另一方面"), "cnki_sequence_rewrite", priority=76),
-    SynonymRule(
-        "重要",
-        ("关键", "较为重要"),
-        "cnki_evaluation_rewrite",
-        priority=70,
-        forbidden_contexts=("重要参考", "重要力量", "重要组成部分", "重要意义", "至关重要"),
-    ),
-    SynonymRule("很多", ("较多", "大量"), "cnki_evaluation_rewrite", priority=68),
-    SynonymRule("促进", ("推动", "带动"), "cnki_verb_rewrite", priority=66),
-)
+CNKI_DEDUP_SYNONYMS: tuple[SynonymRule, ...] = CNKI_ASSETS.synonyms
 
 VIP_DEDUP_SYNONYMS: tuple[SynonymRule, ...] = (
     SynonymRule("构建", ("建立", "形成"), "vip_term_shift", priority=90),
@@ -61,15 +45,7 @@ VIP_DEDUP_SYNONYMS: tuple[SynonymRule, ...] = (
     SynonymRule("开展研究", ("研究",), "vip_nominalization", priority=72),
 )
 
-CNKI_DEDUP_TEMPLATES: tuple[TemplateRule, ...] = (
-    TemplateRule(
-        "cnki_dedup_through_to_by",
-        r"通过([^。！？；;，,]{2,24})，([^。！？；;]{6,48})",
-        r"借助\1这一方式，\2",
-        "cnki_light_sentence_rewrite",
-        priority=86,
-    ),
-)
+CNKI_DEDUP_TEMPLATES: tuple[TemplateRule, ...] = CNKI_ASSETS.templates
 
 VIP_DEDUP_TEMPLATES: tuple[TemplateRule, ...] = ()
 
@@ -94,6 +70,11 @@ CNKI_DEDUP_ASSETS = PlatformAssets(
     protected_terms=CNKI_DEDUP_PROTECTED_TERMS,
     cohesion_rules=CNKI_DEDUP_COHESION_RULES,
     bad_patterns=COMMON_BAD_PATTERNS + CNKI_DEDUP_BAD_PATTERNS,
+    active_quality_tiers=CNKI_ASSETS.active_quality_tiers,
+    layer_change_limits=CNKI_ASSETS.layer_change_limits,
+    chunk_min_chars=CNKI_ASSETS.chunk_min_chars,
+    chunk_max_chars=CNKI_ASSETS.chunk_max_chars,
+    chunk_max_changes=CNKI_ASSETS.chunk_max_changes,
 )
 
 VIP_DEDUP_ASSETS = PlatformAssets(

@@ -1,4 +1,5 @@
 from pathlib import Path
+from urllib.parse import unquote
 
 from sqlalchemy.orm import Session
 
@@ -36,3 +37,4 @@ def test_admin_can_download_completed_task_result(
     resp = client.get(f"/api/v1/admin/tasks/{task.id}/download")
     assert resp.status_code == 200
     assert resp.content == b"admin download result"
+    assert "paper_AIGC检测报告.txt" in unquote(resp.headers.get("content-disposition", ""))

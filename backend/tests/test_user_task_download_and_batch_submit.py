@@ -2,6 +2,7 @@ from contextlib import contextmanager
 import io
 from io import BytesIO
 from pathlib import Path
+from urllib.parse import unquote
 import zipfile
 
 from docx import Document
@@ -51,6 +52,7 @@ def test_user_can_download_completed_task_result(client, db_session: Session, tm
         resp = client.get(f"/api/v1/tasks/{task.id}/download")
         assert resp.status_code == 200
         assert resp.content == b"user download result"
+        assert "paper_降重复率结果.txt" in unquote(resp.headers.get("content-disposition", ""))
     finally:
         app.dependency_overrides.pop(current_user, None)
 

@@ -379,7 +379,19 @@ def test_save_rewrite_strategy_config_and_readiness(
     resp = client.post(
         "/api/v1/admin/configs/rewrite_strategy",
         json={
-            "cnki": {"rewrite": {"enabled": True, "active_strategy": "llm"}},
+            "cnki": {
+                "rewrite": {"enabled": True, "active_strategy": "llm"},
+                "runtime": {
+                    "chunk_min_chars": 200,
+                    "chunk_max_chars": 320,
+                    "algorithm_chunk_max_changes": 7,
+                    "llm_short_chunk_max_changes": 2,
+                    "llm_medium_chunk_max_changes": 3,
+                    "llm_standard_chunk_max_changes": 5,
+                    "llm_long_chunk_max_changes": 6,
+                    "llm_xlong_chunk_max_changes": 8,
+                },
+            },
             "vip": {"rewrite": {"enabled": False, "active_strategy": "algorithm"}},
         },
     )
@@ -387,6 +399,10 @@ def test_save_rewrite_strategy_config_and_readiness(
     value = resp.json()["data"]["value"]
     assert value["cnki"]["rewrite"]["enabled"] is True
     assert value["cnki"]["rewrite"]["active_strategy"] == "llm"
+    assert value["cnki"]["runtime"]["chunk_min_chars"] == 200
+    assert value["cnki"]["runtime"]["chunk_max_chars"] == 320
+    assert value["cnki"]["runtime"]["algorithm_chunk_max_changes"] == 7
+    assert value["cnki"]["runtime"]["llm_xlong_chunk_max_changes"] == 8
     assert value["vip"]["rewrite"]["enabled"] is False
 
     readiness = _readiness_item(client, "rewrite_strategy")
@@ -402,7 +418,19 @@ def test_save_dedup_strategy_config_and_readiness(
     resp = client.post(
         "/api/v1/admin/configs/dedup_strategy",
         json={
-            "cnki": {"dedup": {"enabled": True, "active_strategy": "llm"}},
+            "cnki": {
+                "dedup": {"enabled": True, "active_strategy": "llm"},
+                "runtime": {
+                    "chunk_min_chars": 200,
+                    "chunk_max_chars": 320,
+                    "algorithm_chunk_max_changes": 7,
+                    "llm_short_chunk_max_changes": 2,
+                    "llm_medium_chunk_max_changes": 3,
+                    "llm_standard_chunk_max_changes": 5,
+                    "llm_long_chunk_max_changes": 6,
+                    "llm_xlong_chunk_max_changes": 8,
+                },
+            },
             "vip": {"dedup": {"enabled": False, "active_strategy": "algorithm"}},
         },
     )
@@ -410,6 +438,10 @@ def test_save_dedup_strategy_config_and_readiness(
     value = resp.json()["data"]["value"]
     assert value["cnki"]["dedup"]["enabled"] is True
     assert value["cnki"]["dedup"]["active_strategy"] == "llm"
+    assert value["cnki"]["runtime"]["chunk_min_chars"] == 200
+    assert value["cnki"]["runtime"]["chunk_max_chars"] == 320
+    assert value["cnki"]["runtime"]["algorithm_chunk_max_changes"] == 7
+    assert value["cnki"]["runtime"]["llm_xlong_chunk_max_changes"] == 8
     assert value["vip"]["dedup"]["enabled"] is False
 
     readiness = _readiness_item(client, "dedup_strategy")
