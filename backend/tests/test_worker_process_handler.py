@@ -162,6 +162,46 @@ def test_finalize_processed_task_merges_metadata_and_completes(db_session) -> No
     assert task.error_message is None
 
 
+def test_finalize_processed_task_serializes_output_path_under_output_root(db_session, tmp_path, monkeypatch) -> None:
+    from app.services import task_artifacts
+
+    output_root = tmp_path / "output"
+    monkeypatch.setattr(
+        task_artifacts,
+        "settings",
+        SimpleNamespace(upload_dir=tmp_path / "uploads", output_dir=output_root, app_env="prod"),
+    )
+    user = User(phone="13800008926", nickname="worker-process-output-relative")
+    db_session.add(user)
+    db_session.flush()
+    task = Task(
+        user_id=user.id,
+        task_type=TaskType.DEDUP,
+        platform="cnki",
+        source="web",
+        status=TaskStatus.RUNNING,
+        source_filename="done.docx",
+        source_path="uploads/1/done.docx",
+        result_json={"paper_title": "before"},
+    )
+    db_session.add(task)
+    db_session.flush()
+    output_path = output_root / str(user.id) / "task_1_result.docx"
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text("result", encoding="utf-8")
+
+    merged = finalize_processed_task(
+        db_session,
+        task_id=task.id,
+        result=SimpleNamespace(output_path=str(output_path), result_json={"score": 0.92}),
+        task_snapshot={"result_json": {"paper_title": "before"}},
+        merge_task_result_metadata=lambda existing, new: {**existing, **new, "merged": True},
+    )
+
+    assert merged == {"ok": True, "task_id": task.id, "status": "completed"}
+    assert task.output_path == f"output/{user.id}/task_1_result.docx"
+
+
 def test_fail_processed_task_marks_failed_and_refunds(db_session) -> None:
     user = User(phone="13800008924", nickname="worker-process-fail")
     db_session.add(user)

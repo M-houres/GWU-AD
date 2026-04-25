@@ -14,7 +14,6 @@ from app.models import LLMErrorLog, SwitchLog, SystemSwitch, TaskType
 from app.models import Task
 from app.services.aigc_detect_strategies.executor import execute_aigc_detect_strategy
 from app.services.dedup_strategies.executor import (
-    STRATEGY_ALGORITHM as DEDUP_STRATEGY_ALGORITHM,
     STRATEGY_LLM as DEDUP_STRATEGY_LLM,
     execute_dedup_strategy,
 )

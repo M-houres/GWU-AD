@@ -1,5 +1,5 @@
 const { request } = require("../../utils/request")
-const { getUser, setUser } = require("../../utils/storage")
+const { getUser, setUser, getPartnerTracking } = require("../../utils/storage")
 const { logout, ensureLogin } = require("../../utils/auth")
 const { requireAuth, getPendingAuth, clearPendingAuth } = require("../../utils/authFlow")
 const { getOrderStatusText, parseWxPayError, toFriendlyError } = require("../../utils/status")
@@ -80,6 +80,7 @@ Page({
     remainSeconds: 0,
     qrcodeDataUrl: "",
     paymentParams: null,
+    partnerTrackingLabel: "",
   },
 
   countdownTimer: null,
@@ -109,18 +110,19 @@ Page({
     const displayName = rawNickname || "未命名用户"
     const avatarText = displayName ? displayName.slice(0, 1) : "格"
 
-    this.setData({
-      guestMode: false,
+      this.setData({
+        guestMode: false,
       user,
       quotaInfo: quota,
       displayName,
       avatarText,
-      profileItems: [
-        { label: "手机号", value: user.phone || "未绑定" },
-        { label: "当前积分", value: String(Number(user.credits || 0)) },
-        { label: "AIGC权益", value: formatQuotaText(quota) },
-      ],
-    })
+        profileItems: [
+          { label: "手机号", value: user.phone || "未绑定" },
+          { label: "当前积分", value: String(Number(user.credits || 0)) },
+          { label: "AIGC权益", value: formatQuotaText(quota) },
+        ],
+        partnerTrackingLabel: this.formatPartnerTrackingLabel(),
+      })
   },
 
   syncGuestProfile() {
@@ -149,7 +151,14 @@ Page({
       remainSeconds: 0,
       qrcodeDataUrl: "",
       paymentParams: null,
+      partnerTrackingLabel: "",
     })
+  },
+
+  formatPartnerTrackingLabel() {
+    const tracking = getPartnerTracking()
+    if (!tracking || !tracking.channel_code) return ""
+    return `当前渠道归属：${tracking.channel_code}`
   },
 
   consumePendingAction() {
@@ -224,6 +233,7 @@ Page({
         providers,
         selectedProvider,
         selectedProviderLabel: getProviderLabel(selectedProvider, providers),
+        partnerTrackingLabel: this.formatPartnerTrackingLabel(),
       })
     } catch (_) {
       // keep current view
@@ -265,6 +275,14 @@ Page({
           package_name: packageName,
           provider: this.data.selectedProvider,
           scene: "miniprogram",
+          ...(function() {
+            const tracking = getPartnerTracking()
+            if (!tracking) return {}
+            return {
+              channel_code: tracking.channel_code,
+              channel_token: tracking.channel_token,
+            }
+          })(),
         },
       })
 

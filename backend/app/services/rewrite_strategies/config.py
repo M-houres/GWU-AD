@@ -13,6 +13,10 @@ STRATEGY_ALGORITHM = "algorithm"
 STRATEGY_LLM = "llm"
 SUPPORTED_REWRITE_PLATFORMS = ("cnki", "vip")
 SUPPORTED_REWRITE_STRATEGIES = {STRATEGY_ALGORITHM, STRATEGY_LLM}
+PLATFORM_ALLOWED_REWRITE_STRATEGIES: dict[str, set[str]] = {
+    "cnki": {STRATEGY_LLM},
+    "vip": {STRATEGY_LLM},
+}
 
 DEFAULT_REWRITE_RUNTIME_CONFIG: dict[str, int] = {
     "chunk_min_chars": 180,
@@ -29,14 +33,14 @@ DEFAULT_REWRITE_STRATEGY_CONFIG: dict[str, Any] = {
     "cnki": {
         "rewrite": {
             "enabled": True,
-            "active_strategy": STRATEGY_ALGORITHM,
+            "active_strategy": STRATEGY_LLM,
         },
         "runtime": deepcopy(DEFAULT_REWRITE_RUNTIME_CONFIG),
     },
     "vip": {
         "rewrite": {
             "enabled": True,
-            "active_strategy": STRATEGY_ALGORITHM,
+            "active_strategy": STRATEGY_LLM,
         },
         "runtime": deepcopy(DEFAULT_REWRITE_RUNTIME_CONFIG),
     },
@@ -71,6 +75,17 @@ def normalize_strategy_name(raw: Any) -> str:
     if value in SUPPORTED_REWRITE_STRATEGIES:
         return value
     raise BizError(code=4341, message="降AIGC率策略仅支持 algorithm 或 llm")
+
+
+def normalize_platform_strategy(platform: str, raw: Any) -> str:
+    normalized_platform = str(platform or "").strip().lower()
+    strategy = normalize_strategy_name(raw)
+    allowed = PLATFORM_ALLOWED_REWRITE_STRATEGIES.get(normalized_platform, SUPPORTED_REWRITE_STRATEGIES)
+    if strategy in allowed:
+        return strategy
+    if normalized_platform in {"cnki", "vip"}:
+        return STRATEGY_LLM
+    raise BizError(code=4341, message="当前平台不支持该降AIGC率策略")
 
 
 def _as_runtime_int(raw: Any, *, field: str, fallback: int) -> int:
@@ -112,7 +127,8 @@ def normalize_rewrite_strategy_config(raw: dict | None) -> dict[str, Any]:
         if not isinstance(rewrite_source, dict):
             continue
         result[platform]["rewrite"]["enabled"] = bool(rewrite_source.get("enabled", result[platform]["rewrite"]["enabled"]))
-        result[platform]["rewrite"]["active_strategy"] = normalize_strategy_name(
+        result[platform]["rewrite"]["active_strategy"] = normalize_platform_strategy(
+            platform,
             rewrite_source.get("active_strategy", result[platform]["rewrite"]["active_strategy"])
         )
         runtime_source = platform_source.get("runtime")
@@ -148,7 +164,7 @@ def get_active_rewrite_strategy(db: Session, *, platform: str) -> str:
     slot = config[normalized_platform]["rewrite"]
     if not bool(slot.get("enabled", True)):
         raise BizError(code=4117, message="当前平台暂不支持降AIGC率")
-    return normalize_strategy_name(slot.get("active_strategy"))
+    return normalize_platform_strategy(normalized_platform, slot.get("active_strategy"))
 
 
 def get_rewrite_runtime_config(db: Session, *, platform: str) -> dict[str, int]:
@@ -175,8 +191,9 @@ def rewrite_strategy_readiness(value: dict) -> dict:
         slot = config[platform]["rewrite"]
         label = "知网" if platform == "cnki" else "维普"
         if slot["enabled"]:
-            resolved = normalize_strategy_name(slot["active_strategy"])
-            strategy_label = "算法策略" if resolved == STRATEGY_ALGORITHM else "大模型策略"
+            resolved = normalize_platform_strategy(platform, slot["active_strategy"])
+            if platform in {"cnki", "vip"}:
+                strategy_label = "大模型主策略"
             summary.append(f"{label}:{strategy_label}")
         else:
             summary.append(f"{label}:未启用")

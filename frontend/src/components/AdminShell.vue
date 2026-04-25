@@ -17,7 +17,9 @@
           <div class="scholar-brand admin-brand-block">
             <div class="scholar-brand__eyebrow">管理后台</div>
             <div class="admin-brand">
-              <span class="admin-brand__mark">GW</span>
+              <span class="admin-brand__mark">
+                <img src="/brand-logo.png" alt="格物学术 Logo" />
+              </span>
               <span class="admin-brand__name">格物学术</span>
             </div>
             <p class="scholar-brand__lead">用户、任务、订单与系统配置</p>
@@ -265,13 +267,18 @@ function isRouteMatch(currentPath, targetPath) {
   width: 28px;
   height: 28px;
   border-radius: 8px;
-  display: grid;
-  place-items: center;
-  background: #1d4ed8;
-  color: #ffffff;
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.06em;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.admin-brand__mark img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  border-radius: inherit;
 }
 
 .admin-brand__name {

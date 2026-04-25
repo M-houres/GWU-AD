@@ -270,24 +270,209 @@ def _get_promo_center_config(db: Session) -> dict:
     raw = _read_system_config_raw(db, "promo_center")
     defaults = {
         "enabled": True,
+        "schema_version": 2,
         "invite_reward_points": 2000,
+        "updated_by": "",
+        "updated_at": "",
         "contacts": {
             "phone": [],
             "wechat": [],
             "email": [],
         },
+        "nav_cards": [
+            {
+                "key": "invite",
+                "title": "邀请有奖",
+                "badge": "绑定即得点数",
+                "description": "邀请好友完成手机号与微信绑定，双方都能拿点数。",
+                "sort_order": 1,
+                "enabled": True,
+            },
+            {
+                "key": "like",
+                "title": "集赞有奖",
+                "badge": "截图审核",
+                "description": "转发活动素材集赞后提交截图，审核通过发放点数。",
+                "sort_order": 2,
+                "enabled": True,
+            },
+            {
+                "key": "create",
+                "title": "创作有奖",
+                "badge": "最高 20000 点",
+                "description": "发布指定平台内容，按点赞阶梯领取点数奖励。",
+                "sort_order": 3,
+                "enabled": True,
+            },
+            {
+                "key": "partner",
+                "title": "机构合作",
+                "badge": "校园 / 机构",
+                "description": "校园大使、机构合作与企业服务统一从这里接入。",
+                "sort_order": 4,
+                "enabled": True,
+            },
+        ],
+        "pages": {
+            "invite": {
+                "enabled": True,
+                "title": "邀请有奖",
+                "subtitle": "邀请好友完成手机号与微信绑定，双方按规则获得点数奖励。",
+                "rule_lines": [
+                    "被邀请者完成手机号与微信绑定后，可获得 2000 点数。",
+                    "邀请者每产生 1 个有效邀请，可获得 1000 点数。",
+                    "支持配置里程碑加奖，全部奖励均以点数发放。",
+                ],
+                "quick_actions_title": "快捷操作区",
+                "bind_code_label": "填写邀请码",
+                "bind_code_placeholder": "请输入好友邀请码",
+                "bind_code_button_text": "确认填写",
+                "share_copy_title": "分享文案",
+                "share_copy_text": "我正在参加格物推广活动，注册并完成绑定即可拿点数，欢迎通过我的邀请码加入。",
+                "miniapp_guide_title": "小程序 3 步邀请指引",
+                "miniapp_steps": [
+                    "保存二维码或邀请链接，发送给好友。",
+                    "好友注册后先完成手机号绑定，再完成微信绑定。",
+                    "达到有效邀请条件后，点数奖励按规则发放。",
+                ],
+                "bind_code_notice": "邀请码在线填写入口待后端接口开放后启用。",
+            },
+            "like": {
+                "enabled": True,
+                "title": "集赞有奖",
+                "subtitle": "扫码转发活动素材集赞，提交截图后由运营审核发放点数。",
+                "rule_lines": [
+                    "10 赞可得 10000 点数。",
+                    "20 赞可得 20000 点数。",
+                    "活动时间、审核时效与违规处理均支持后台调整。",
+                ],
+                "qrcode_title": "活动二维码",
+                "review_notice": "截图需清晰完整，默认 1-3 个工作日内完成审核。",
+                "other_entries_title": "其他活动入口",
+                "other_entries": [],
+            },
+            "create": {
+                "enabled": True,
+                "title": "创作有奖",
+                "subtitle": "按平台规则发布指定内容，审核通过后按点赞阶梯发放点数。",
+                "rule_lines": [
+                    "发帖即送 5000 点数。",
+                    "点赞达到 10+ 可得 10000 点数。",
+                    "点赞达到 20+ 可得 20000 点数，单次活动封顶。",
+                ],
+                "platforms": [
+                    {"key": "douyin", "label": "抖音", "status_text": "可参加", "enabled": True},
+                    {"key": "xiaohongshu", "label": "小红书", "status_text": "可参加", "enabled": True},
+                    {"key": "kuaishou", "label": "快手", "status_text": "可参加", "enabled": True},
+                    {"key": "weibo", "label": "微博", "status_text": "可参加", "enabled": True},
+                    {"key": "moments", "label": "朋友圈", "status_text": "可参加", "enabled": True},
+                ],
+                "template_title": "推荐文案模板",
+                "templates": [
+                    "我在用格物做论文处理，流程顺、反馈快，做完绑定和任务后还能参加创作活动拿点数。",
+                    "毕业季论文处理别乱找渠道，我最近在格物做检测和改写，活动期还有点赞点数奖励。",
+                ],
+                "submit_placeholder": "请输入作品链接",
+                "submit_button_text": "提交链接",
+                "history_button_text": "查看记录",
+            },
+            "partner": {
+                "enabled": True,
+                "title": "机构合作",
+                "subtitle": "校园大使、机构合作、社群联名与企业服务统一接入。",
+                "description": "支持校园活动合作、机构代充、批量服务采购与品牌联动推广。",
+                "benefits": [
+                    "支持校园大使、社群团长与机构代理合作模式。",
+                    "支持批量采购、统一对账与定制化服务方案。",
+                    "支持微信二维码、微信号与合作文案按活动实时替换。",
+                ],
+                "contacts": [
+                    {
+                        "title": "机构合作顾问",
+                        "description": "院校、机构、企业合作优先对接。",
+                        "wechat_id": "",
+                        "qrcode_url": "/promo-contact-qr-1.jpg",
+                        "enabled": True,
+                    },
+                    {
+                        "title": "专属客服",
+                        "description": "处理账号、订单与日常服务咨询。",
+                        "wechat_id": "",
+                        "qrcode_url": "/promo-contact-qr-2.png",
+                        "enabled": True,
+                    },
+                ],
+            },
+        },
+        "reward_rules": {
+            "invite": {
+                "invitee_bind_reward_points": 2000,
+                "inviter_valid_invite_reward_points": 1000,
+                "audit_mode": "manual",
+                "auto_grant": False,
+                "milestones": [
+                    {"threshold": 5, "reward_points": 3000, "label": "邀请满 5 人"},
+                    {"threshold": 20, "reward_points": 10000, "label": "邀请满 20 人"},
+                    {"threshold": 50, "reward_points": 30000, "label": "邀请满 50 人"},
+                ],
+            },
+            "like": {
+                "audit_mode": "manual",
+                "auto_grant": False,
+                "tiers": [
+                    {"threshold": 10, "reward_points": 10000, "label": "10 赞"},
+                    {"threshold": 20, "reward_points": 20000, "label": "20 赞"},
+                ],
+            },
+            "create": {
+                "audit_mode": "manual",
+                "auto_grant": False,
+                "tiers": [
+                    {"threshold": 0, "reward_points": 5000, "label": "发帖即送"},
+                    {"threshold": 10, "reward_points": 10000, "label": "10+ 赞"},
+                    {"threshold": 20, "reward_points": 20000, "label": "20+ 赞"},
+                ],
+            },
+        },
+        "assets": {
+            "like_qrcode_url": "",
+            "invite_example_image_url": "",
+            "partner_primary_qrcode_url": "/promo-contact-qr-1.jpg",
+            "partner_secondary_qrcode_url": "/promo-contact-qr-2.png",
+        },
     }
     merged = dict(defaults)
     merged["enabled"] = bool(raw.get("enabled", defaults["enabled"])) if isinstance(raw, dict) else defaults["enabled"]
-    if isinstance(raw, dict):
+    if not isinstance(raw, dict):
+        return merged
+
+    def _safe_int(value, default: int, *, min_value: int | None = None, max_value: int | None = None) -> int:
         try:
-            points = int(raw.get("invite_reward_points", defaults["invite_reward_points"]))
+            parsed = int(value)
         except Exception:
-            points = defaults["invite_reward_points"]
-        merged["invite_reward_points"] = max(0, min(points, 100_000))
-        raw_contacts = raw.get("contacts") if isinstance(raw.get("contacts"), dict) else {}
-    else:
-        raw_contacts = {}
+            parsed = int(default)
+        if min_value is not None:
+            parsed = max(min_value, parsed)
+        if max_value is not None:
+            parsed = min(max_value, parsed)
+        return parsed
+
+    merged["schema_version"] = _safe_int(
+        raw.get("schema_version", defaults["schema_version"]) or defaults["schema_version"],
+        defaults["schema_version"],
+        min_value=1,
+        max_value=99,
+    )
+    merged["updated_by"] = str(raw.get("updated_by", defaults["updated_by"]) or "")[:64]
+    merged["updated_at"] = str(raw.get("updated_at", defaults["updated_at"]) or "")[:64]
+    merged["invite_reward_points"] = _safe_int(
+        raw.get("invite_reward_points", defaults["invite_reward_points"]),
+        defaults["invite_reward_points"],
+        min_value=0,
+        max_value=100_000,
+    )
+
+    raw_contacts = raw.get("contacts") if isinstance(raw.get("contacts"), dict) else {}
     contacts: dict[str, list[str]] = {"phone": [], "wechat": [], "email": []}
     for key in ("phone", "wechat", "email"):
         values = raw_contacts.get(key)
@@ -308,6 +493,202 @@ def _get_promo_center_config(db: Session) -> dict:
                 break
         contacts[key] = normalized
     merged["contacts"] = contacts
+
+    assets_raw = raw.get("assets") if isinstance(raw.get("assets"), dict) else {}
+    merged["assets"] = {
+        "like_qrcode_url": str(assets_raw.get("like_qrcode_url", defaults["assets"]["like_qrcode_url"]) or "")[:256],
+        "invite_example_image_url": str(assets_raw.get("invite_example_image_url", defaults["assets"]["invite_example_image_url"]) or "")[:256],
+        "partner_primary_qrcode_url": str(assets_raw.get("partner_primary_qrcode_url", defaults["assets"]["partner_primary_qrcode_url"]) or "")[:256],
+        "partner_secondary_qrcode_url": str(assets_raw.get("partner_secondary_qrcode_url", defaults["assets"]["partner_secondary_qrcode_url"]) or "")[:256],
+    }
+
+    raw_cards = raw.get("nav_cards") if isinstance(raw.get("nav_cards"), list) else []
+    card_map = {}
+    for item in raw_cards:
+        if isinstance(item, dict):
+            key = str(item.get("key") or "").strip().lower()
+            if key:
+                card_map[key] = item
+    cards = []
+    for index, default_card in enumerate(defaults["nav_cards"]):
+        source = card_map.get(default_card["key"], {})
+        cards.append(
+            {
+                "key": default_card["key"],
+                "title": str(source.get("title", default_card["title"]) or "")[:32] or default_card["title"],
+                "badge": str(source.get("badge", default_card["badge"]) or "")[:32],
+                "description": str(source.get("description", default_card["description"]) or "")[:120],
+                "sort_order": _safe_int(
+                    source.get("sort_order", default_card["sort_order"]) or default_card["sort_order"],
+                    default_card["sort_order"],
+                    min_value=1,
+                    max_value=99,
+                ),
+                "enabled": bool(source.get("enabled", default_card["enabled"])),
+            }
+        )
+    cards.sort(key=lambda item: (item["sort_order"], item["key"]))
+    merged["nav_cards"] = cards
+
+    reward_rules = defaults["reward_rules"]
+    raw_reward_rules = raw.get("reward_rules") if isinstance(raw.get("reward_rules"), dict) else {}
+    invite_rules = raw_reward_rules.get("invite") if isinstance(raw_reward_rules.get("invite"), dict) else {}
+    like_rules = raw_reward_rules.get("like") if isinstance(raw_reward_rules.get("like"), dict) else {}
+    create_rules = raw_reward_rules.get("create") if isinstance(raw_reward_rules.get("create"), dict) else {}
+    legacy_inviter_reward = merged["invite_reward_points"] if ("invite_reward_points" in raw and not invite_rules) else max(0, merged["invite_reward_points"] // 2)
+
+    def _normalize_reward_list(values, default_items):
+        if not isinstance(values, list):
+            return list(default_items)
+        items = []
+        for item in values:
+            if not isinstance(item, dict):
+                continue
+            try:
+                threshold = int(item.get("threshold", 0) or 0)
+                reward_points = int(item.get("reward_points", 0) or 0)
+            except Exception:
+                continue
+            if reward_points <= 0:
+                continue
+            items.append(
+                {
+                    "threshold": max(0, min(threshold, 100000)),
+                    "reward_points": max(0, min(reward_points, 1000000)),
+                    "label": str(item.get("label", "") or "")[:48],
+                }
+            )
+            if len(items) >= 12:
+                break
+        if not items:
+            return list(default_items)
+        items.sort(key=lambda item: (item["threshold"], item["reward_points"]))
+        return items
+
+    merged["reward_rules"] = {
+        "invite": {
+            "invitee_bind_reward_points": _safe_int(
+                invite_rules.get("invitee_bind_reward_points", merged["invite_reward_points"]) or merged["invite_reward_points"],
+                merged["invite_reward_points"],
+                min_value=0,
+                max_value=1_000_000,
+            ),
+            "inviter_valid_invite_reward_points": _safe_int(
+                invite_rules.get("inviter_valid_invite_reward_points", legacy_inviter_reward) or legacy_inviter_reward,
+                legacy_inviter_reward,
+                min_value=0,
+                max_value=1_000_000,
+            ),
+            "audit_mode": str(invite_rules.get("audit_mode", reward_rules["invite"]["audit_mode"]) or "manual")[:32],
+            "auto_grant": bool(invite_rules.get("auto_grant", reward_rules["invite"]["auto_grant"])),
+            "milestones": _normalize_reward_list(invite_rules.get("milestones"), reward_rules["invite"]["milestones"]),
+        },
+        "like": {
+            "audit_mode": str(like_rules.get("audit_mode", reward_rules["like"]["audit_mode"]) or "manual")[:32],
+            "auto_grant": bool(like_rules.get("auto_grant", reward_rules["like"]["auto_grant"])),
+            "tiers": _normalize_reward_list(like_rules.get("tiers"), reward_rules["like"]["tiers"]),
+        },
+        "create": {
+            "audit_mode": str(create_rules.get("audit_mode", reward_rules["create"]["audit_mode"]) or "manual")[:32],
+            "auto_grant": bool(create_rules.get("auto_grant", reward_rules["create"]["auto_grant"])),
+            "tiers": _normalize_reward_list(create_rules.get("tiers"), reward_rules["create"]["tiers"]),
+        },
+    }
+
+    raw_pages = raw.get("pages") if isinstance(raw.get("pages"), dict) else {}
+    merged_pages = {}
+    for key, default_page in defaults["pages"].items():
+        source = raw_pages.get(key) if isinstance(raw_pages.get(key), dict) else {}
+        page = dict(default_page)
+        page["enabled"] = bool(source.get("enabled", default_page.get("enabled", True)))
+        page["title"] = str(source.get("title", default_page.get("title", "")) or "")[:32] or default_page.get("title", "")
+        page["subtitle"] = str(source.get("subtitle", default_page.get("subtitle", "")) or "")[:180]
+        if key == "invite":
+            page["rule_lines"] = source.get("rule_lines") if isinstance(source.get("rule_lines"), list) else [
+                f"被邀请者完成手机号与微信绑定后，可获得 {merged['reward_rules']['invite']['invitee_bind_reward_points']} 点数。",
+                f"邀请者每产生 1 个有效邀请，可获得 {merged['reward_rules']['invite']['inviter_valid_invite_reward_points']} 点数。",
+                "支持配置里程碑加奖，全部奖励均以点数发放。",
+            ]
+            page["rule_lines"] = [str(item or "").strip()[:120] for item in page["rule_lines"] if str(item or "").strip()][:6]
+            page["quick_actions_title"] = str(source.get("quick_actions_title", default_page.get("quick_actions_title", "")) or "")[:32]
+            page["bind_code_label"] = str(source.get("bind_code_label", default_page.get("bind_code_label", "")) or "")[:32]
+            page["bind_code_placeholder"] = str(source.get("bind_code_placeholder", default_page.get("bind_code_placeholder", "")) or "")[:64]
+            page["bind_code_button_text"] = str(source.get("bind_code_button_text", default_page.get("bind_code_button_text", "")) or "")[:24]
+            page["share_copy_title"] = str(source.get("share_copy_title", default_page.get("share_copy_title", "")) or "")[:32]
+            page["share_copy_text"] = str(source.get("share_copy_text", default_page.get("share_copy_text", "")) or "")[:300]
+            page["miniapp_guide_title"] = str(source.get("miniapp_guide_title", default_page.get("miniapp_guide_title", "")) or "")[:40]
+            steps = source.get("miniapp_steps") if isinstance(source.get("miniapp_steps"), list) else default_page.get("miniapp_steps", [])
+            page["miniapp_steps"] = [str(item or "").strip()[:80] for item in steps if str(item or "").strip()][:5]
+            page["bind_code_notice"] = str(source.get("bind_code_notice", default_page.get("bind_code_notice", "")) or "")[:120]
+        elif key == "like":
+            lines = source.get("rule_lines") if isinstance(source.get("rule_lines"), list) else default_page.get("rule_lines", [])
+            page["rule_lines"] = [str(item or "").strip()[:120] for item in lines if str(item or "").strip()][:6]
+            page["qrcode_title"] = str(source.get("qrcode_title", default_page.get("qrcode_title", "")) or "")[:32]
+            page["review_notice"] = str(source.get("review_notice", default_page.get("review_notice", "")) or "")[:180]
+            page["other_entries_title"] = str(source.get("other_entries_title", default_page.get("other_entries_title", "")) or "")[:32]
+            entries = source.get("other_entries") if isinstance(source.get("other_entries"), list) else []
+            normalized_entries = []
+            for entry in entries:
+                if not isinstance(entry, dict):
+                    continue
+                normalized_entries.append(
+                    {
+                        "title": str(entry.get("title", "") or "")[:32],
+                        "description": str(entry.get("description", "") or "")[:120],
+                        "qrcode_url": str(entry.get("qrcode_url", "") or "")[:256],
+                        "enabled": bool(entry.get("enabled", True)),
+                    }
+                )
+                if len(normalized_entries) >= 8:
+                    break
+            page["other_entries"] = normalized_entries
+        elif key == "create":
+            lines = source.get("rule_lines") if isinstance(source.get("rule_lines"), list) else default_page.get("rule_lines", [])
+            page["rule_lines"] = [str(item or "").strip()[:120] for item in lines if str(item or "").strip()][:6]
+            default_platforms = default_page.get("platforms", [])
+            raw_platforms = source.get("platforms") if isinstance(source.get("platforms"), list) else []
+            platform_map = {}
+            for item in raw_platforms:
+                if isinstance(item, dict):
+                    platform_map[str(item.get("key", "") or "").strip().lower()] = item
+            page["platforms"] = []
+            for item in default_platforms:
+                current = platform_map.get(item["key"], {})
+                page["platforms"].append(
+                    {
+                        "key": item["key"],
+                        "label": str(current.get("label", item["label"]) or "")[:24] or item["label"],
+                        "status_text": str(current.get("status_text", item["status_text"]) or "")[:32],
+                        "enabled": bool(current.get("enabled", item["enabled"])),
+                    }
+                )
+            page["template_title"] = str(source.get("template_title", default_page.get("template_title", "")) or "")[:32]
+            templates = source.get("templates") if isinstance(source.get("templates"), list) else default_page.get("templates", [])
+            page["templates"] = [str(item or "").strip()[:220] for item in templates if str(item or "").strip()][:8]
+            page["submit_placeholder"] = str(source.get("submit_placeholder", default_page.get("submit_placeholder", "")) or "")[:64]
+            page["submit_button_text"] = str(source.get("submit_button_text", default_page.get("submit_button_text", "")) or "")[:24]
+            page["history_button_text"] = str(source.get("history_button_text", default_page.get("history_button_text", "")) or "")[:24]
+        elif key == "partner":
+            page["description"] = str(source.get("description", default_page.get("description", "")) or "")[:240]
+            benefits = source.get("benefits") if isinstance(source.get("benefits"), list) else default_page.get("benefits", [])
+            page["benefits"] = [str(item or "").strip()[:120] for item in benefits if str(item or "").strip()][:6]
+            default_cards = default_page.get("contacts", [])
+            source_cards = source.get("contacts") if isinstance(source.get("contacts"), list) else []
+            partner_cards = []
+            for index, item in enumerate(default_cards):
+                current = source_cards[index] if index < len(source_cards) and isinstance(source_cards[index], dict) else {}
+                partner_cards.append(
+                    {
+                        "title": str(current.get("title", item.get("title", "")) or "")[:32] or item.get("title", ""),
+                        "description": str(current.get("description", item.get("description", "")) or "")[:120],
+                        "wechat_id": str(current.get("wechat_id", item.get("wechat_id", "")) or "")[:64],
+                        "qrcode_url": str(current.get("qrcode_url", item.get("qrcode_url", "")) or "")[:256],
+                        "enabled": bool(current.get("enabled", item.get("enabled", True))),
+                    }
+                )
+            page["contacts"] = partner_cards
+        merged_pages[key] = page
+    merged["pages"] = merged_pages
     return merged
 
 

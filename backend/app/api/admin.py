@@ -84,6 +84,7 @@ from app.services.rewrite_strategies.config import (
     normalize_rewrite_strategy_config,
     rewrite_strategy_readiness,
 )
+from app.services.task_artifacts import resolve_task_artifact_path
 from app.services.task_filename import build_task_filename_pair, build_task_result_filename
 from app.services.user_navigation_service import default_user_navigation_config, normalize_user_navigation_config
 from app.services.partner_rebate_service import record_refund_order_rebate
@@ -228,8 +229,13 @@ CONFIG_FIELD_LABELS = {
     },
     "promo_center": {
         "enabled": "推广中心开关",
+        "schema_version": "配置版本",
         "invite_reward_points": "邀请奖励积分",
         "contacts": "机构合作联系方式",
+        "nav_cards": "顶部活动卡片",
+        "pages": "活动页面文案",
+        "reward_rules": "点数奖励规则",
+        "assets": "活动素材",
     },
     "aigc_detect_strategy": {
         "cnki": "知网AIGC检测策略",
@@ -331,17 +337,209 @@ CONFIG_DEFAULTS = {
     "user_navigation": default_user_navigation_config(),
     "promo_center": {
         "enabled": True,
+        "schema_version": 2,
+        "updated_by": "",
+        "updated_at": "",
         "invite_reward_points": 2000,
         "contacts": {
             "phone": [],
             "wechat": [],
             "email": [],
         },
+        "nav_cards": [
+            {
+                "key": "invite",
+                "title": "邀请有奖",
+                "badge": "绑定即得点数",
+                "description": "邀请好友完成手机号与微信绑定，双方都能拿点数。",
+                "sort_order": 1,
+                "enabled": True,
+            },
+            {
+                "key": "like",
+                "title": "集赞有奖",
+                "badge": "截图审核",
+                "description": "转发活动素材集赞后提交截图，审核通过发放点数。",
+                "sort_order": 2,
+                "enabled": True,
+            },
+            {
+                "key": "create",
+                "title": "创作有奖",
+                "badge": "最高 20000 点",
+                "description": "发布指定平台内容，按点赞阶梯领取点数奖励。",
+                "sort_order": 3,
+                "enabled": True,
+            },
+            {
+                "key": "partner",
+                "title": "机构合作",
+                "badge": "校园 / 机构",
+                "description": "校园大使、机构合作与企业服务统一从这里接入。",
+                "sort_order": 4,
+                "enabled": True,
+            },
+        ],
+        "pages": {
+            "invite": {
+                "enabled": True,
+                "title": "邀请有奖",
+                "subtitle": "邀请好友完成手机号与微信绑定，双方按规则获得点数奖励。",
+                "rule_lines": [
+                    "被邀请者完成手机号与微信绑定后，可获得 2000 点数。",
+                    "邀请者每产生 1 个有效邀请，可获得 1000 点数。",
+                    "支持配置里程碑加奖，全部奖励均以点数发放。",
+                ],
+                "quick_actions_title": "快捷操作区",
+                "bind_code_label": "填写邀请码",
+                "bind_code_placeholder": "请输入好友邀请码",
+                "bind_code_button_text": "确认填写",
+                "share_copy_title": "分享文案",
+                "share_copy_text": "我正在参加格物推广活动，注册并完成绑定即可拿点数，欢迎通过我的邀请码加入。",
+                "miniapp_guide_title": "小程序 3 步邀请指引",
+                "miniapp_steps": [
+                    "保存二维码或邀请链接，发送给好友。",
+                    "好友注册后先完成手机号绑定，再完成微信绑定。",
+                    "达到有效邀请条件后，点数奖励按规则发放。",
+                ],
+                "bind_code_notice": "邀请码在线填写入口待后端接口开放后启用。",
+            },
+            "like": {
+                "enabled": True,
+                "title": "集赞有奖",
+                "subtitle": "扫码转发活动素材集赞，提交截图后由运营审核发放点数。",
+                "rule_lines": [
+                    "10 赞可得 10000 点数。",
+                    "20 赞可得 20000 点数。",
+                    "活动时间、审核时效与违规处理均支持后台调整。",
+                ],
+                "qrcode_title": "活动二维码",
+                "review_notice": "截图需清晰完整，默认 1-3 个工作日内完成审核。",
+                "other_entries_title": "其他活动入口",
+                "other_entries": [],
+            },
+            "create": {
+                "enabled": True,
+                "title": "创作有奖",
+                "subtitle": "按平台规则发布指定内容，审核通过后按点赞阶梯发放点数。",
+                "rule_lines": [
+                    "发帖即送 5000 点数。",
+                    "点赞达到 10+ 可得 10000 点数。",
+                    "点赞达到 20+ 可得 20000 点数，单次活动封顶。",
+                ],
+                "platforms": [
+                    {
+                        "key": "douyin",
+                        "label": "抖音",
+                        "status_text": "可参加",
+                        "enabled": True,
+                    },
+                    {
+                        "key": "xiaohongshu",
+                        "label": "小红书",
+                        "status_text": "可参加",
+                        "enabled": True,
+                    },
+                    {
+                        "key": "kuaishou",
+                        "label": "快手",
+                        "status_text": "可参加",
+                        "enabled": True,
+                    },
+                    {
+                        "key": "weibo",
+                        "label": "微博",
+                        "status_text": "可参加",
+                        "enabled": True,
+                    },
+                    {
+                        "key": "moments",
+                        "label": "朋友圈",
+                        "status_text": "可参加",
+                        "enabled": True,
+                    },
+                ],
+                "template_title": "推荐文案模板",
+                "templates": [
+                    "我在用格物做论文处理，流程顺、反馈快，做完绑定和任务后还能参加创作活动拿点数。",
+                    "毕业季论文处理别乱找渠道，我最近在格物做检测和改写，活动期还有点赞点数奖励。",
+                ],
+                "submit_placeholder": "请输入作品链接",
+                "submit_button_text": "提交链接",
+                "history_button_text": "查看记录",
+            },
+            "partner": {
+                "enabled": True,
+                "title": "机构合作",
+                "subtitle": "校园大使、机构合作、社群联名与企业服务统一接入。",
+                "description": "支持校园活动合作、机构代充、批量服务采购与品牌联动推广。",
+                "benefits": [
+                    "支持校园大使、社群团长与机构代理合作模式。",
+                    "支持批量采购、统一对账与定制化服务方案。",
+                    "支持微信二维码、微信号与合作文案按活动实时替换。",
+                ],
+                "contacts": [
+                    {
+                        "title": "机构合作顾问",
+                        "description": "院校、机构、企业合作优先对接。",
+                        "wechat_id": "",
+                        "qrcode_url": "/promo-contact-qr-1.jpg",
+                        "enabled": True,
+                    },
+                    {
+                        "title": "专属客服",
+                        "description": "处理账号、订单与日常服务咨询。",
+                        "wechat_id": "",
+                        "qrcode_url": "/promo-contact-qr-2.png",
+                        "enabled": True,
+                    },
+                ],
+            },
+        },
+        "reward_rules": {
+            "invite": {
+                "invitee_bind_reward_points": 2000,
+                "inviter_valid_invite_reward_points": 1000,
+                "audit_mode": "manual",
+                "auto_grant": False,
+                "milestones": [
+                    {"threshold": 5, "reward_points": 3000, "label": "邀请满 5 人"},
+                    {"threshold": 20, "reward_points": 10000, "label": "邀请满 20 人"},
+                    {"threshold": 50, "reward_points": 30000, "label": "邀请满 50 人"},
+                ],
+            },
+            "like": {
+                "audit_mode": "manual",
+                "auto_grant": False,
+                "tiers": [
+                    {"threshold": 10, "reward_points": 10000, "label": "10 赞"},
+                    {"threshold": 20, "reward_points": 20000, "label": "20 赞"},
+                ],
+            },
+            "create": {
+                "audit_mode": "manual",
+                "auto_grant": False,
+                "tiers": [
+                    {"threshold": 0, "reward_points": 5000, "label": "发帖即送"},
+                    {"threshold": 10, "reward_points": 10000, "label": "10+ 赞"},
+                    {"threshold": 20, "reward_points": 20000, "label": "20+ 赞"},
+                ],
+            },
+        },
+        "assets": {
+            "like_qrcode_url": "",
+            "invite_example_image_url": "",
+            "partner_primary_qrcode_url": "/promo-contact-qr-1.jpg",
+            "partner_secondary_qrcode_url": "/promo-contact-qr-2.png",
+        },
     },
     "aigc_detect_strategy": deepcopy(DEFAULT_AIGC_DETECT_STRATEGY_CONFIG),
     "rewrite_strategy": deepcopy(DEFAULT_REWRITE_STRATEGY_CONFIG),
     "dedup_strategy": deepcopy(DEFAULT_DEDUP_STRATEGY_CONFIG),
 }
+
+PROMO_CENTER_PAGE_KEYS = ("invite", "like", "create", "partner")
+PROMO_CENTER_CARD_KEYS = ("invite", "like", "create", "partner")
 
 _LLM_PROVIDERS = set(SUPPORTED_LLM_PROVIDERS)
 _PAYMENT_PROVIDERS = {"wechat", "alipay", "mock", "wechatpay_v3"}
@@ -810,6 +1008,26 @@ def _normalize_source_filter(value) -> str:
     raise BizError(code=4348, message="source 不支持，仅允许 web / miniapp / other")
 
 
+def _order_package_snapshot(order: Order) -> dict:
+    snapshot = order.package_snapshot if isinstance(order.package_snapshot, dict) else {}
+    credits = int(snapshot.get("credits") or order.credits or 0)
+    amount_cny = round(float(snapshot.get("price") or cny_to_api(order.amount_cny)), 2)
+    price_per_kchar = round(amount_cny / (credits / 1000.0), 2) if credits > 0 else 0.0
+    return {
+        "name": str(snapshot.get("name", "")).strip(),
+        "price": amount_cny,
+        "credits": credits,
+        "processable_chars": int(snapshot.get("processable_chars") or credits),
+        "price_per_kchar": price_per_kchar,
+        "price_per_kchar_label": f"{price_per_kchar:.2f} 元/千字",
+        "badge": str(snapshot.get("badge", "")).strip(),
+        "description": str(snapshot.get("description", "")).strip(),
+        "audience": str(snapshot.get("audience", "")).strip(),
+        "discount_note": str(snapshot.get("discount_note", "")).strip(),
+        "sort_order": int(snapshot.get("sort_order") or 999),
+    }
+
+
 def _apply_source_filter(query, source_column, source_filter: str):
     if not source_filter:
         return query
@@ -1057,6 +1275,7 @@ def _normalize_billing_packages(value) -> list[dict]:
     packages = value if isinstance(value, list) else []
     normalized: list[dict] = []
     names: set[str] = set()
+    sort_orders: set[int] = set()
     if not packages:
         packages = deepcopy(DEFAULT_BILLING_PACKAGES)
     if len(packages) > 12:
@@ -1088,6 +1307,16 @@ def _normalize_billing_packages(value) -> list[dict]:
             max_value=100_000_000,
             field=f"{name}.credits",
         )
+        sort_order = _as_int(
+            item.get("sort_order", index),
+            default=index,
+            min_value=1,
+            max_value=999,
+            field=f"{name}.sort_order",
+        )
+        if sort_order in sort_orders:
+            raise BizError(code=4341, message=f"套餐排序重复: {sort_order}")
+        sort_orders.add(sort_order)
         normalized.append(
             {
                 "name": name,
@@ -1095,6 +1324,9 @@ def _normalize_billing_packages(value) -> list[dict]:
                 "credits": credits,
                 "description": _as_text(item.get("description"), default="", max_len=120),
                 "badge": _as_text(item.get("badge"), default="", max_len=20),
+                "audience": _as_text(item.get("audience"), default="", max_len=40),
+                "discount_note": _as_text(item.get("discount_note"), default="", max_len=40),
+                "sort_order": sort_order,
                 "enabled": _as_bool(item.get("enabled", True), default=True),
             }
         )
@@ -1102,6 +1334,7 @@ def _normalize_billing_packages(value) -> list[dict]:
         raise BizError(code=4341, message="至少需要配置 1 个套餐")
     if not any(bool(item.get("enabled", False)) for item in normalized):
         raise BizError(code=4341, message="至少需要启用 1 个套餐")
+    normalized.sort(key=lambda item: (int(item.get("sort_order", 999)), item.get("name", "")))
     return normalized
 
 
@@ -1138,36 +1371,7 @@ def _normalize_category_payload(category: str, payload: dict) -> dict:
         return normalize_user_navigation_config(raw)
 
     if category == "promo_center":
-        base["enabled"] = _as_bool(raw.get("enabled", base["enabled"]), default=True)
-        base["invite_reward_points"] = _as_int(
-            raw.get("invite_reward_points", base.get("invite_reward_points", 2000)),
-            default=2000,
-            min_value=0,
-            max_value=100_000,
-            field="invite_reward_points",
-        )
-        contacts = raw.get("contacts") if isinstance(raw.get("contacts"), dict) else {}
-        normalized_contacts: dict[str, list[str]] = {"phone": [], "wechat": [], "email": []}
-        for key in ("phone", "wechat", "email"):
-            values = contacts.get(key)
-            if not isinstance(values, list):
-                values = []
-            bucket: list[str] = []
-            seen = set()
-            for item in values:
-                text = _as_text(item, default="", max_len=128)
-                if not text:
-                    continue
-                dedup_key = text.lower()
-                if dedup_key in seen:
-                    continue
-                seen.add(dedup_key)
-                bucket.append(text)
-                if len(bucket) >= 20:
-                    break
-            normalized_contacts[key] = bucket
-        base["contacts"] = normalized_contacts
-        return base
+        return _normalize_promo_center_config(raw, base)
 
     if category == "aigc_detect_strategy":
         return normalize_aigc_detect_strategy_config(raw)
@@ -1434,6 +1638,383 @@ def _normalize_category_payload(category: str, payload: dict) -> dict:
     return base
 
 
+def _normalize_promo_text_list(values, *, limit: int, max_len: int) -> list[str]:
+    if not isinstance(values, list):
+        return []
+    result: list[str] = []
+    for item in values:
+        text = _as_text(item, default="", max_len=max_len)
+        if not text:
+            continue
+        result.append(text)
+        if len(result) >= limit:
+            break
+    return result
+
+
+def _normalize_promo_contacts(raw_contacts) -> dict[str, list[str]]:
+    contacts = raw_contacts if isinstance(raw_contacts, dict) else {}
+    normalized: dict[str, list[str]] = {"phone": [], "wechat": [], "email": []}
+    for key in ("phone", "wechat", "email"):
+        values = contacts.get(key)
+        if not isinstance(values, list):
+            values = []
+        bucket: list[str] = []
+        seen = set()
+        for item in values:
+            text = _as_text(item, default="", max_len=128)
+            if not text:
+                continue
+            dedup_key = text.lower()
+            if dedup_key in seen:
+                continue
+            seen.add(dedup_key)
+            bucket.append(text)
+            if len(bucket) >= 20:
+                break
+        normalized[key] = bucket
+    return normalized
+
+
+def _normalize_promo_nav_cards(raw_cards, default_cards: list[dict]) -> list[dict]:
+    source_cards = raw_cards if isinstance(raw_cards, list) else []
+    source_map = {}
+    for item in source_cards:
+        if not isinstance(item, dict):
+            continue
+        key = _as_text(item.get("key"), default="", max_len=32).lower()
+        if key in PROMO_CENTER_CARD_KEYS:
+            source_map[key] = item
+    cards: list[dict] = []
+    for index, default_card in enumerate(default_cards):
+        key = default_card["key"]
+        current = source_map.get(key, {})
+        cards.append(
+            {
+                "key": key,
+                "title": _as_text(current.get("title", default_card.get("title", "")), default=default_card.get("title", ""), max_len=32),
+                "badge": _as_text(current.get("badge", default_card.get("badge", "")), default=default_card.get("badge", ""), max_len=32),
+                "description": _as_text(
+                    current.get("description", default_card.get("description", "")),
+                    default=default_card.get("description", ""),
+                    max_len=120,
+                ),
+                "sort_order": _as_int(current.get("sort_order", default_card.get("sort_order", index + 1)), default=index + 1, min_value=1, max_value=99),
+                "enabled": _as_bool(current.get("enabled", default_card.get("enabled", True)), default=default_card.get("enabled", True)),
+            }
+        )
+    cards.sort(key=lambda item: (int(item.get("sort_order") or 0), item["key"]))
+    return cards
+
+
+def _normalize_promo_reward_tiers(raw_tiers, *, default_tiers: list[dict], threshold_max: int = 100000, reward_max: int = 1000000) -> list[dict]:
+    tiers = raw_tiers if isinstance(raw_tiers, list) else []
+    normalized: list[dict] = []
+    for index, item in enumerate(tiers):
+        if not isinstance(item, dict):
+            continue
+        threshold = _as_int(item.get("threshold", 0), default=0, min_value=0, max_value=threshold_max)
+        reward_points = _as_int(item.get("reward_points", 0), default=0, min_value=0, max_value=reward_max)
+        label = _as_text(item.get("label", ""), default="", max_len=48)
+        if reward_points <= 0:
+            continue
+        normalized.append({"threshold": threshold, "reward_points": reward_points, "label": label})
+        if len(normalized) >= 12:
+            break
+    if normalized:
+        normalized.sort(key=lambda item: (int(item["threshold"]), int(item["reward_points"])))
+        return normalized
+    return deepcopy(default_tiers)
+
+
+def _normalize_promo_platforms(raw_platforms, default_platforms: list[dict]) -> list[dict]:
+    source_items = raw_platforms if isinstance(raw_platforms, list) else []
+    source_map = {}
+    for item in source_items:
+        if not isinstance(item, dict):
+            continue
+        key = _as_text(item.get("key"), default="", max_len=32).lower()
+        if key:
+            source_map[key] = item
+    result: list[dict] = []
+    for default_item in default_platforms:
+        key = default_item["key"]
+        current = source_map.get(key, {})
+        result.append(
+            {
+                "key": key,
+                "label": _as_text(current.get("label", default_item.get("label", "")), default=default_item.get("label", ""), max_len=24),
+                "status_text": _as_text(
+                    current.get("status_text", default_item.get("status_text", "")),
+                    default=default_item.get("status_text", ""),
+                    max_len=32,
+                ),
+                "enabled": _as_bool(current.get("enabled", default_item.get("enabled", True)), default=default_item.get("enabled", True)),
+            }
+        )
+    return result
+
+
+def _normalize_promo_other_entries(raw_entries) -> list[dict]:
+    if not isinstance(raw_entries, list):
+        return []
+    items: list[dict] = []
+    for item in raw_entries:
+        if not isinstance(item, dict):
+            continue
+        title = _as_text(item.get("title", ""), default="", max_len=32)
+        description = _as_text(item.get("description", ""), default="", max_len=120)
+        qrcode_url = _as_text(item.get("qrcode_url", ""), default="", max_len=256)
+        if not title and not description and not qrcode_url:
+            continue
+        items.append(
+            {
+                "title": title,
+                "description": description,
+                "qrcode_url": qrcode_url,
+                "enabled": _as_bool(item.get("enabled", True), default=True),
+            }
+        )
+        if len(items) >= 8:
+            break
+    return items
+
+
+def _normalize_promo_partner_cards(raw_contacts, default_contacts: list[dict]) -> list[dict]:
+    source_items = raw_contacts if isinstance(raw_contacts, list) else []
+    result: list[dict] = []
+    for index, default_item in enumerate(default_contacts):
+        current = source_items[index] if index < len(source_items) and isinstance(source_items[index], dict) else {}
+        result.append(
+            {
+                "title": _as_text(current.get("title", default_item.get("title", "")), default=default_item.get("title", ""), max_len=32),
+                "description": _as_text(
+                    current.get("description", default_item.get("description", "")),
+                    default=default_item.get("description", ""),
+                    max_len=120,
+                ),
+                "wechat_id": _as_text(current.get("wechat_id", default_item.get("wechat_id", "")), default=default_item.get("wechat_id", ""), max_len=64),
+                "qrcode_url": _as_text(current.get("qrcode_url", default_item.get("qrcode_url", "")), default=default_item.get("qrcode_url", ""), max_len=256),
+                "enabled": _as_bool(current.get("enabled", default_item.get("enabled", True)), default=default_item.get("enabled", True)),
+            }
+        )
+    return result
+
+
+def _normalize_promo_pages(raw_pages, base_pages: dict, contacts: dict[str, list[str]], assets: dict, invite_reward_points: int) -> dict:
+    pages_source = raw_pages if isinstance(raw_pages, dict) else {}
+    normalized_pages: dict[str, dict] = {}
+
+    invite_default = deepcopy(base_pages["invite"])
+    invite_source = pages_source.get("invite") if isinstance(pages_source.get("invite"), dict) else {}
+    invite_default["rule_lines"] = [
+        f"被邀请者完成手机号与微信绑定后，可获得 {max(0, int(invite_reward_points or 0))} 点数。",
+        f"邀请者每产生 1 个有效邀请，可获得 {max(0, int(invite_reward_points // 2 or 0))} 点数。",
+        "支持配置里程碑加奖，全部奖励均以点数发放。",
+    ]
+    normalized_pages["invite"] = {
+        "enabled": _as_bool(invite_source.get("enabled", invite_default.get("enabled", True)), default=invite_default.get("enabled", True)),
+        "title": _as_text(invite_source.get("title", invite_default.get("title", "")), default=invite_default.get("title", ""), max_len=32),
+        "subtitle": _as_text(invite_source.get("subtitle", invite_default.get("subtitle", "")), default=invite_default.get("subtitle", ""), max_len=180),
+        "rule_lines": _normalize_promo_text_list(invite_source.get("rule_lines", invite_default.get("rule_lines", [])), limit=6, max_len=120),
+        "quick_actions_title": _as_text(
+            invite_source.get("quick_actions_title", invite_default.get("quick_actions_title", "")),
+            default=invite_default.get("quick_actions_title", ""),
+            max_len=32,
+        ),
+        "bind_code_label": _as_text(invite_source.get("bind_code_label", invite_default.get("bind_code_label", "")), default=invite_default.get("bind_code_label", ""), max_len=32),
+        "bind_code_placeholder": _as_text(
+            invite_source.get("bind_code_placeholder", invite_default.get("bind_code_placeholder", "")),
+            default=invite_default.get("bind_code_placeholder", ""),
+            max_len=64,
+        ),
+        "bind_code_button_text": _as_text(
+            invite_source.get("bind_code_button_text", invite_default.get("bind_code_button_text", "")),
+            default=invite_default.get("bind_code_button_text", ""),
+            max_len=24,
+        ),
+        "share_copy_title": _as_text(invite_source.get("share_copy_title", invite_default.get("share_copy_title", "")), default=invite_default.get("share_copy_title", ""), max_len=32),
+        "share_copy_text": _as_text(invite_source.get("share_copy_text", invite_default.get("share_copy_text", "")), default=invite_default.get("share_copy_text", ""), max_len=300),
+        "miniapp_guide_title": _as_text(
+            invite_source.get("miniapp_guide_title", invite_default.get("miniapp_guide_title", "")),
+            default=invite_default.get("miniapp_guide_title", ""),
+            max_len=40,
+        ),
+        "miniapp_steps": _normalize_promo_text_list(invite_source.get("miniapp_steps", invite_default.get("miniapp_steps", [])), limit=5, max_len=80),
+        "bind_code_notice": _as_text(
+            invite_source.get("bind_code_notice", invite_default.get("bind_code_notice", "")),
+            default=invite_default.get("bind_code_notice", ""),
+            max_len=120,
+        ),
+    }
+
+    like_default = deepcopy(base_pages["like"])
+    like_source = pages_source.get("like") if isinstance(pages_source.get("like"), dict) else {}
+    normalized_pages["like"] = {
+        "enabled": _as_bool(like_source.get("enabled", like_default.get("enabled", True)), default=like_default.get("enabled", True)),
+        "title": _as_text(like_source.get("title", like_default.get("title", "")), default=like_default.get("title", ""), max_len=32),
+        "subtitle": _as_text(like_source.get("subtitle", like_default.get("subtitle", "")), default=like_default.get("subtitle", ""), max_len=180),
+        "rule_lines": _normalize_promo_text_list(like_source.get("rule_lines", like_default.get("rule_lines", [])), limit=6, max_len=120),
+        "qrcode_title": _as_text(like_source.get("qrcode_title", like_default.get("qrcode_title", "")), default=like_default.get("qrcode_title", ""), max_len=32),
+        "review_notice": _as_text(like_source.get("review_notice", like_default.get("review_notice", "")), default=like_default.get("review_notice", ""), max_len=180),
+        "other_entries_title": _as_text(
+            like_source.get("other_entries_title", like_default.get("other_entries_title", "")),
+            default=like_default.get("other_entries_title", ""),
+            max_len=32,
+        ),
+        "other_entries": _normalize_promo_other_entries(like_source.get("other_entries", like_default.get("other_entries", []))),
+    }
+
+    create_default = deepcopy(base_pages["create"])
+    create_source = pages_source.get("create") if isinstance(pages_source.get("create"), dict) else {}
+    normalized_pages["create"] = {
+        "enabled": _as_bool(create_source.get("enabled", create_default.get("enabled", True)), default=create_default.get("enabled", True)),
+        "title": _as_text(create_source.get("title", create_default.get("title", "")), default=create_default.get("title", ""), max_len=32),
+        "subtitle": _as_text(create_source.get("subtitle", create_default.get("subtitle", "")), default=create_default.get("subtitle", ""), max_len=180),
+        "rule_lines": _normalize_promo_text_list(create_source.get("rule_lines", create_default.get("rule_lines", [])), limit=6, max_len=120),
+        "platforms": _normalize_promo_platforms(create_source.get("platforms", create_default.get("platforms", [])), create_default.get("platforms", [])),
+        "template_title": _as_text(create_source.get("template_title", create_default.get("template_title", "")), default=create_default.get("template_title", ""), max_len=32),
+        "templates": _normalize_promo_text_list(create_source.get("templates", create_default.get("templates", [])), limit=8, max_len=220),
+        "submit_placeholder": _as_text(create_source.get("submit_placeholder", create_default.get("submit_placeholder", "")), default=create_default.get("submit_placeholder", ""), max_len=64),
+        "submit_button_text": _as_text(create_source.get("submit_button_text", create_default.get("submit_button_text", "")), default=create_default.get("submit_button_text", ""), max_len=24),
+        "history_button_text": _as_text(create_source.get("history_button_text", create_default.get("history_button_text", "")), default=create_default.get("history_button_text", ""), max_len=24),
+    }
+
+    partner_default = deepcopy(base_pages["partner"])
+    partner_source = pages_source.get("partner") if isinstance(pages_source.get("partner"), dict) else {}
+    legacy_partner_cards = [
+        {
+            "title": "电话联系",
+            "description": "机构合作电话",
+            "wechat_id": "",
+            "qrcode_url": "",
+            "enabled": len(contacts.get("phone", [])) > 0,
+        },
+        {
+            "title": "微信联系",
+            "description": "机构合作微信",
+            "wechat_id": contacts.get("wechat", [""])[0] if contacts.get("wechat") else "",
+            "qrcode_url": assets.get("partner_primary_qrcode_url", ""),
+            "enabled": True,
+        },
+    ]
+    partner_cards_source = partner_source.get("contacts")
+    if not isinstance(partner_cards_source, list) and contacts.get("wechat"):
+        partner_cards_source = legacy_partner_cards
+    normalized_pages["partner"] = {
+        "enabled": _as_bool(partner_source.get("enabled", partner_default.get("enabled", True)), default=partner_default.get("enabled", True)),
+        "title": _as_text(partner_source.get("title", partner_default.get("title", "")), default=partner_default.get("title", ""), max_len=32),
+        "subtitle": _as_text(partner_source.get("subtitle", partner_default.get("subtitle", "")), default=partner_default.get("subtitle", ""), max_len=180),
+        "description": _as_text(partner_source.get("description", partner_default.get("description", "")), default=partner_default.get("description", ""), max_len=240),
+        "benefits": _normalize_promo_text_list(partner_source.get("benefits", partner_default.get("benefits", [])), limit=6, max_len=120),
+        "contacts": _normalize_promo_partner_cards(partner_cards_source, partner_default.get("contacts", [])),
+    }
+    return normalized_pages
+
+
+def _normalize_promo_center_config(raw: dict, base: dict) -> dict:
+    source = raw if isinstance(raw, dict) else {}
+    normalized = deepcopy(base)
+    normalized["enabled"] = _as_bool(source.get("enabled", base.get("enabled", True)), default=True)
+    normalized["schema_version"] = _as_int(source.get("schema_version", base.get("schema_version", 2)), default=2, min_value=1, max_value=99)
+    normalized["updated_by"] = _as_text(source.get("updated_by", base.get("updated_by", "")), default=base.get("updated_by", ""), max_len=64)
+    normalized["updated_at"] = _as_text(source.get("updated_at", base.get("updated_at", "")), default=base.get("updated_at", ""), max_len=64)
+    normalized["invite_reward_points"] = _as_int(
+        source.get("invite_reward_points", base.get("invite_reward_points", 2000)),
+        default=2000,
+        min_value=0,
+        max_value=100_000,
+        field="invite_reward_points",
+    )
+    normalized["contacts"] = _normalize_promo_contacts(source.get("contacts", base.get("contacts", {})))
+
+    assets_source = source.get("assets") if isinstance(source.get("assets"), dict) else {}
+    base_assets = base.get("assets", {})
+    normalized["assets"] = {
+        "like_qrcode_url": _as_text(assets_source.get("like_qrcode_url", base_assets.get("like_qrcode_url", "")), default=base_assets.get("like_qrcode_url", ""), max_len=256),
+        "invite_example_image_url": _as_text(
+            assets_source.get("invite_example_image_url", base_assets.get("invite_example_image_url", "")),
+            default=base_assets.get("invite_example_image_url", ""),
+            max_len=256,
+        ),
+        "partner_primary_qrcode_url": _as_text(
+            assets_source.get("partner_primary_qrcode_url", base_assets.get("partner_primary_qrcode_url", "")),
+            default=base_assets.get("partner_primary_qrcode_url", ""),
+            max_len=256,
+        ),
+        "partner_secondary_qrcode_url": _as_text(
+            assets_source.get("partner_secondary_qrcode_url", base_assets.get("partner_secondary_qrcode_url", "")),
+            default=base_assets.get("partner_secondary_qrcode_url", ""),
+            max_len=256,
+        ),
+    }
+
+    normalized["nav_cards"] = _normalize_promo_nav_cards(source.get("nav_cards"), base.get("nav_cards", []))
+
+    reward_source = source.get("reward_rules") if isinstance(source.get("reward_rules"), dict) else {}
+    reward_base = base.get("reward_rules", {})
+    invite_rule_source = reward_source.get("invite") if isinstance(reward_source.get("invite"), dict) else {}
+    like_rule_source = reward_source.get("like") if isinstance(reward_source.get("like"), dict) else {}
+    create_rule_source = reward_source.get("create") if isinstance(reward_source.get("create"), dict) else {}
+    legacy_inviter_points = normalized["invite_reward_points"] if ("invite_reward_points" in source and not invite_rule_source) else max(0, normalized["invite_reward_points"] // 2)
+    normalized["reward_rules"] = {
+        "invite": {
+            "invitee_bind_reward_points": _as_int(
+                invite_rule_source.get("invitee_bind_reward_points", normalized["invite_reward_points"]),
+                default=normalized["invite_reward_points"],
+                min_value=0,
+                max_value=1_000_000,
+            ),
+            "inviter_valid_invite_reward_points": _as_int(
+                invite_rule_source.get("inviter_valid_invite_reward_points", legacy_inviter_points),
+                default=legacy_inviter_points,
+                min_value=0,
+                max_value=1_000_000,
+            ),
+            "audit_mode": _as_text(invite_rule_source.get("audit_mode", reward_base.get("invite", {}).get("audit_mode", "manual")), default="manual", max_len=32),
+            "auto_grant": _as_bool(invite_rule_source.get("auto_grant", reward_base.get("invite", {}).get("auto_grant", False)), default=False),
+            "milestones": _normalize_promo_reward_tiers(
+                invite_rule_source.get("milestones"),
+                default_tiers=reward_base.get("invite", {}).get("milestones", []),
+            ),
+        },
+        "like": {
+            "audit_mode": _as_text(like_rule_source.get("audit_mode", reward_base.get("like", {}).get("audit_mode", "manual")), default="manual", max_len=32),
+            "auto_grant": _as_bool(like_rule_source.get("auto_grant", reward_base.get("like", {}).get("auto_grant", False)), default=False),
+            "tiers": _normalize_promo_reward_tiers(
+                like_rule_source.get("tiers"),
+                default_tiers=reward_base.get("like", {}).get("tiers", []),
+            ),
+        },
+        "create": {
+            "audit_mode": _as_text(create_rule_source.get("audit_mode", reward_base.get("create", {}).get("audit_mode", "manual")), default="manual", max_len=32),
+            "auto_grant": _as_bool(create_rule_source.get("auto_grant", reward_base.get("create", {}).get("auto_grant", False)), default=False),
+            "tiers": _normalize_promo_reward_tiers(
+                create_rule_source.get("tiers"),
+                default_tiers=reward_base.get("create", {}).get("tiers", []),
+            ),
+        },
+    }
+
+    normalized["pages"] = _normalize_promo_pages(
+        source.get("pages"),
+        base.get("pages", {}),
+        normalized["contacts"],
+        normalized["assets"],
+        normalized["reward_rules"]["invite"]["invitee_bind_reward_points"],
+    )
+    invite_page_source = source.get("pages", {}).get("invite") if isinstance(source.get("pages"), dict) and isinstance(source.get("pages", {}).get("invite"), dict) else {}
+    if not invite_page_source.get("rule_lines"):
+        normalized["pages"]["invite"]["rule_lines"] = [
+            f"被邀请者完成手机号与微信绑定后，可获得 {normalized['reward_rules']['invite']['invitee_bind_reward_points']} 点数。",
+            f"邀请者每产生 1 个有效邀请，可获得 {normalized['reward_rules']['invite']['inviter_valid_invite_reward_points']} 点数。",
+            "支持配置里程碑加奖，全部奖励均以点数发放。",
+        ]
+
+    normalized["contacts"] = _normalize_promo_contacts(source.get("contacts", normalized["contacts"]))
+    return normalized
+
+
 def _category_readiness(category: str, value: dict) -> dict:
     if category == "billing":
         rate_ok = all(float(value.get(k, 0) or 0) > 0 for k in ("aigc_points_per_char", "dedup_points_per_char", "rewrite_points_per_char"))
@@ -1456,24 +2037,27 @@ def _category_readiness(category: str, value: dict) -> dict:
             return {"category": category, "status": "error", "message": "前台导航至少需展示 1 个功能"}
         return {"category": category, "status": "ready", "message": f"前台导航已编排（展示 {visible_count} 个功能）"}
     if category == "promo_center":
-        enabled = bool(value.get("enabled", True))
+        promo = _normalize_promo_center_config(value, deepcopy(CONFIG_DEFAULTS["promo_center"]))
+        enabled = bool(promo.get("enabled", True))
         if not enabled:
             return {"category": category, "status": "warning", "message": "推广中心已关闭"}
-        reward_points = int(value.get("invite_reward_points") or 0)
+        reward_points = int(promo.get("reward_rules", {}).get("invite", {}).get("invitee_bind_reward_points") or promo.get("invite_reward_points") or 0)
+        cards = promo.get("nav_cards") if isinstance(promo.get("nav_cards"), list) else []
+        enabled_cards = [item for item in cards if isinstance(item, dict) and item.get("enabled") is not False]
+        if not enabled_cards:
+            return {"category": category, "status": "warning", "message": "顶部活动卡片未启用，前台将无法切页"}
+        partner_contacts = promo.get("pages", {}).get("partner", {}).get("contacts")
+        partner_count = 0
+        if isinstance(partner_contacts, list):
+            partner_count = len([item for item in partner_contacts if isinstance(item, dict) and item.get("enabled") is not False and (item.get("qrcode_url") or item.get("wechat_id"))])
+        if partner_count <= 0:
+            return {"category": category, "status": "warning", "message": "机构合作页未配置有效二维码或微信号"}
         if reward_points <= 0:
-            return {"category": category, "status": "warning", "message": "邀请奖励积分未设置，页面仅展示联系方式"}
-        contacts = value.get("contacts") if isinstance(value.get("contacts"), dict) else {}
-        contact_count = 0
-        for key in ("phone", "wechat", "email"):
-            values = contacts.get(key)
-            if isinstance(values, list):
-                contact_count += len([item for item in values if str(item or "").strip()])
-        if contact_count <= 0:
-            return {"category": category, "status": "warning", "message": "机构合作联系方式未配置"}
+            return {"category": category, "status": "warning", "message": "邀请页点数奖励未设置，当前仅展示活动内容"}
         return {
             "category": category,
             "status": "ready",
-            "message": f"邀请奖励 {reward_points} 点，已配置 {contact_count} 条机构联系方式",
+            "message": f"已启用 {len(enabled_cards)} 个活动入口，邀请奖励 {reward_points} 点，机构合作 {partner_count} 个联系卡片",
         }
     if category == "llm":
         enabled = bool(value.get("enabled"))
@@ -1814,6 +2398,10 @@ def _save_category_config(db: Session, category: str, value: dict, admin: AdminU
         notice_sync_payload = _notice_to_notice_fields(notice_after)
         value.update(_notice_to_login_fields(notice_after))
         miniapp_sync_payload = _extract_miniapp_payload(value)
+    elif category == "promo_center":
+        value = deepcopy(value)
+        value["updated_by"] = getattr(admin, "username", "") or f"admin#{admin.id}"
+        value["updated_at"] = datetime.utcnow().isoformat(timespec="seconds")
 
     if row is None:
         row = SystemConfig(
@@ -2831,8 +3419,8 @@ def admin_task_download(
         raise BizError(code=4041, message="任务不存在", http_status=404)
     if row.status.value != "completed" or not row.output_path:
         raise BizError(code=4108, message="任务尚未完成")
-    path = Path(row.output_path)
-    if not path.exists():
+    path = resolve_task_artifact_path(row.output_path)
+    if path is None or not path.exists():
         raise BizError(code=4109, message="输出文件不存在")
     download_name = build_task_result_filename(row.task_type, row.source_filename, path)
     return FileResponse(path=str(path), filename=download_name)
@@ -2882,6 +3470,7 @@ def admin_orders(
             "status": o.status,
             "source": _normalize_source_bucket(o.source),
             "is_first_pay": o.is_first_pay,
+            "package_snapshot": _order_package_snapshot(o),
             "created_at": o.created_at,
         }
         for o in rows
@@ -2918,6 +3507,7 @@ def order_detail(order_no: str, _: AdminUser = Depends(require_admin_permission(
             "provider": row.provider,
             "source": _normalize_source_bucket(row.source),
             "is_first_pay": row.is_first_pay,
+            "package_snapshot": _order_package_snapshot(row),
             "created_at": row.created_at,
             "updated_at": row.updated_at,
         }

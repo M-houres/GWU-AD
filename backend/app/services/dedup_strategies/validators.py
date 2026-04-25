@@ -44,9 +44,16 @@ def validate_dedup_output(
     if (rule_trace or {}).get("fallback_applied"):
         warnings.append("降重复率策略空输出，已切换兜底改写")
     length_ok = True
-    if source_len >= 40 and not (-0.1 <= length_delta_ratio <= 0.2):
-        length_ok = False
-        warnings.append("降重结果字数浮动超出建议范围")
+    if source_len >= 40:
+        if normalized_platform == "vip":
+            length_ok = 0.20 <= length_delta_ratio <= 0.30
+            if not length_ok:
+                warnings.append("维普WP2扩写量未达到建议 20%~30%")
+            if not (0.10 <= length_delta_ratio <= 0.40):
+                raise BizError(code=4622, message=f"维普WP2扩写量超出允许范围: {length_delta_ratio:.2%}")
+        elif not (-0.1 <= length_delta_ratio <= 0.2):
+            length_ok = False
+            warnings.append("降重结果字数浮动超出建议范围")
 
     similarity = SequenceMatcher(None, str(source_text or "")[:4000], output[:4000]).ratio()
     change = round((1 - similarity) * 100, 2)

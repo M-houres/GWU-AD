@@ -3,19 +3,10 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from datetime import date
-from difflib import SequenceMatcher
 from pathlib import Path
 
 from docx import Document
 
-from app.services.dedup_strategies.assets import CNKI_DEDUP_ASSETS, VIP_DEDUP_ASSETS
-from app.services.dedup_strategies.rule_engine import apply_dedup_rules
-from app.services.dedup_strategies.validators import validate_dedup_output
-from app.services.dedup_strategies.executor import _select_dedup_candidate
-from app.services.rewrite_strategies.assets import CNKI_ASSETS, VIP_ASSETS
-from app.services.rewrite_strategies.rule_engine import apply_platform_rules
-from app.services.rewrite_strategies.validators import adjust_to_target_length, validate_rewrite_output
-from app.services.rewrite_strategies.executor import _select_rewrite_candidate
 from app.services.strategy_prompt_assets import slot_negative_examples, slot_positive_examples
 from app.services.strategy_style_profiles import build_dedup_style_guidance, build_rewrite_style_guidance
 
@@ -28,25 +19,11 @@ DEDUP_REFERENCE_PATH = STRATEGY_ASSET_DIR / "dedup_positive_references_v1.jsonl"
 REPORT_OUTPUT_DIR = REPO_ROOT / "docs"
 
 SLOT_ORDER = (
-    "cnki.rewrite.algorithm",
     "cnki.rewrite.llm",
-    "cnki.dedup.algorithm",
     "cnki.dedup.llm",
-    "vip.rewrite.algorithm",
     "vip.rewrite.llm",
-    "vip.dedup.algorithm",
     "vip.dedup.llm",
 )
-
-REWRITE_ASSETS = {
-    "cnki": CNKI_ASSETS,
-    "vip": VIP_ASSETS,
-}
-
-DEDUP_ASSETS = {
-    "cnki": CNKI_DEDUP_ASSETS,
-    "vip": VIP_DEDUP_ASSETS,
-}
 
 
 @dataclass(frozen=True)
@@ -62,13 +39,9 @@ class SlotEvaluation:
 
 def evaluate_strategy_slots() -> dict[str, object]:
     rows = [
-        _evaluate_rewrite_algorithm_slot("cnki"),
         _evaluate_rewrite_llm_slot("cnki"),
-        _evaluate_dedup_algorithm_slot("cnki"),
         _evaluate_dedup_llm_slot("cnki"),
-        _evaluate_rewrite_algorithm_slot("vip"),
         _evaluate_rewrite_llm_slot("vip"),
-        _evaluate_dedup_algorithm_slot("vip"),
         _evaluate_dedup_llm_slot("vip"),
     ]
     status_counts: dict[str, int] = {}
@@ -86,7 +59,7 @@ def evaluate_strategy_slots() -> dict[str, object]:
 
 def render_strategy_slot_evaluation_report(payload: dict[str, object]) -> str:
     lines = [
-        "# 八槽位策略评估",
+        "# 四槽位策略评估",
         "",
         f"更新日期：{payload.get('generated_on')}",
         "",
@@ -121,65 +94,6 @@ def write_strategy_slot_evaluation_report(payload: dict[str, object], *, date_la
     return output_path
 
 
-def _evaluate_rewrite_algorithm_slot(platform: str) -> SlotEvaluation:
-    slot = f"{platform}.rewrite.algorithm"
-    paragraphs = _load_rewrite_source_paragraphs(platform)
-    qualified = 0
-    style_aligned = 0
-    meaningful = 0
-    warning_count = 0
-    high_quality = 0
-    for text in paragraphs:
-        output, trace = apply_platform_rules(None, text=text, assets=REWRITE_ASSETS[platform], report_summary={})
-        output = adjust_to_target_length(output, source_text=text, platform=platform, allow_soft_expansion=platform != "vip")
-        validation = _select_rewrite_candidate(
-            None,
-            task=None,
-            platform=platform,
-            strategy="algorithm",
-            source_text=text,
-            report_summary={},
-            output=output,
-            rule_trace=trace,
-        )
-        similarity = SequenceMatcher(None, text[:4000], validation.text[:4000]).ratio()
-        if validation.quality_flags.get("style_alignment_ok"):
-            style_aligned += 1
-        if similarity <= 0.96:
-            meaningful += 1
-        if validation.warnings:
-            warning_count += 1
-        if validation.quality_score >= 0.82 and not validation.warnings:
-            high_quality += 1
-        if (
-            validation.quality_flags.get("basic_legality_ok")
-            and validation.quality_flags.get("protected_content_ok")
-            and validation.quality_flags.get("structure_natural_ok")
-            and validation.quality_flags.get("style_alignment_ok")
-            and validation.quality_flags.get("shallow_rewrite_ok")
-            and validation.quality_flags.get("discourse_diversity_ok")
-            and not validation.warnings
-        ):
-            qualified += 1
-    sample_count = len(paragraphs)
-    qualified_rate = round(qualified / sample_count, 4) if sample_count else 0.0
-    status = _algorithm_status(qualified_rate, meaningful / sample_count if sample_count else 0.0)
-    return SlotEvaluation(
-        slot=slot,
-        slot_type="algorithm_runtime",
-        status=status,
-        sample_count=sample_count,
-        qualified_count=qualified,
-        qualified_rate=qualified_rate,
-        details={
-            "style_aligned": style_aligned,
-            "meaningful_change_count": meaningful,
-            "warning_count": warning_count,
-            "high_quality_count": high_quality,
-        },
-    )
-
-
 def _evaluate_rewrite_llm_slot(platform: str) -> SlotEvaluation:
     slot = f"{platform}.rewrite.llm"
     positive_rows = slot_positive_examples(slot, limit=3)
@@ -205,63 +119,6 @@ def _evaluate_rewrite_llm_slot(platform: str) -> SlotEvaluation:
             "positive_example_count": len(positive_rows),
             "negative_example_count": len(negative_rows),
             "disciplines": ",".join(sorted(item for item in disciplines if item)) or "none",
-        },
-    )
-
-
-def _evaluate_dedup_algorithm_slot(platform: str) -> SlotEvaluation:
-    slot = f"{platform}.dedup.algorithm"
-    excerpts = [*_load_rewrite_source_paragraphs(platform), *_load_dedup_excerpts(platform)]
-    qualified = 0
-    variation_ok = 0
-    style_aligned = 0
-    warning_count = 0
-    high_quality = 0
-    for text in excerpts:
-        output, trace = apply_dedup_rules(None, text=text, assets=DEDUP_ASSETS[platform], report_summary={})
-        validation = _select_dedup_candidate(
-            None,
-            task=None,
-            platform=platform,
-            strategy="algorithm",
-            source_text=text,
-            report_summary={},
-            output=output,
-            rule_trace=trace,
-        )
-        if validation.quality_flags.get("variation_ok"):
-            variation_ok += 1
-        if validation.quality_flags.get("style_alignment_ok"):
-            style_aligned += 1
-        if validation.warnings:
-            warning_count += 1
-        if validation.quality_score >= 0.82 and not validation.warnings:
-            high_quality += 1
-        if (
-            validation.quality_flags.get("basic_legality_ok")
-            and validation.quality_flags.get("protected_content_ok")
-            and validation.quality_flags.get("structure_natural_ok")
-            and validation.quality_flags.get("style_alignment_ok")
-            and validation.quality_flags.get("shallow_rewrite_ok")
-            and validation.quality_flags.get("discourse_diversity_ok")
-            and not validation.warnings
-        ):
-            qualified += 1
-    sample_count = len(excerpts)
-    qualified_rate = round(qualified / sample_count, 4) if sample_count else 0.0
-    status = _algorithm_status(qualified_rate, variation_ok / sample_count if sample_count else 0.0)
-    return SlotEvaluation(
-        slot=slot,
-        slot_type="algorithm_runtime",
-        status=status,
-        sample_count=sample_count,
-        qualified_count=qualified,
-        qualified_rate=qualified_rate,
-        details={
-            "variation_ok_count": variation_ok,
-            "style_aligned": style_aligned,
-            "warning_count": warning_count,
-            "high_quality_count": high_quality,
         },
     )
 
@@ -293,16 +150,6 @@ def _evaluate_dedup_llm_slot(platform: str) -> SlotEvaluation:
             "disciplines": ",".join(sorted(item for item in disciplines if item)) or "none",
         },
     )
-
-
-def _algorithm_status(qualified_rate: float, support_rate: float) -> str:
-    if qualified_rate >= 0.8 and support_rate >= 0.6:
-        return "strong"
-    if qualified_rate >= 0.55:
-        return "moderate"
-    return "weak"
-
-
 def _prompt_status(qualified_rate: float) -> str:
     if qualified_rate >= 1.0:
         return "strong"

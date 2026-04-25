@@ -3,7 +3,9 @@
     <header class="header-wrap" :class="{ 'is-elevated': isHeaderElevated }">
       <div class="header-left">
         <RouterLink to="/app/detect" class="brand-home" aria-label="格物学术首页" title="格物学术">
-          <span class="brand-mark">GW</span>
+          <span class="brand-mark">
+            <img src="/brand-logo.png" alt="格物学术 Logo" />
+          </span>
           <div class="brand-copy">
             <strong>格物学术</strong>
           </div>
@@ -531,15 +533,19 @@ function normalizeCredits(value) {
   width: 38px;
   height: 38px;
   border-radius: 12px;
-  display: grid;
-  place-items: center;
-  background: rgba(255, 255, 255, 0.16);
-  border: 1px solid rgba(255, 255, 255, 0.24);
-  color: #ffffff;
-  font-size: 12px;
-  font-weight: 800;
-  letter-spacing: 0.08em;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
   box-shadow: none;
+}
+
+.brand-mark img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  border-radius: inherit;
 }
 
 .brand-copy strong {

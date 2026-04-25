@@ -1,5 +1,6 @@
 const USER_ROUTE_PREFIX = "/app/"
 const ADMIN_ROUTE_PREFIX = "/admin/"
+const PARTNER_ROUTE_PREFIX = "/app/partner"
 const USER_ROUTE_ALIASES = new Set([
   "/",
   "/detect",
@@ -11,6 +12,7 @@ const USER_ROUTE_ALIASES = new Set([
   "/profile",
 ])
 const ADMIN_ROUTE_ALIASES = new Set(["/admin"])
+const PARTNER_ROUTE_ALIASES = new Set(["/app/partner", "/app/partner/login"])
 
 function splitRedirectTarget(rawRedirect) {
   if (typeof rawRedirect !== "string" || !rawRedirect.startsWith("/")) {
@@ -40,6 +42,17 @@ export function resolveAdminRedirect(rawRedirect, fallback = "/admin/dashboard")
     return fallback
   }
   if (path.startsWith(ADMIN_ROUTE_PREFIX) || ADMIN_ROUTE_ALIASES.has(path)) {
+    return `${path}${suffix}`
+  }
+  return fallback
+}
+
+export function resolvePartnerRedirect(rawRedirect, fallback = "/app/partner") {
+  const { path, suffix } = splitRedirectTarget(rawRedirect)
+  if (!path) {
+    return fallback
+  }
+  if (path.startsWith(PARTNER_ROUTE_PREFIX) || PARTNER_ROUTE_ALIASES.has(path)) {
     return `${path}${suffix}`
   }
   return fallback

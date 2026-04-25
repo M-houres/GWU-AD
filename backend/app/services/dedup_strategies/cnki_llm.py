@@ -1,82 +1,16 @@
 from __future__ import annotations
 
-from app.services.cnki_v5_prompt import build_cnki_v5_prompt
-from app.models import Task, TaskType
+import json
+import re
+
 from app.exceptions import BizError
-from app.services.dedup_strategies.cnki_rule_dedup import rewrite as algorithm_rewrite
-from app.services.dedup_strategies.config import get_dedup_runtime_config
-from app.services.dedup_strategies.validators import validate_dedup_output
-from app.services.llm_service import generate_with_llm
-from app.services.processing_text_tools import split_sentences
-from app.services.rewrite_strategies.assets import CNKI_ASSETS
-
-
-def _split_chunk_by_sentence_boundary(chunk: str, *, max_chars: int) -> list[str]:
-    if len(chunk) <= max_chars:
-        return [chunk]
-    sentences = split_sentences(chunk)
-    if len(sentences) <= 1:
-        return [chunk[i : i + max_chars] for i in range(0, len(chunk), max_chars)]
-    outputs: list[str] = []
-    current = ""
-    for sentence, punct in sentences:
-        piece = f"{sentence}{punct}"
-        candidate = f"{current}{piece}" if current else piece
-        if current and len(candidate) > max_chars:
-            outputs.append(current)
-            current = piece
-        else:
-            current = candidate
-    if current:
-        outputs.append(current)
-    return outputs
-
-
-def _chunk_text_by_semantic_units(text: str, *, min_chars: int, max_chars: int) -> list[str]:
-    content = str(text or "")
-    if not content.strip():
-        return [content]
-    paragraphs = content.splitlines()
-    chunks: list[str] = []
-    current = ""
-    for raw_paragraph in paragraphs:
-        paragraph = raw_paragraph.strip()
-        if not paragraph:
-            if current:
-                chunks.extend(_split_chunk_by_sentence_boundary(current, max_chars=max_chars))
-                current = ""
-            chunks.append("")
-            continue
-        if not current:
-            current = paragraph
-            continue
-        candidate = f"{current}\n{paragraph}"
-        if len(candidate) <= max_chars:
-            current = candidate
-            continue
-        if len(current) < min_chars:
-            current = candidate
-            if len(current) > max_chars:
-                chunks.extend(_split_chunk_by_sentence_boundary(current, max_chars=max_chars))
-                current = ""
-            continue
-        chunks.extend(_split_chunk_by_sentence_boundary(current, max_chars=max_chars))
-        current = paragraph
-    if current:
-        chunks.extend(_split_chunk_by_sentence_boundary(current, max_chars=max_chars))
-    return chunks
-
-
-def _merge_semantic_chunks(original_chunks: list[str], rewritten_chunks: list[str]) -> str:
-    merged: list[str] = []
-    total = max(len(original_chunks), len(rewritten_chunks))
-    for index in range(total):
-        candidate = rewritten_chunks[index] if index < len(rewritten_chunks) else ""
-        if candidate == "" and index < len(original_chunks) and original_chunks[index] == "":
-            merged.append("")
-            continue
-        merged.append(candidate)
-    return "\n".join(merged).strip()
+from app.models import Task, TaskType
+from app.services.cnki_rewrite_prompt import (
+    build_cnki_dedup_precheck_prompt,
+    build_cnki_dedup_prompt,
+    build_cnki_dedup_validation_prompt,
+)
+from app.services.llm_service import generate_with_llm, load_llm_config
 
 
 def _prompt(
@@ -84,95 +18,190 @@ def _prompt(
     *,
     chunk_index: int = 1,
     chunk_total: int = 1,
+    analysis: dict | None = None,
 ) -> str:
-    return (
-        "任务目标：知网降重复率。保持语义、事实、数据、术语、段落顺序不变，"
-        "优先通过句法骨架变化降低连续相似片段，不做机械扩写。\n\n"
-        + build_cnki_v5_prompt(
-            text,
-            mode="dedup",
-            chunk_index=chunk_index,
-            chunk_total=chunk_total,
-            rule_library_size=len(CNKI_ASSETS.synonyms),
-        )
+    return build_cnki_dedup_prompt(
+        text,
+        chunk_index=chunk_index,
+        chunk_total=chunk_total,
     )
 
 
+def _extract_json_payload(raw: str) -> dict | None:
+    text = str(raw or "").strip()
+    if not text:
+        return None
+    candidates = [text]
+    fenced = re.findall(r"```(?:json)?\s*([\s\S]*?)```", text, flags=re.IGNORECASE)
+    if fenced:
+        candidates = [item.strip() for item in fenced if str(item).strip()] + candidates
+    match = re.search(r"\{[\s\S]*\}", text)
+    if match:
+        candidates.insert(0, match.group(0))
+    for candidate in candidates:
+        try:
+            payload = json.loads(candidate)
+        except Exception:
+            continue
+        if isinstance(payload, dict):
+            return payload
+    return None
+
+
+def _is_string_list(value) -> bool:
+    return isinstance(value, list) and all(isinstance(item, str) for item in value)
+
+
+def _is_json_number(value) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
+def _validate_preanalysis_payload(payload: dict) -> dict:
+    required_keys = {
+        "ambient_formality",
+        "p1_candidates",
+        "p2_candidates",
+        "p3_candidates",
+        "p4_candidates",
+        "frozen_terms",
+        "high_freq_targets",
+        "avg_n_per_sentence",
+        "needs_sentence_ops",
+    }
+    if set(payload.keys()) != required_keys:
+        raise BizError(code=4628, message="知网降重复率预分析阶段JSON字段不符合V14")
+    if str(payload.get("ambient_formality") or "").strip() not in {"高度书面", "中等书面", "偏口语"}:
+        raise BizError(code=4628, message="知网降重复率预分析阶段环境正式度不符合V14")
+    for key in ("p1_candidates", "p2_candidates", "p3_candidates", "p4_candidates", "frozen_terms", "high_freq_targets"):
+        if not _is_string_list(payload.get(key)):
+            raise BizError(code=4628, message=f"知网降重复率预分析阶段字段 {key} 不符合V14")
+    if not _is_json_number(payload.get("avg_n_per_sentence")):
+        raise BizError(code=4628, message="知网降重复率预分析阶段 avg_n_per_sentence 不符合V14")
+    if not isinstance(payload.get("needs_sentence_ops"), bool):
+        raise BizError(code=4628, message="知网降重复率预分析阶段 needs_sentence_ops 不符合V14")
+    return payload
+
+
+def _validate_prompt_b_payload(payload: dict) -> dict:
+    required_keys = {
+        "semantic_ok",
+        "grammar_ok",
+        "formality_maintained",
+        "avg_changes_per_sentence",
+        "char_change",
+        "diversity_ok",
+        "issues",
+        "verdict",
+    }
+    if set(payload.keys()) != required_keys:
+        raise BizError(code=4629, message="知网降重复率校验阶段JSON字段不符合V14")
+    for key in ("semantic_ok", "grammar_ok", "formality_maintained", "diversity_ok"):
+        if not isinstance(payload.get(key), bool):
+            raise BizError(code=4629, message=f"知网降重复率校验阶段字段 {key} 不符合V14")
+    if not _is_json_number(payload.get("avg_changes_per_sentence")):
+        raise BizError(code=4629, message="知网降重复率校验阶段 avg_changes_per_sentence 不符合V14")
+    if not isinstance(payload.get("char_change"), str):
+        raise BizError(code=4629, message="知网降重复率校验阶段 char_change 不符合V14")
+    issues = payload.get("issues")
+    if not isinstance(issues, list):
+        raise BizError(code=4629, message="知网降重复率校验阶段 issues 不符合V14")
+    for item in issues:
+        if not isinstance(item, dict):
+            raise BizError(code=4629, message="知网降重复率校验阶段 issues 项不符合V14")
+        if set(item.keys()) != {"location", "type", "detail"}:
+            raise BizError(code=4629, message="知网降重复率校验阶段 issues 字段不符合V14")
+    if str(payload.get("verdict") or "").strip().lower() not in {"pass", "fail"}:
+        raise BizError(code=4629, message="知网降重复率校验阶段 verdict 不符合V14")
+    return payload
+
+
+def _generate_json_payload(db, *, prompt: str, task_type: TaskType, error_code: int, error_message: str) -> dict:
+    raw = generate_with_llm(db, task_type=task_type, text=prompt)
+    last_raw = str(raw or "").strip()
+    payload = _extract_json_payload(last_raw)
+    if isinstance(payload, dict):
+        return payload
+    preview = re.sub(r"\s+", " ", last_raw)[:160]
+    raise BizError(code=error_code, message=f"{error_message}，响应片段：{preview or 'empty'}")
+
+
+def _run_preanalysis(db, *, text: str) -> dict:
+    payload = _generate_json_payload(
+        db,
+        task_type=TaskType.DEDUP,
+        prompt=build_cnki_dedup_precheck_prompt(text),
+        error_code=4628,
+        error_message="知网降重复率预分析阶段未返回有效JSON",
+    )
+    return _validate_preanalysis_payload(payload)
+
+
+def _run_prompt_b_validation(db, *, source_text: str, rewritten_text: str) -> dict:
+    payload = _generate_json_payload(
+        db,
+        task_type=TaskType.DEDUP,
+        prompt=build_cnki_dedup_validation_prompt(source_text, rewritten_text),
+        error_code=4629,
+        error_message="知网降重复率校验阶段未返回有效JSON",
+    )
+    return _validate_prompt_b_payload(payload)
+
+
+def _prompt_b_passed(payload: dict) -> bool:
+    verdict = str(payload.get("verdict") or "").strip().lower()
+    semantic_ok = bool(payload.get("semantic_ok", False))
+    grammar_ok = bool(payload.get("grammar_ok", False))
+    formality_maintained = bool(payload.get("formality_maintained", False))
+    diversity_ok = bool(payload.get("diversity_ok", False))
+    return verdict == "pass" and semantic_ok and grammar_ok and formality_maintained and diversity_ok
+
+
 def rewrite(db, *, task: Task | None, text: str, report_summary: dict | None = None) -> dict:
-    runtime = get_dedup_runtime_config(db, platform="cnki")
+    llm_cfg = load_llm_config(db)
     content = str(text or "")
-    single_pass_max_chars = max(2000, int(runtime.get("llm_single_pass_max_chars", 6000) or 6000))
-    if len(content) <= single_pass_max_chars:
-        chunks = [content]
-        technical_chunking = False
-    else:
-        chunk_min = max(240, int(runtime.get("chunk_min_chars", 180)))
-        chunk_max = max(1200, int(runtime.get("chunk_max_chars", 260)))
-        chunk_max = max(chunk_max, chunk_min + 40)
-        chunks = _chunk_text_by_semantic_units(content, min_chars=chunk_min, max_chars=chunk_max)
-        technical_chunking = True
-    non_empty_chunks = [item for item in chunks if item.strip()]
-    chunk_total = len(non_empty_chunks)
 
     try:
-        rewritten_chunks: list[str] = []
-        chunk_cursor = 0
-        for chunk in chunks:
-            if not chunk.strip():
-                rewritten_chunks.append(chunk)
-                continue
-            chunk_cursor += 1
-            output = generate_with_llm(
+        preanalysis = _run_preanalysis(db, text=content)
+        output = str(
+            generate_with_llm(
                 db,
                 task_type=TaskType.DEDUP,
                 text=_prompt(
-                    chunk,
-                    chunk_index=chunk_cursor,
-                    chunk_total=max(chunk_total, 1),
+                    content,
+                    chunk_index=1,
+                    chunk_total=1,
+                    analysis=preanalysis,
                 ),
             )
-            chunk_output = str(output or "").strip() or chunk
-            rewritten_chunks.append(chunk_output)
-
-        output = _merge_semantic_chunks(chunks, rewritten_chunks)
+            or ""
+        ).strip()
+        if not output:
+            raise BizError(code=4624, message="知网降重复率大模型改写失败: Prompt A 输出为空")
+        prompt_b = _run_prompt_b_validation(db, source_text=text, rewritten_text=output)
+        if not _prompt_b_passed(prompt_b):
+            issues = prompt_b.get("issues") if isinstance(prompt_b.get("issues"), list) else []
+            issue_text = "；".join(str(item.get("detail") or "").strip() for item in issues[:3] if isinstance(item, dict))
+            raise BizError(code=4630, message=f"知网降重复率三段式校验未通过{f'：{issue_text}' if issue_text else ''}")
         rule_trace = {
-            "mode": "dedup_llm_prompt_technical_chunking" if technical_chunking else "dedup_llm_prompt_global",
-            "applied_rules": ["dedup_llm:cnki_prompt:technical_chunking" if technical_chunking else "dedup_llm:cnki_prompt:single_pass"],
+            "mode": "dedup_llm_prompt_pab_strict_v14_global",
+            "applied_rules": [
+                "dedup_llm:cnki_prompt_p:preanalysis",
+                "dedup_llm:cnki_prompt_a:strict_v14_global",
+                "dedup_llm:cnki_prompt_b:validation",
+            ],
             "protected_hits": [],
-            "strategy_version": "cnki_v5_llm_chunked",
-            "chunk_count": chunk_total,
-            "technical_chunking": technical_chunking,
-            "single_pass_max_chars": single_pass_max_chars,
-            "runtime": runtime,
-            "template_library_size": len(CNKI_ASSETS.templates),
+            "strategy_version": "cnki_v14_dedup_llm_pab_strict",
+            "chunk_count": 1,
+            "technical_chunking": False,
+            "preanalysis": preanalysis,
+            "prompt_b_validation": prompt_b,
+            "llm_provider": str(llm_cfg.get("provider") or ""),
+            "llm_model": str(llm_cfg.get("model") or ""),
         }
-    except Exception:
-        base = algorithm_rewrite(db, task=task, text=text, report_summary=report_summary)
-        base_text = str(base.get("text") or text)
-        rule_trace = dict(base.get("rule_trace") or {})
-        rule_trace["llm_fallback"] = True
-        rule_trace["fallback_reason"] = "llm_exception"
-        return {"text": base_text, "rule_trace": rule_trace}
+    except Exception as exc:
+        raise BizError(code=4624, message=f"知网降重复率大模型改写失败: {exc}") from exc
 
-    try:
-        validation = validate_dedup_output(
-            platform="cnki",
-            source_text=text,
-            rewritten_text=output,
-            rule_trace=rule_trace,
-        )
-        score = float(validation.quality_score)
-    except BizError:
-        score = -1.0
-
-    if output.strip() and score >= 0.75:
+    if output.strip():
         return {"text": output, "rule_trace": rule_trace}
 
-    base = algorithm_rewrite(db, task=task, text=text, report_summary=report_summary)
-    base_text = str(base.get("text") or text)
-    fallback_trace = dict(base.get("rule_trace") or {})
-    fallback_trace["llm_fallback"] = True
-    fallback_trace["fallback_reason"] = "quality_gate_not_passed"
-    fallback_trace["llm_candidate_count"] = 1
-    fallback_trace["llm_best_score"] = round(score, 4) if score >= 0 else 0.0
-    return {"text": base_text, "rule_trace": fallback_trace}
+    raise BizError(code=4625, message="知网降重复率大模型结果为空")

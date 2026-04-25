@@ -4,8 +4,6 @@ import re
 from dataclasses import dataclass, field
 from typing import Literal
 
-from app.services.cnki_v5_prompt import cnki_v5_sentence_template_rules
-
 
 Platform = Literal["cnki", "vip"]
 
@@ -218,6 +216,21 @@ COMMON_BAD_PATTERNS: tuple[BadPattern, ...] = (
     BadPattern("边缘进行计算", "工程术语被拆坏"),
     BadPattern(r"在很多方面进行更加(?:全面|系统|持续|深入)", "空泛扩写堆叠", regex=True),
     BadPattern("[local-mock-llm-refined]", "本地模拟标记泄漏"),
+)
+
+VIP_WP2_ALLOWED_BAD_PATTERN_STRINGS: frozenset[str] = frozenset(
+    {
+        "作为属于",
+        "将把",
+        "能够可以",
+        "可以能够",
+        "路径方式",
+        "改变革",
+    }
+)
+
+VIP_COMMON_BAD_PATTERNS: tuple[BadPattern, ...] = tuple(
+    item for item in COMMON_BAD_PATTERNS if item.pattern not in VIP_WP2_ALLOWED_BAD_PATTERN_STRINGS
 )
 
 
@@ -634,27 +647,7 @@ VIP_SYNONYMS: tuple[SynonymRule, ...] = (
 )
 
 
-def _build_cnki_templates_from_v5() -> tuple[TemplateRule, ...]:
-    items: list[TemplateRule] = []
-    for row in cnki_v5_sentence_template_rules():
-        try:
-            priority = int(str(row.get("priority") or "60"))
-        except ValueError:
-            priority = 60
-        items.append(
-            TemplateRule(
-                id=str(row.get("id") or "").strip() or "cnki_v5_template",
-                pattern=str(row.get("pattern") or "").strip(),
-                replacement=str(row.get("replacement") or "").strip(),
-                category=str(row.get("category") or "v5_template").strip(),
-                priority=priority,
-                risk_level="low",
-            )
-        )
-    return tuple(item for item in items if item.pattern and item.replacement)
-
-
-CNKI_TEMPLATES: tuple[TemplateRule, ...] = _build_cnki_templates_from_v5()
+CNKI_TEMPLATES: tuple[TemplateRule, ...] = ()
 
 
 VIP_TEMPLATES: tuple[TemplateRule, ...] = ()
@@ -687,7 +680,7 @@ VIP_ASSETS = PlatformAssets(
     templates=VIP_TEMPLATES,
     protected_terms=VIP_PROTECTED_TERMS,
     cohesion_rules=VIP_COHESION_RULES,
-    bad_patterns=COMMON_BAD_PATTERNS,
+    bad_patterns=VIP_COMMON_BAD_PATTERNS,
 )
 
 

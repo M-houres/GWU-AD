@@ -6,7 +6,7 @@ export const CONFIG_TABS = [
   { key: "dedup_strategy", label: "降重复率策略", desc: "知网 / 维普策略路由" },
   { key: "rewrite_strategy", label: "降AIGC率策略", desc: "知网 / 维普策略路由" },
   { key: "user_navigation", label: "前台导航", desc: "左侧功能编排" },
-  { key: "promo_center", label: "推广中心", desc: "邀请奖励与合作联系方式" },
+  { key: "promo_center", label: "推广中心", desc: "点数规则 / 文案 / 活动素材" },
   { key: "llm", label: "大模型配置", desc: "国内外主流模型" },
   { key: "miniapp", label: "小程序配置", desc: "参数与域名" },
 ]
@@ -109,24 +109,24 @@ export const ADMIN_CONFIG_GUIDES = {
   },
   dedup_strategy: {
     code: "Dedup Runtime",
-    lead: "把降重复率执行收敛成最少配置项，只保留平台启用和当前策略。",
+    lead: "把降重复率执行收敛成最少配置项，只保留平台启用和固定的大模型主策略。",
     title: "先保证降重链稳定",
-    desc: "知网和维普的降重复率任务都会经过后端统一执行器。这里只保留平台启停和当前执行策略。",
+    desc: "知网和维普的降重复率任务都会经过后端统一执行器。当前两端均已冻结为大模型主策略，不再提供算法切换。",
     checklist: [
       "知网和维普至少应有 1 个平台保持启用。",
-      "算法策略适合规则稳定阶段，大模型策略依赖 LLM 配置可用。",
+      "知网和维普降重复率均固定走大模型主策略，依赖 LLM 配置可用。",
       "这里只控制后端执行策略，不影响前台入口、计费和下载。",
     ],
     docs: [],
   },
   rewrite_strategy: {
     code: "Rewrite Runtime",
-    lead: "把降AIGC率执行收敛成最少配置项，只保留平台启用和当前策略。",
+    lead: "把降AIGC率执行收敛成最少配置项，只保留平台启用和固定的大模型主策略。",
     title: "先保证后端稳定处理",
-    desc: "知网和维普的降AIGC率任务都会经过后端统一执行器。这里只保留平台启停和当前执行策略。",
+    desc: "知网和维普的降AIGC率任务都会经过后端统一执行器。当前两端均已冻结为大模型主策略，不再提供算法切换。",
     checklist: [
       "知网和维普至少应有 1 个平台保持启用。",
-      "算法策略适合规则稳定阶段，大模型策略依赖 LLM 配置可用。",
+      "知网和维普降AIGC率均固定走大模型主策略，依赖 LLM 配置可用。",
       "这里只控制后端执行策略，不影响前台入口、计费和下载。",
     ],
     docs: [],
@@ -144,12 +144,13 @@ export const ADMIN_CONFIG_GUIDES = {
   },
   promo_center: {
     code: "Promotion Setup",
-    lead: "配置邀请奖励积分和机构合作联系方式，前台推广中心会实时读取。",
-    title: "推广页面运营配置",
-    desc: "邀请人与被邀请人奖励积分支持后台调整，电话、微信号、邮箱都支持多条配置。",
+    lead: "运营可直接调整 4 个活动的点数规则、关键文案、平台状态和二维码素材。",
+    title: "推广中心统一运营配置",
+    desc: "保存后前台推广中心会直接按最新配置展示，不需要再改前端代码或后端默认值。",
     checklist: [
-      "邀请奖励积分支持 0 到 100000；设为 0 时页面仅展示联系方式。",
-      "电话、微信号、邮箱每类最多配置 20 条，建议至少配 1 条合作信息。",
+      "至少保留 1 张顶部活动卡启用，避免前台进入后无内容可展示。",
+      "机构合作至少保留 1 个有效联系卡，并填写二维码地址或微信号。",
+      "点数阶梯、标题、副标题、规则说明、平台状态和活动素材都支持后台直接修改。",
     ],
     docs: [],
   },
@@ -193,51 +194,47 @@ export const ADMIN_CONFIG_GUIDES = {
 
 export const DEFAULT_BILLING_PACKAGES = [
   {
-    name: "入门版",
-    price: 19,
-    credits: 10000,
-    description: "适合新手试用或偶尔使用，低门槛体验核心功能。",
-    badge: "新手推荐",
+    name: "体验包",
+    price: 19.9,
+    credits: 13000,
+    description: "适合短篇体验或首次充值用户，低门槛了解检测、降重、改写等处理链路。",
+    badge: "新手体验",
+    audience: "C端新人体验",
+    discount_note: "贴近原价 1.5，几乎无优惠",
+    sort_order: 1,
     enabled: true,
   },
   {
-    name: "基础版",
-    price: 39,
-    credits: 20000,
-    description: "适合少量多次使用，覆盖日常降重、降AI和检测需求。",
-    badge: "日常常用",
+    name: "进阶包",
+    price: 49.9,
+    credits: 40000,
+    description: "适合个人长期自用，在多次检测、降重和改写过程中保持稳定储备。",
+    badge: "中档优选",
+    audience: "个人长期自用",
+    discount_note: "中等优惠",
+    sort_order: 2,
     enabled: true,
   },
   {
-    name: "专业版",
-    price: 79,
-    credits: 50000,
-    description: "适合中度使用需求，兼顾成本和可用点数储备。",
-    badge: "高性价比",
-    enabled: true,
-  },
-  {
-    name: "增强版",
-    price: 149,
+    name: "团队包",
+    price: 99.9,
     credits: 100000,
-    description: "适合常规批量使用，适配更稳定的内容处理节奏。",
-    badge: "批量优选",
+    description: "适合小团队、小代理或多篇文稿集中处理，兼顾成本与处理规模。",
+    badge: "高优惠",
+    audience: "小团队 / 小代理",
+    discount_note: "高优惠",
+    sort_order: 3,
     enabled: true,
   },
   {
-    name: "高级版",
-    price: 419,
-    credits: 300000,
-    description: "适合中高频长期使用，兼顾规模与长期成本。",
-    badge: "长期推荐",
-    enabled: true,
-  },
-  {
-    name: "旗舰版",
-    price: 1199,
-    credits: 1000000,
-    description: "适合高频大量使用场景，提供充足通用点数储备。",
-    badge: "旗舰首选",
+    name: "批量包",
+    price: 199.9,
+    credits: 250000,
+    description: "适合工作室和批量处理场景，单价达到当前套餐体系的底部区间。",
+    badge: "底价档",
+    audience: "B端工作室批发",
+    discount_note: "完美达到约 0.8 元底价",
+    sort_order: 4,
     enabled: true,
   },
 ]
@@ -268,17 +265,181 @@ export const DEFAULT_MINIAPP_CONFIG = {
 
 export const DEFAULT_PROMO_CENTER_CONFIG = {
   enabled: true,
+  schema_version: 2,
+  updated_by: "",
+  updated_at: "",
   invite_reward_points: 2000,
   contacts: {
     phone: [],
     wechat: [],
     email: [],
   },
+  nav_cards: [
+    {
+      key: "invite",
+      title: "邀请有奖",
+      badge: "绑定即得点数",
+      description: "邀请好友完成手机号与微信绑定，双方都能拿点数。",
+      sort_order: 1,
+      enabled: true,
+    },
+    {
+      key: "like",
+      title: "集赞有奖",
+      badge: "截图审核",
+      description: "转发活动素材集赞后提交截图，审核通过发放点数。",
+      sort_order: 2,
+      enabled: true,
+    },
+    {
+      key: "create",
+      title: "创作有奖",
+      badge: "最高 20000 点",
+      description: "发布指定平台内容，按点赞阶梯领取点数奖励。",
+      sort_order: 3,
+      enabled: true,
+    },
+    {
+      key: "partner",
+      title: "机构合作",
+      badge: "校园 / 机构",
+      description: "校园大使、机构合作与企业服务统一从这里接入。",
+      sort_order: 4,
+      enabled: true,
+    },
+  ],
+  pages: {
+    invite: {
+      enabled: true,
+      title: "邀请有奖",
+      subtitle: "邀请好友完成手机号与微信绑定，双方按规则获得点数奖励。",
+      rule_lines: [
+        "被邀请者完成手机号与微信绑定后，可获得 2000 点数。",
+        "邀请者每产生 1 个有效邀请，可获得 1000 点数。",
+        "支持配置里程碑加奖，全部奖励均以点数发放。",
+      ],
+      quick_actions_title: "快捷操作区",
+      bind_code_label: "填写邀请码",
+      bind_code_placeholder: "请输入好友邀请码",
+      bind_code_button_text: "确认填写",
+      share_copy_title: "分享文案",
+      share_copy_text: "我正在参加格物推广活动，注册并完成绑定即可拿点数，欢迎通过我的邀请码加入。",
+      miniapp_guide_title: "小程序 3 步邀请指引",
+      miniapp_steps: [
+        "保存二维码或邀请链接，发送给好友。",
+        "好友注册后先完成手机号绑定，再完成微信绑定。",
+        "达到有效邀请条件后，点数奖励按规则发放。",
+      ],
+      bind_code_notice: "邀请码在线填写入口待后端接口开放后启用。",
+    },
+    like: {
+      enabled: true,
+      title: "集赞有奖",
+      subtitle: "扫码转发活动素材集赞，提交截图后由运营审核发放点数。",
+      rule_lines: [
+        "10 赞可得 10000 点数。",
+        "20 赞可得 20000 点数。",
+        "活动时间、审核时效与违规处理均支持后台调整。",
+      ],
+      qrcode_title: "活动二维码",
+      review_notice: "截图需清晰完整，默认 1-3 个工作日内完成审核。",
+      other_entries_title: "其他活动入口",
+      other_entries: [],
+    },
+    create: {
+      enabled: true,
+      title: "创作有奖",
+      subtitle: "按平台规则发布指定内容，审核通过后按点赞阶梯发放点数。",
+      rule_lines: [
+        "发帖即送 5000 点数。",
+        "点赞达到 10+ 可得 10000 点数。",
+        "点赞达到 20+ 可得 20000 点数，单次活动封顶。",
+      ],
+      platforms: [
+        { key: "douyin", label: "抖音", status_text: "可参加", enabled: true },
+        { key: "xiaohongshu", label: "小红书", status_text: "可参加", enabled: true },
+        { key: "kuaishou", label: "快手", status_text: "可参加", enabled: true },
+        { key: "weibo", label: "微博", status_text: "可参加", enabled: true },
+        { key: "moments", label: "朋友圈", status_text: "可参加", enabled: true },
+      ],
+      template_title: "推荐文案模板",
+      templates: [
+        "我在用格物做论文处理，流程顺、反馈快，做完绑定和任务后还能参加创作活动拿点数。",
+        "毕业季论文处理别乱找渠道，我最近在格物做检测和改写，活动期还有点赞点数奖励。",
+      ],
+      submit_placeholder: "请输入作品链接",
+      submit_button_text: "提交链接",
+      history_button_text: "查看记录",
+    },
+    partner: {
+      enabled: true,
+      title: "机构合作",
+      subtitle: "校园大使、机构合作、社群联名与企业服务统一接入。",
+      description: "支持校园活动合作、机构代充、批量服务采购与品牌联动推广。",
+      benefits: [
+        "支持校园大使、社群团长与机构代理合作模式。",
+        "支持批量采购、统一对账与定制化服务方案。",
+        "支持微信二维码、微信号与合作文案按活动实时替换。",
+      ],
+      contacts: [
+        {
+          title: "机构合作顾问",
+          description: "院校、机构、企业合作优先对接。",
+          wechat_id: "",
+          qrcode_url: "/promo-contact-qr-1.jpg",
+          enabled: true,
+        },
+        {
+          title: "专属客服",
+          description: "处理账号、订单与日常服务咨询。",
+          wechat_id: "",
+          qrcode_url: "/promo-contact-qr-2.png",
+          enabled: true,
+        },
+      ],
+    },
+  },
+  reward_rules: {
+    invite: {
+      invitee_bind_reward_points: 2000,
+      inviter_valid_invite_reward_points: 1000,
+      audit_mode: "manual",
+      auto_grant: false,
+      milestones: [
+        { threshold: 5, reward_points: 3000, label: "邀请满 5 人" },
+        { threshold: 20, reward_points: 10000, label: "邀请满 20 人" },
+        { threshold: 50, reward_points: 30000, label: "邀请满 50 人" },
+      ],
+    },
+    like: {
+      audit_mode: "manual",
+      auto_grant: false,
+      tiers: [
+        { threshold: 10, reward_points: 10000, label: "10 赞" },
+        { threshold: 20, reward_points: 20000, label: "20 赞" },
+      ],
+    },
+    create: {
+      audit_mode: "manual",
+      auto_grant: false,
+      tiers: [
+        { threshold: 0, reward_points: 5000, label: "发帖即送" },
+        { threshold: 10, reward_points: 10000, label: "10+ 赞" },
+        { threshold: 20, reward_points: 20000, label: "20+ 赞" },
+      ],
+    },
+  },
+  assets: {
+    like_qrcode_url: "",
+    invite_example_image_url: "",
+    partner_primary_qrcode_url: "/promo-contact-qr-1.jpg",
+    partner_secondary_qrcode_url: "/promo-contact-qr-2.png",
+  },
 }
 
 export const DEFAULT_REWRITE_STRATEGY_CONFIG = {
   cnki: {
-    rewrite: { enabled: true, active_strategy: "algorithm" },
+    rewrite: { enabled: true, active_strategy: "llm" },
     runtime: {
       chunk_min_chars: 180,
       chunk_max_chars: 260,
@@ -291,7 +452,7 @@ export const DEFAULT_REWRITE_STRATEGY_CONFIG = {
     },
   },
   vip: {
-    rewrite: { enabled: true, active_strategy: "algorithm" },
+    rewrite: { enabled: true, active_strategy: "llm" },
     runtime: {
       chunk_min_chars: 180,
       chunk_max_chars: 260,
@@ -312,7 +473,7 @@ export const DEFAULT_AIGC_DETECT_STRATEGY_CONFIG = {
 
 export const DEFAULT_DEDUP_STRATEGY_CONFIG = {
   cnki: {
-    dedup: { enabled: true, active_strategy: "algorithm" },
+    dedup: { enabled: true, active_strategy: "llm" },
     runtime: {
       chunk_min_chars: 180,
       chunk_max_chars: 260,
@@ -325,7 +486,7 @@ export const DEFAULT_DEDUP_STRATEGY_CONFIG = {
     },
   },
   vip: {
-    dedup: { enabled: true, active_strategy: "algorithm" },
+    dedup: { enabled: true, active_strategy: "llm" },
     runtime: {
       chunk_min_chars: 180,
       chunk_max_chars: 260,
@@ -345,34 +506,40 @@ export const AIGC_DETECT_STRATEGY_PLATFORMS = [
 ]
 
 export const DEDUP_STRATEGY_PLATFORMS = [
-  { key: "cnki", label: "知网降重复率", desc: "适合术语保护要求更强、偏保守的降重任务。" },
-  { key: "vip", label: "维普降重复率", desc: "适合句式重排更明显、结构变化更大的降重任务。" },
+  { key: "cnki", label: "知网降重复率", desc: "当前固定走知网大模型主策略，术语保护和句法重组由大模型链路执行。" },
+  { key: "vip", label: "维普降重复率", desc: "当前固定走维普大模型主策略，句法重组和结构变化由大模型链路执行。" },
 ]
 
 export const REWRITE_STRATEGY_PLATFORMS = [
-  { key: "cnki", label: "知网降AIGC率", desc: "适合术语保护要求更强的改写任务。" },
-  { key: "vip", label: "维普降AIGC率", desc: "适合句法重组更明显的改写任务。" },
+  { key: "cnki", label: "知网降AIGC率", desc: "旧算法策略已冻结，当前固定走大模型主策略。" },
+  { key: "vip", label: "维普降AIGC率", desc: "旧算法策略已冻结，当前固定走大模型主策略。" },
 ]
 
 export const DEDUP_STRATEGY_OPTIONS = [
-  { value: "algorithm", label: "算法策略" },
-  { value: "llm", label: "大模型策略" },
+  { value: "llm", label: "大模型主策略（固定）" },
 ]
 
-export const REWRITE_STRATEGY_OPTIONS = [
-  { value: "algorithm", label: "算法策略（推荐）" },
-  { value: "llm", label: "大模型策略" },
-]
+export function getRewriteStrategyOptions(platformKey) {
+  return [{ value: "llm", label: "大模型主策略（固定）" }]
+}
 
 export function cloneBillingPackages(packages = DEFAULT_BILLING_PACKAGES) {
-  return (Array.isArray(packages) ? packages : DEFAULT_BILLING_PACKAGES).map((pkg) => ({
-    name: String(pkg?.name || "").trim(),
-    price: Number(pkg?.price || 0),
-    credits: Number(pkg?.credits || 0),
-    description: String(pkg?.description || "").trim(),
-    badge: String(pkg?.badge || "").trim(),
-    enabled: pkg?.enabled !== false,
-  }))
+  return (Array.isArray(packages) ? packages : DEFAULT_BILLING_PACKAGES)
+    .map((pkg, index) => ({
+      name: String(pkg?.name || "").trim(),
+      price: Number(pkg?.price || 0),
+      credits: Number(pkg?.credits || 0),
+      description: String(pkg?.description || "").trim(),
+      badge: String(pkg?.badge || "").trim(),
+      audience: String(pkg?.audience || "").trim(),
+      discount_note: String(pkg?.discount_note || "").trim(),
+      sort_order: clampAdminInt(pkg?.sort_order, index + 1, 1, 999),
+      enabled: pkg?.enabled !== false,
+    }))
+    .sort((left, right) => {
+      if (left.sort_order !== right.sort_order) return left.sort_order - right.sort_order
+      return left.name.localeCompare(right.name, "zh-CN")
+    })
 }
 
 export function normalizeBillingForm(raw) {
@@ -414,15 +581,250 @@ export function normalizeMiniappConfig(raw) {
 }
 
 export function normalizePromotionCenterConfig(raw) {
-  const source = { ...DEFAULT_PROMO_CENTER_CONFIG, ...(raw || {}) }
+  const defaults = DEFAULT_PROMO_CENTER_CONFIG
+  const source = raw && typeof raw === "object" ? raw : {}
   const contacts = source.contacts && typeof source.contacts === "object" ? source.contacts : {}
-  return {
+  const rewardRules = source.reward_rules && typeof source.reward_rules === "object" ? source.reward_rules : {}
+  const inviteRules = rewardRules.invite && typeof rewardRules.invite === "object" ? rewardRules.invite : {}
+  const likeRules = rewardRules.like && typeof rewardRules.like === "object" ? rewardRules.like : {}
+  const createRules = rewardRules.create && typeof rewardRules.create === "object" ? rewardRules.create : {}
+  const assets = source.assets && typeof source.assets === "object" ? source.assets : {}
+  const legacyInvitePoints = clampAdminInt(source.invite_reward_points, defaults.invite_reward_points, 0, 100000)
+  const inviteePoints = clampAdminInt(
+    inviteRules.invitee_bind_reward_points,
+    legacyInvitePoints,
+    0,
+    1000000,
+  )
+  const inviterFallback = Object.keys(inviteRules).length > 0 || source.invite_reward_points === undefined
+    ? Math.max(0, Math.floor(inviteePoints / 2))
+    : legacyInvitePoints
+  const inviterPoints = clampAdminInt(
+    inviteRules.inviter_valid_invite_reward_points,
+    inviterFallback,
+    0,
+    1000000,
+  )
+  const normalized = {
     enabled: source.enabled !== false,
-    invite_reward_points: clampAdminInt(source.invite_reward_points, 2000, 0, 100000),
+    schema_version: clampAdminInt(source.schema_version, defaults.schema_version, 1, 99),
+    updated_by: String(source.updated_by || "").trim().slice(0, 64),
+    updated_at: String(source.updated_at || "").trim().slice(0, 64),
+    invite_reward_points: inviteePoints,
     contacts: {
       phone: normalizePromotionContactList(contacts.phone),
       wechat: normalizePromotionContactList(contacts.wechat),
       email: normalizePromotionContactList(contacts.email),
+    },
+    assets: {
+      like_qrcode_url: String(assets.like_qrcode_url || defaults.assets.like_qrcode_url || "").trim().slice(0, 256),
+      invite_example_image_url: String(assets.invite_example_image_url || defaults.assets.invite_example_image_url || "").trim().slice(0, 256),
+      partner_primary_qrcode_url: String(assets.partner_primary_qrcode_url || defaults.assets.partner_primary_qrcode_url || "").trim().slice(0, 256),
+      partner_secondary_qrcode_url: String(assets.partner_secondary_qrcode_url || defaults.assets.partner_secondary_qrcode_url || "").trim().slice(0, 256),
+    },
+  }
+  normalized.nav_cards = normalizePromoNavCards(source.nav_cards, defaults.nav_cards)
+  normalized.reward_rules = {
+    invite: {
+      invitee_bind_reward_points: inviteePoints,
+      inviter_valid_invite_reward_points: inviterPoints,
+      audit_mode: String(inviteRules.audit_mode || defaults.reward_rules.invite.audit_mode || "manual").trim().slice(0, 32) || "manual",
+      auto_grant: inviteRules.auto_grant === true,
+      milestones: normalizePromoRewardList(inviteRules.milestones, defaults.reward_rules.invite.milestones),
+    },
+    like: {
+      audit_mode: String(likeRules.audit_mode || defaults.reward_rules.like.audit_mode || "manual").trim().slice(0, 32) || "manual",
+      auto_grant: likeRules.auto_grant === true,
+      tiers: normalizePromoRewardList(likeRules.tiers, defaults.reward_rules.like.tiers),
+    },
+    create: {
+      audit_mode: String(createRules.audit_mode || defaults.reward_rules.create.audit_mode || "manual").trim().slice(0, 32) || "manual",
+      auto_grant: createRules.auto_grant === true,
+      tiers: normalizePromoRewardList(createRules.tiers, defaults.reward_rules.create.tiers),
+    },
+  }
+  normalized.pages = normalizePromoPages(source.pages, defaults, normalized)
+  return normalized
+}
+
+function normalizePromoNavCards(rawCards, defaultCards) {
+  const sourceCards = Array.isArray(rawCards) ? rawCards : []
+  const map = new Map()
+  for (const item of sourceCards) {
+    const key = String(item?.key || "").trim().toLowerCase()
+    if (key) {
+      map.set(key, item)
+    }
+  }
+  return defaultCards
+    .map((defaultCard, index) => {
+      const item = map.get(defaultCard.key) || {}
+      return {
+        key: defaultCard.key,
+        title: String(item.title || defaultCard.title || "").trim().slice(0, 32) || defaultCard.title,
+        badge: String(item.badge || defaultCard.badge || "").trim().slice(0, 32),
+        description: String(item.description || defaultCard.description || "").trim().slice(0, 120),
+        sort_order: clampAdminInt(item.sort_order, defaultCard.sort_order || index + 1, 1, 99),
+        enabled: item.enabled !== false,
+      }
+    })
+    .sort((left, right) => {
+      if (left.sort_order !== right.sort_order) return left.sort_order - right.sort_order
+      return left.key.localeCompare(right.key, "zh-CN")
+    })
+}
+
+function normalizePromoRewardList(rawList, fallbackList) {
+  const source = Array.isArray(rawList) ? rawList : []
+  const items = []
+  for (const item of source) {
+    const rewardPoints = clampAdminInt(item?.reward_points, 0, 0, 1000000)
+    if (rewardPoints <= 0) continue
+    items.push({
+      threshold: clampAdminInt(item?.threshold, 0, 0, 100000),
+      reward_points: rewardPoints,
+      label: String(item?.label || "").trim().slice(0, 48),
+    })
+    if (items.length >= 12) break
+  }
+  if (!items.length) {
+    return (Array.isArray(fallbackList) ? fallbackList : []).map((item) => ({
+      threshold: clampAdminInt(item?.threshold, 0, 0, 100000),
+      reward_points: clampAdminInt(item?.reward_points, 0, 0, 1000000),
+      label: String(item?.label || "").trim().slice(0, 48),
+    }))
+  }
+  return items.sort((left, right) => {
+    if (left.threshold !== right.threshold) return left.threshold - right.threshold
+    return left.reward_points - right.reward_points
+  })
+}
+
+function normalizePromoPlatforms(rawPlatforms, fallbackPlatforms) {
+  const source = Array.isArray(rawPlatforms) ? rawPlatforms : []
+  const map = new Map()
+  for (const item of source) {
+    const key = String(item?.key || "").trim().toLowerCase()
+    if (key) {
+      map.set(key, item)
+    }
+  }
+  return (Array.isArray(fallbackPlatforms) ? fallbackPlatforms : []).map((item) => {
+    const current = map.get(item.key) || {}
+    return {
+      key: item.key,
+      label: String(current.label || item.label || "").trim().slice(0, 24) || item.label,
+      status_text: String(current.status_text || item.status_text || "").trim().slice(0, 32),
+      enabled: current.enabled !== false && item.enabled !== false,
+    }
+  })
+}
+
+function normalizePromoEntries(rawEntries) {
+  if (!Array.isArray(rawEntries)) return []
+  const entries = []
+  for (const item of rawEntries) {
+    const title = String(item?.title || "").trim().slice(0, 32)
+    const description = String(item?.description || "").trim().slice(0, 120)
+    const qrcode_url = String(item?.qrcode_url || "").trim().slice(0, 256)
+    if (!title && !description && !qrcode_url) continue
+    entries.push({
+      title,
+      description,
+      qrcode_url,
+      enabled: item?.enabled !== false,
+    })
+    if (entries.length >= 8) break
+  }
+  return entries
+}
+
+function normalizePromoPartnerContacts(rawContacts, fallbackContacts) {
+  const source = Array.isArray(rawContacts) ? rawContacts : []
+  return (Array.isArray(fallbackContacts) ? fallbackContacts : []).map((item, index) => {
+    const current = source[index] && typeof source[index] === "object" ? source[index] : {}
+    return {
+      title: String(current.title || item.title || "").trim().slice(0, 32) || item.title,
+      description: String(current.description || item.description || "").trim().slice(0, 120),
+      wechat_id: String(current.wechat_id || item.wechat_id || "").trim().slice(0, 64),
+      qrcode_url: String(current.qrcode_url || item.qrcode_url || "").trim().slice(0, 256),
+      enabled: current.enabled !== false && item.enabled !== false,
+    }
+  })
+}
+
+function normalizePromoStringList(rawList, fallbackList, limit, maxLen) {
+  const source = Array.isArray(rawList) ? rawList : fallbackList
+  const lines = []
+  for (const item of Array.isArray(source) ? source : []) {
+    const text = String(item || "").trim().slice(0, maxLen)
+    if (!text) continue
+    lines.push(text)
+    if (lines.length >= limit) break
+  }
+  return lines
+}
+
+function normalizePromoPages(rawPages, defaults, normalized) {
+  const pages = rawPages && typeof rawPages === "object" ? rawPages : {}
+  const invite = pages.invite && typeof pages.invite === "object" ? pages.invite : {}
+  const like = pages.like && typeof pages.like === "object" ? pages.like : {}
+  const create = pages.create && typeof pages.create === "object" ? pages.create : {}
+  const partner = pages.partner && typeof pages.partner === "object" ? pages.partner : {}
+  return {
+    invite: {
+      enabled: invite.enabled !== false,
+      title: String(invite.title || defaults.pages.invite.title || "").trim().slice(0, 32) || defaults.pages.invite.title,
+      subtitle: String(invite.subtitle || defaults.pages.invite.subtitle || "").trim().slice(0, 180),
+      rule_lines: normalizePromoStringList(
+        invite.rule_lines,
+        [
+          `被邀请者完成手机号与微信绑定后，可获得 ${normalized.reward_rules.invite.invitee_bind_reward_points} 点数。`,
+          `邀请者每产生 1 个有效邀请，可获得 ${normalized.reward_rules.invite.inviter_valid_invite_reward_points} 点数。`,
+          "支持配置里程碑加奖，全部奖励均以点数发放。",
+        ],
+        6,
+        120,
+      ),
+      quick_actions_title: String(invite.quick_actions_title || defaults.pages.invite.quick_actions_title || "").trim().slice(0, 32),
+      bind_code_label: String(invite.bind_code_label || defaults.pages.invite.bind_code_label || "").trim().slice(0, 32),
+      bind_code_placeholder: String(invite.bind_code_placeholder || defaults.pages.invite.bind_code_placeholder || "").trim().slice(0, 64),
+      bind_code_button_text: String(invite.bind_code_button_text || defaults.pages.invite.bind_code_button_text || "").trim().slice(0, 24),
+      share_copy_title: String(invite.share_copy_title || defaults.pages.invite.share_copy_title || "").trim().slice(0, 32),
+      share_copy_text: String(invite.share_copy_text || defaults.pages.invite.share_copy_text || "").trim().slice(0, 300),
+      miniapp_guide_title: String(invite.miniapp_guide_title || defaults.pages.invite.miniapp_guide_title || "").trim().slice(0, 40),
+      miniapp_steps: normalizePromoStringList(invite.miniapp_steps, defaults.pages.invite.miniapp_steps, 5, 80),
+      bind_code_notice: String(invite.bind_code_notice || defaults.pages.invite.bind_code_notice || "").trim().slice(0, 120),
+    },
+    like: {
+      enabled: like.enabled !== false,
+      title: String(like.title || defaults.pages.like.title || "").trim().slice(0, 32) || defaults.pages.like.title,
+      subtitle: String(like.subtitle || defaults.pages.like.subtitle || "").trim().slice(0, 180),
+      rule_lines: normalizePromoStringList(like.rule_lines, defaults.pages.like.rule_lines, 6, 120),
+      qrcode_title: String(like.qrcode_title || defaults.pages.like.qrcode_title || "").trim().slice(0, 32),
+      review_notice: String(like.review_notice || defaults.pages.like.review_notice || "").trim().slice(0, 180),
+      other_entries_title: String(like.other_entries_title || defaults.pages.like.other_entries_title || "").trim().slice(0, 32),
+      other_entries: normalizePromoEntries(like.other_entries),
+    },
+    create: {
+      enabled: create.enabled !== false,
+      title: String(create.title || defaults.pages.create.title || "").trim().slice(0, 32) || defaults.pages.create.title,
+      subtitle: String(create.subtitle || defaults.pages.create.subtitle || "").trim().slice(0, 180),
+      rule_lines: normalizePromoStringList(create.rule_lines, defaults.pages.create.rule_lines, 6, 120),
+      platforms: normalizePromoPlatforms(create.platforms, defaults.pages.create.platforms),
+      template_title: String(create.template_title || defaults.pages.create.template_title || "").trim().slice(0, 32),
+      templates: normalizePromoStringList(create.templates, defaults.pages.create.templates, 8, 220),
+      submit_placeholder: String(create.submit_placeholder || defaults.pages.create.submit_placeholder || "").trim().slice(0, 64),
+      submit_button_text: String(create.submit_button_text || defaults.pages.create.submit_button_text || "").trim().slice(0, 24),
+      history_button_text: String(create.history_button_text || defaults.pages.create.history_button_text || "").trim().slice(0, 24),
+    },
+    partner: {
+      enabled: partner.enabled !== false,
+      title: String(partner.title || defaults.pages.partner.title || "").trim().slice(0, 32) || defaults.pages.partner.title,
+      subtitle: String(partner.subtitle || defaults.pages.partner.subtitle || "").trim().slice(0, 180),
+      description: String(partner.description || defaults.pages.partner.description || "").trim().slice(0, 240),
+      benefits: normalizePromoStringList(partner.benefits, defaults.pages.partner.benefits, 6, 120),
+      contacts: normalizePromoPartnerContacts(partner.contacts, defaults.pages.partner.contacts),
     },
   }
 }
@@ -463,8 +865,9 @@ export function normalizeRewriteStrategyEntry(raw, fallback, platform = "") {
   const runtime = source.runtime && typeof source.runtime === "object" ? source.runtime : {}
   const defaultRewrite = fallback?.rewrite || DEFAULT_REWRITE_STRATEGY_CONFIG.cnki.rewrite
   const defaultRuntime = fallback?.runtime || DEFAULT_REWRITE_STRATEGY_CONFIG.cnki.runtime
-  const strategy = String(rewrite.active_strategy || defaultRewrite.active_strategy || "algorithm").trim().toLowerCase()
-  const resolvedStrategy = strategy === "llm" ? "llm" : "algorithm"
+  const strategy = String(rewrite.active_strategy || defaultRewrite.active_strategy || "llm").trim().toLowerCase()
+  const normalizedPlatform = String(platform || "").trim().toLowerCase()
+  const resolvedStrategy = normalizedPlatform ? "llm" : strategy === "llm" ? "llm" : "llm"
   const normalizedRuntime = {
     chunk_min_chars: clampAdminInt(runtime.chunk_min_chars, Number(defaultRuntime.chunk_min_chars) || 180, 80, 1200),
     chunk_max_chars: clampAdminInt(runtime.chunk_max_chars, Number(defaultRuntime.chunk_max_chars) || 260, 100, 1600),
@@ -492,18 +895,19 @@ export function normalizeRewriteStrategyEntry(raw, fallback, platform = "") {
 export function normalizeDedupStrategyConfig(raw = {}) {
   const source = raw && typeof raw === "object" ? raw : {}
   return {
-    cnki: normalizeDedupStrategyEntry(source.cnki, DEFAULT_DEDUP_STRATEGY_CONFIG.cnki),
-    vip: normalizeDedupStrategyEntry(source.vip, DEFAULT_DEDUP_STRATEGY_CONFIG.vip),
+    cnki: normalizeDedupStrategyEntry(source.cnki, DEFAULT_DEDUP_STRATEGY_CONFIG.cnki, "cnki"),
+    vip: normalizeDedupStrategyEntry(source.vip, DEFAULT_DEDUP_STRATEGY_CONFIG.vip, "vip"),
   }
 }
 
-export function normalizeDedupStrategyEntry(raw, fallback) {
+export function normalizeDedupStrategyEntry(raw, fallback, platform = "") {
   const source = raw && typeof raw === "object" ? raw : {}
   const dedup = source.dedup && typeof source.dedup === "object" ? source.dedup : {}
   const runtime = source.runtime && typeof source.runtime === "object" ? source.runtime : {}
   const defaultDedup = fallback?.dedup || DEFAULT_DEDUP_STRATEGY_CONFIG.cnki.dedup
   const defaultRuntime = fallback?.runtime || DEFAULT_DEDUP_STRATEGY_CONFIG.cnki.runtime
-  const strategy = String(dedup.active_strategy || defaultDedup.active_strategy || "algorithm").trim().toLowerCase()
+  const strategy = String(dedup.active_strategy || defaultDedup.active_strategy || "llm").trim().toLowerCase()
+  const normalizedPlatform = String(platform || "").trim().toLowerCase()
   const normalizedRuntime = {
     chunk_min_chars: clampAdminInt(runtime.chunk_min_chars, Number(defaultRuntime.chunk_min_chars) || 180, 80, 1200),
     chunk_max_chars: clampAdminInt(runtime.chunk_max_chars, Number(defaultRuntime.chunk_max_chars) || 260, 100, 1600),
@@ -522,7 +926,7 @@ export function normalizeDedupStrategyEntry(raw, fallback) {
   return {
     dedup: {
       enabled: dedup.enabled !== undefined ? dedup.enabled === true : defaultDedup.enabled !== false,
-      active_strategy: strategy === "llm" ? "llm" : "algorithm",
+      active_strategy: normalizedPlatform ? "llm" : strategy === "llm" ? "llm" : "llm",
     },
     runtime: normalizedRuntime,
   }
@@ -547,11 +951,19 @@ export function normalizeAigcDetectStrategyEntry(raw, fallback) {
   }
 }
 
-export function strategyDescription(strategy) {
-  if (String(strategy || "").trim().toLowerCase() === "algorithm") {
-    return "走新版统一规则引擎（1000词对分层 + 质量闸门 + 分块改写），默认启用。"
+export function strategyDescription(strategy, platform = "") {
+  const normalizedPlatform = String(platform || "").trim().toLowerCase()
+  const normalizedStrategy = String(strategy || "").trim().toLowerCase()
+  if (normalizedStrategy !== "llm") {
+    return "该平台已冻结为大模型主策略，保存时会自动纠正为 llm。"
   }
-  return "走大模型改写链路，生成多候选后走同一质检闸门，不达标回退算法策略。"
+  if (normalizedPlatform === "cnki") {
+    return "固定走知网大模型主策略。降AIGC率严格执行 Prompt P -> Prompt A -> Prompt B 三段式链路，结果仍会经过统一质检闸门。"
+  }
+  if (normalizedPlatform === "vip") {
+    return "固定走维普大模型主策略，结果仍会经过统一质检闸门。"
+  }
+  return "固定走大模型主策略，结果仍会经过统一质检闸门。"
 }
 
 export function resolvePaymentNotifyPreview(paymentForm) {
@@ -608,6 +1020,9 @@ export function createBillingPackage() {
     credits: 10000,
     description: "",
     badge: "",
+    audience: "",
+    discount_note: "",
+    sort_order: 1,
     enabled: true,
   }
 }
@@ -648,6 +1063,7 @@ export function validateAdminConfigCategory(category, forms, { normalizeUserNavi
       names.add(pkg.name)
       if (!(Number(pkg.price) > 0)) return `套餐 ${pkg.name} 价格必须大于 0`
       if (!(Number(pkg.credits) > 0)) return `套餐 ${pkg.name} 到账通用点数必须大于 0`
+      if (!(Number(pkg.sort_order) > 0)) return `套餐 ${pkg.name} 排序必须大于 0`
     }
   }
   if (category === "user_navigation") {
@@ -712,12 +1128,15 @@ export function validateAdminConfigCategory(category, forms, { normalizeUserNavi
     }
   }
   if (category === "promo_center") {
-    const rawPoints = forms.promo_center?.invite_reward_points
-    if (rawPoints !== undefined && rawPoints !== null && String(rawPoints).trim() !== "") {
-      const points = Number(rawPoints)
-      if (!Number.isFinite(points)) {
-        return "邀请奖励积分必须是数字"
-      }
+    const cfg = normalizePromotionCenterConfig(forms.promo_center)
+    if (!cfg.nav_cards.some((item) => item.enabled)) {
+      return "顶部活动卡至少需要启用 1 个"
+    }
+    if (cfg.reward_rules.invite.invitee_bind_reward_points < 0 || cfg.reward_rules.invite.inviter_valid_invite_reward_points < 0) {
+      return "邀请奖励点数不能小于 0"
+    }
+    if (!cfg.pages.partner.contacts.some((item) => item.enabled && (item.qrcode_url || item.wechat_id))) {
+      return "机构合作至少需要配置 1 个有效联系卡片"
     }
   }
   if (category === "aigc_detect_strategy") {
@@ -767,6 +1186,9 @@ export function buildAdminConfigPayload(category, forms, { normalizeUserNavigati
       credits: Number(pkg.credits),
       description: pkg.description,
       badge: pkg.badge,
+      audience: pkg.audience,
+      discount_note: pkg.discount_note,
+      sort_order: Number(pkg.sort_order),
       enabled: Boolean(pkg.enabled),
     }))
     delete payload.aigc_rate
@@ -810,8 +1232,95 @@ export function buildAdminConfigPayload(category, forms, { normalizeUserNavigati
   if (category === "promo_center") {
     const normalized = normalizePromotionCenterConfig(payload)
     payload.enabled = normalized.enabled
+    payload.schema_version = normalized.schema_version
+    payload.updated_by = normalized.updated_by
+    payload.updated_at = normalized.updated_at
     payload.invite_reward_points = normalized.invite_reward_points
     payload.contacts = normalized.contacts
+    payload.nav_cards = normalized.nav_cards.map((item) => ({
+      key: item.key,
+      title: item.title,
+      badge: item.badge,
+      description: item.description,
+      sort_order: Number(item.sort_order),
+      enabled: Boolean(item.enabled),
+    }))
+    payload.pages = {
+      invite: {
+        ...normalized.pages.invite,
+        rule_lines: [...normalized.pages.invite.rule_lines],
+        miniapp_steps: [...normalized.pages.invite.miniapp_steps],
+      },
+      like: {
+        ...normalized.pages.like,
+        rule_lines: [...normalized.pages.like.rule_lines],
+        other_entries: normalized.pages.like.other_entries.map((item) => ({
+          title: item.title,
+          description: item.description,
+          qrcode_url: item.qrcode_url,
+          enabled: Boolean(item.enabled),
+        })),
+      },
+      create: {
+        ...normalized.pages.create,
+        rule_lines: [...normalized.pages.create.rule_lines],
+        templates: [...normalized.pages.create.templates],
+        platforms: normalized.pages.create.platforms.map((item) => ({
+          key: item.key,
+          label: item.label,
+          status_text: item.status_text,
+          enabled: Boolean(item.enabled),
+        })),
+      },
+      partner: {
+        ...normalized.pages.partner,
+        benefits: [...normalized.pages.partner.benefits],
+        contacts: normalized.pages.partner.contacts.map((item) => ({
+          title: item.title,
+          description: item.description,
+          wechat_id: item.wechat_id,
+          qrcode_url: item.qrcode_url,
+          enabled: Boolean(item.enabled),
+        })),
+      },
+    }
+    payload.reward_rules = {
+      invite: {
+        invitee_bind_reward_points: Number(normalized.reward_rules.invite.invitee_bind_reward_points),
+        inviter_valid_invite_reward_points: Number(normalized.reward_rules.invite.inviter_valid_invite_reward_points),
+        audit_mode: normalized.reward_rules.invite.audit_mode,
+        auto_grant: Boolean(normalized.reward_rules.invite.auto_grant),
+        milestones: normalized.reward_rules.invite.milestones.map((item) => ({
+          threshold: Number(item.threshold),
+          reward_points: Number(item.reward_points),
+          label: item.label,
+        })),
+      },
+      like: {
+        audit_mode: normalized.reward_rules.like.audit_mode,
+        auto_grant: Boolean(normalized.reward_rules.like.auto_grant),
+        tiers: normalized.reward_rules.like.tiers.map((item) => ({
+          threshold: Number(item.threshold),
+          reward_points: Number(item.reward_points),
+          label: item.label,
+        })),
+      },
+      create: {
+        audit_mode: normalized.reward_rules.create.audit_mode,
+        auto_grant: Boolean(normalized.reward_rules.create.auto_grant),
+        tiers: normalized.reward_rules.create.tiers.map((item) => ({
+          threshold: Number(item.threshold),
+          reward_points: Number(item.reward_points),
+          label: item.label,
+        })),
+      },
+    }
+    payload.assets = {
+      like_qrcode_url: normalized.assets.like_qrcode_url,
+      invite_example_image_url: normalized.assets.invite_example_image_url,
+      partner_primary_qrcode_url: normalized.assets.partner_primary_qrcode_url,
+      partner_secondary_qrcode_url: normalized.assets.partner_secondary_qrcode_url,
+    }
   }
   if (category === "aigc_detect_strategy") {
     return normalizeAigcDetectStrategyConfig(payload)

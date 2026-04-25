@@ -3,11 +3,10 @@ from __future__ import annotations
 from app.services.processing_text_tools import merge_short_sentences, soften_connective_prefixes, split_sentences
 from app.exceptions import BizError
 from app.models import Task, TaskType
-from app.services.rewrite_strategies.assets import VIP_ASSETS
 from app.services.rewrite_strategies.config import STRATEGY_ALGORITHM, STRATEGY_LLM, get_active_rewrite_strategy
-from app.services.rewrite_strategies.rule_engine import apply_platform_rules
 from app.services.rewrite_strategies.validators import adjust_to_target_length
 from app.services.rewrite_strategies.validators import validate_rewrite_output
+from app.utils import count_billable_chars
 
 
 def execute_rewrite_strategy(
@@ -23,13 +22,12 @@ def execute_rewrite_strategy(
         raise BizError(code=4116, message="不支持的平台")
 
     strategy = get_active_rewrite_strategy(db, platform=normalized_platform)
-    if normalized_platform == "cnki" and strategy == STRATEGY_ALGORITHM:
-        from app.services.rewrite_strategies.cnki_rule_rewrite import rewrite
-    elif normalized_platform == "cnki" and strategy == STRATEGY_LLM:
+    if strategy != STRATEGY_LLM:
+        raise BizError(code=4119, message="降AIGC率链路已冻结为大模型策略")
+
+    if normalized_platform == "cnki":
         from app.services.rewrite_strategies.cnki_llm import rewrite
-    elif normalized_platform == "vip" and strategy == STRATEGY_ALGORITHM:
-        from app.services.rewrite_strategies.vip_algorithm import rewrite
-    elif normalized_platform == "vip" and strategy == STRATEGY_LLM:
+    elif normalized_platform == "vip":
         from app.services.rewrite_strategies.vip_llm import rewrite
     else:
         raise BizError(code=4119, message="降AIGC率策略配置不支持")
@@ -37,6 +35,45 @@ def execute_rewrite_strategy(
     rewrite_result = rewrite(db, task=task, text=text, report_summary=report_summary or {})
     output = str(rewrite_result.get("text") or "") if isinstance(rewrite_result, dict) else str(rewrite_result or "")
     rule_trace = rewrite_result.get("rule_trace") if isinstance(rewrite_result, dict) else {}
+    if normalized_platform == "cnki":
+        strict_result = _build_cnki_strict_rewrite_result(
+            source_text=text,
+            output=output,
+            rule_trace=rule_trace or {},
+        )
+        return {
+            "rewritten_text": strict_result["text"],
+            "strategy": strategy,
+            "platform": normalized_platform,
+            "task_type": TaskType.REWRITE.value,
+            "length_before": strict_result["length_before"],
+            "length_after": strict_result["length_after"],
+            "change_ratio": strict_result["change_ratio"],
+            "quality_score": strict_result["quality_score"],
+            "quality_flags": strict_result["quality_flags"],
+            "warnings": strict_result["warnings"],
+            "rule_trace": strict_result["rule_trace"],
+        }
+    if normalized_platform == "vip":
+        strict_result = _build_vip_strict_rewrite_result(
+            source_text=text,
+            output=output,
+            rule_trace=rule_trace or {},
+        )
+        return {
+            "rewritten_text": strict_result["text"],
+            "strategy": strategy,
+            "platform": normalized_platform,
+            "task_type": TaskType.REWRITE.value,
+            "length_before": strict_result["length_before"],
+            "length_after": strict_result["length_after"],
+            "change_ratio": strict_result["change_ratio"],
+            "quality_score": strict_result["quality_score"],
+            "quality_flags": strict_result["quality_flags"],
+            "warnings": strict_result["warnings"],
+            "rule_trace": strict_result["rule_trace"],
+        }
+
     validation = _select_rewrite_candidate(
         db,
         task=task,
@@ -77,26 +114,14 @@ def _select_rewrite_candidate(
     if output.strip():
         candidates.append((output, dict(rule_trace or {})))
 
-    normalized_output, normalized_trace = _style_normalize_rewrite_output(
-        platform=platform,
-        source_text=source_text,
-        output=output,
-    )
-    if normalized_output.strip() and normalized_output != output:
-        candidates.append((normalized_output, _merge_rule_trace(rule_trace, normalized_trace)))
-
-    fallback_output, fallback_trace = _build_algorithm_fallback_candidate(
-        db,
-        task=task,
-        platform=platform,
-        source_text=source_text,
-        report_summary=report_summary,
-        current_strategy=strategy,
-    )
-    if fallback_output.strip():
-        fallback_rule_trace = _merge_rule_trace(rule_trace, fallback_trace)
-        if not any(existing_output == fallback_output for existing_output, _ in candidates):
-            candidates.append((fallback_output, fallback_rule_trace))
+    if platform not in {"cnki", "vip"}:
+        normalized_output, normalized_trace = _style_normalize_rewrite_output(
+            platform=platform,
+            source_text=source_text,
+            output=output,
+        )
+        if normalized_output.strip() and normalized_output != output:
+            candidates.append((normalized_output, _merge_rule_trace(rule_trace, normalized_trace)))
 
     last_error: Exception | None = None
     best_validation = None
@@ -112,9 +137,10 @@ def _select_rewrite_candidate(
         except Exception as exc:  # pragma: no cover - selection intentionally tolerates bad candidates
             last_error = exc
             continue
+        target_ratio = 0.25 if platform == "vip" else 0.06
         rank = (
             float(getattr(validation, "quality_score", 0.0)),
-            -float(abs(getattr(validation, "change_ratio", 0.0) - 0.06)),
+            -float(abs(getattr(validation, "change_ratio", 0.0) - target_ratio)),
         )
         if best_validation is None or rank > best_rank:
             best_validation = validation
@@ -126,80 +152,56 @@ def _select_rewrite_candidate(
     raise BizError(code=4611, message="降AIGC率策略输出为空")
 
 
-def _build_algorithm_fallback_candidate(
-    db,
-    *,
-    task: Task | None,
-    platform: str,
-    source_text: str,
-    report_summary: dict,
-    current_strategy: str,
-) -> tuple[str, dict]:
-    if platform == "cnki":
-        from app.services.rewrite_strategies.cnki_rule_rewrite import rewrite as cnki_rule_rewrite
-
-        fallback_result = cnki_rule_rewrite(
-            db,
-            task=task,
-            text=source_text,
-            report_summary=report_summary or {},
-        )
-        fallback_output = str(fallback_result.get("text") or "")
-        fallback_trace = dict(fallback_result.get("rule_trace") or {})
-    else:
-        assets = VIP_ASSETS
-        fallback_output, fallback_trace = apply_platform_rules(
-            db,
-            text=source_text,
-            assets=assets,
-            report_summary=report_summary or {},
-        )
-    if current_strategy == STRATEGY_LLM and fallback_output.strip():
-        if platform == "cnki":
-            from app.services.rewrite_strategies.cnki_rule_rewrite import rewrite as cnki_rule_rewrite
-
-            refined_result = cnki_rule_rewrite(
-                db,
-                task=task,
-                text=fallback_output,
-                report_summary=report_summary or {},
-            )
-            refined_output = str(refined_result.get("text") or "")
-            refined_trace = dict(refined_result.get("rule_trace") or {})
-        else:
-            refined_output, refined_trace = apply_platform_rules(
-                db,
-                text=fallback_output,
-                assets=VIP_ASSETS,
-                report_summary=report_summary or {},
-            )
-        if refined_output != fallback_output:
-            fallback_output = refined_output
-            fallback_trace = _merge_rule_trace(
-                fallback_trace,
-                {
-                    **(refined_trace or {}),
-                    "applied_rules": ["fallback_second_pass", *((refined_trace or {}).get("applied_rules") or [])],
-                },
-            )
-    fallback_output = adjust_to_target_length(
-        fallback_output,
-        source_text=source_text,
-        platform=platform,
-        allow_soft_expansion=platform != "vip",
-    )
-    if not fallback_output.strip():
-        return "", {}
-    trace = {
-        **(fallback_trace or {}),
-        "mode": "rewrite_rule_engine",
+def _build_cnki_strict_rewrite_result(*, source_text: str, output: str, rule_trace: dict) -> dict:
+    text = str(output or "").strip()
+    if not text:
+        raise BizError(code=4611, message="知网降AIGC率严格 V14 输出为空")
+    prompt_b = dict(rule_trace.get("prompt_b_validation") or {})
+    length_before = count_billable_chars(str(source_text or ""))
+    length_after = count_billable_chars(text)
+    change_ratio = round((length_after - length_before) / length_before, 4) if length_before > 0 else 0.0
+    return {
+        "text": text,
+        "length_before": length_before,
+        "length_after": length_after,
+        "change_ratio": change_ratio,
+        "quality_score": 1.0,
+        "quality_flags": {
+            "strict_v14_prompt_b_passed": True,
+            "semantic_ok": bool(prompt_b.get("semantic_ok", True)),
+            "grammar_ok": bool(prompt_b.get("grammar_ok", True)),
+            "formality_maintained": bool(prompt_b.get("formality_maintained", True)),
+            "diversity_ok": bool(prompt_b.get("diversity_ok", True)),
+        },
+        "warnings": [],
+        "rule_trace": dict(rule_trace or {}),
     }
-    if current_strategy == STRATEGY_LLM:
-        trace["llm_fallback"] = True
-        trace["fallback_reason"] = "quality_gate_or_empty_output"
-    else:
-        trace["candidate_role"] = "algorithm_refresh"
-    return fallback_output, trace
+
+
+def _build_vip_strict_rewrite_result(*, source_text: str, output: str, rule_trace: dict) -> dict:
+    text = str(output or "").strip()
+    if not text:
+        raise BizError(code=4611, message="维普降AIGC率严格 WP2 输出为空")
+    prompt_b = dict(rule_trace.get("prompt_b_validation") or {})
+    length_before = count_billable_chars(str(source_text or ""))
+    length_after = count_billable_chars(text)
+    change_ratio = round((length_after - length_before) / length_before, 4) if length_before > 0 else 0.0
+    return {
+        "text": text,
+        "length_before": length_before,
+        "length_after": length_after,
+        "change_ratio": change_ratio,
+        "quality_score": 1.0,
+        "quality_flags": {
+            "strict_wp2_prompt_b_passed": True,
+            "semantic_ok": bool(prompt_b.get("semantic_ok", True)),
+            "expansion_ok": bool(prompt_b.get("expansion_ok", True)),
+            "additive_style": bool(prompt_b.get("additive_style", True)),
+            "readability_ok": bool(prompt_b.get("readability_ok", True)),
+        },
+        "warnings": [],
+        "rule_trace": dict(rule_trace or {}),
+    }
 
 
 def _style_normalize_rewrite_output(*, platform: str, source_text: str, output: str) -> tuple[str, dict]:

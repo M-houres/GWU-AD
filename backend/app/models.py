@@ -6,6 +6,7 @@ from sqlalchemy import (
     JSON,
     BigInteger,
     Boolean,
+    CheckConstraint,
     DateTime,
     Enum as SQLEnum,
     ForeignKey,
@@ -199,6 +200,7 @@ class Order(Base):
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
     amount_cny: Mapped[Decimal] = mapped_column(Numeric(10, 2))
     credits: Mapped[int] = mapped_column(Integer)
+    package_snapshot: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     source: Mapped[str] = mapped_column(String(20), default="web", index=True)
     status: Mapped[str] = mapped_column(String(20), default="created")
     provider: Mapped[str] = mapped_column(String(20), default="mock")
@@ -212,15 +214,33 @@ class PartnerChannel(Base):
 
     id: Mapped[int] = mapped_column(ID_PK_TYPE, primary_key=True, autoincrement=True)
     channel_code: Mapped[str] = mapped_column(String(32), unique=True, index=True)
+    parent_channel_id: Mapped[int | None] = mapped_column(ForeignKey("partner_channels.id"), nullable=True, index=True)
+    root_channel_id: Mapped[int | None] = mapped_column(ForeignKey("partner_channels.id"), nullable=True, index=True)
+    level: Mapped[int] = mapped_column(Integer, default=1, index=True)
     name: Mapped[str] = mapped_column(String(120))
     contact_name: Mapped[str] = mapped_column(String(64), default="")
     contact_phone: Mapped[str] = mapped_column(EncryptedString(128), default="")
     status: Mapped[str] = mapped_column(String(16), default="active", index=True)
     order_token: Mapped[str] = mapped_column(String(96), unique=True, index=True)
     portal_token: Mapped[str] = mapped_column(String(96), unique=True, index=True)
+    portal_password_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    portal_password_updated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    portal_last_login_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     default_rebate_rate_bp: Mapped[int] = mapped_column(Integer, default=1500)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
+
+    __table_args__ = (
+        CheckConstraint("level >= 1 AND level <= 3", name="ck_partner_channels_level_range"),
+        CheckConstraint(
+            "default_rebate_rate_bp >= 0 AND default_rebate_rate_bp <= 10000",
+            name="ck_partner_channels_default_rate_range",
+        ),
+        CheckConstraint(
+            "parent_channel_id IS NULL OR parent_channel_id <> id",
+            name="ck_partner_channels_parent_not_self",
+        ),
+    )
 
 
 class PartnerPolicy(Base):
@@ -236,6 +256,7 @@ class PartnerPolicy(Base):
 
     __table_args__ = (
         UniqueConstraint("channel_id", "package_name", name="uk_partner_policy_channel_package"),
+        CheckConstraint("rebate_rate_bp >= 0 AND rebate_rate_bp <= 10000", name="ck_partner_policies_rate_range"),
     )
 
 
@@ -246,6 +267,7 @@ class PartnerUserBinding(Base):
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), unique=True, index=True)
     channel_id: Mapped[int] = mapped_column(ForeignKey("partner_channels.id"), index=True)
     bind_source: Mapped[str] = mapped_column(String(24), default="link")
+    locked_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
 
@@ -258,12 +280,20 @@ class PartnerOrderAttribution(Base):
     order_no: Mapped[str] = mapped_column(String(64), unique=True, index=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
     channel_id: Mapped[int] = mapped_column(ForeignKey("partner_channels.id"), index=True)
+    root_channel_id: Mapped[int | None] = mapped_column(ForeignKey("partner_channels.id"), nullable=True, index=True)
     channel_code_snapshot: Mapped[str] = mapped_column(String(32), index=True)
+    root_channel_code_snapshot: Mapped[str] = mapped_column(String(32), default="", index=True)
+    channel_level: Mapped[int] = mapped_column(Integer, default=1)
     package_name: Mapped[str] = mapped_column(String(64), default="")
     rebate_rate_bp: Mapped[int] = mapped_column(Integer, default=0)
     attribution_source: Mapped[str] = mapped_column(String(24), default="link")
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
+
+    __table_args__ = (
+        CheckConstraint("channel_level >= 1 AND channel_level <= 3", name="ck_partner_order_attr_level_range"),
+        CheckConstraint("rebate_rate_bp >= 0 AND rebate_rate_bp <= 10000", name="ck_partner_order_attr_rate_range"),
+    )
 
 
 class PartnerMonthlyStatement(Base):
@@ -293,6 +323,7 @@ class PartnerRebateLedger(Base):
 
     id: Mapped[int] = mapped_column(ID_PK_TYPE, primary_key=True, autoincrement=True)
     channel_id: Mapped[int] = mapped_column(ForeignKey("partner_channels.id"), index=True)
+    source_channel_id: Mapped[int | None] = mapped_column(ForeignKey("partner_channels.id"), nullable=True, index=True)
     order_id: Mapped[int | None] = mapped_column(ForeignKey("orders.id"), nullable=True, index=True)
     order_no: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
@@ -301,7 +332,9 @@ class PartnerRebateLedger(Base):
         SQLEnum(PartnerLedgerStatus), default=PartnerLedgerStatus.PENDING, index=True
     )
     base_amount_fen: Mapped[int] = mapped_column(Integer, default=0)
+    rebate_rate_bp: Mapped[int] = mapped_column(Integer, default=0)
     rebate_amount_fen: Mapped[int] = mapped_column(Integer, default=0)
+    source_channel_code_snapshot: Mapped[str] = mapped_column(String(32), default="", index=True)
     statement_month: Mapped[str] = mapped_column(String(7), index=True)
     statement_id: Mapped[int | None] = mapped_column(ForeignKey("partner_monthly_statements.id"), nullable=True, index=True)
     related_ledger_id: Mapped[int | None] = mapped_column(ForeignKey("partner_rebate_ledger.id"), nullable=True)
@@ -312,6 +345,8 @@ class PartnerRebateLedger(Base):
 
     __table_args__ = (
         UniqueConstraint("channel_id", "order_no", "entry_type", name="uk_partner_ledger_channel_order_entry"),
+        CheckConstraint("rebate_rate_bp >= 0 AND rebate_rate_bp <= 10000", name="ck_partner_ledger_rate_range"),
+        CheckConstraint("base_amount_fen >= 0", name="ck_partner_ledger_base_amount_nonnegative"),
         Index("ix_partner_ledger_channel_month_status", "channel_id", "statement_month", "status"),
     )
 
@@ -335,6 +370,7 @@ class PartnerWithdrawRequest(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
 
     __table_args__ = (
+        CheckConstraint("apply_amount_fen >= 0", name="ck_partner_withdraw_amount_nonnegative"),
         Index("ix_partner_withdraw_channel_status", "channel_id", "status"),
     )
 

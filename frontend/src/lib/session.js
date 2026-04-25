@@ -2,8 +2,11 @@ const USER_TOKEN_KEY = "wuhong_user_access_token"
 const USER_REFRESH_TOKEN_KEY = "wuhong_user_refresh_token"
 const ADMIN_TOKEN_KEY = "wuhong_admin_access_token"
 const ADMIN_REFRESH_TOKEN_KEY = "wuhong_admin_refresh_token"
+const PARTNER_TOKEN_KEY = "wuhong_partner_access_token"
+const PARTNER_REFRESH_TOKEN_KEY = "wuhong_partner_refresh_token"
 const USER_INFO_KEY = "wuhong_user_info"
 const ADMIN_INFO_KEY = "wuhong_admin_info"
+const PARTNER_INFO_KEY = "wuhong_partner_info"
 const USER_NAVIGATION_KEY = "wuhong_user_navigation"
 
 function normalizeToken(value) {
@@ -74,6 +77,58 @@ export function clearAdminSession() {
   localStorage.removeItem(ADMIN_TOKEN_KEY)
   localStorage.removeItem(ADMIN_REFRESH_TOKEN_KEY)
   localStorage.removeItem(ADMIN_INFO_KEY)
+}
+
+export function getPartnerToken() {
+  return normalizeToken(localStorage.getItem(PARTNER_TOKEN_KEY))
+}
+
+export function setPartnerToken(token) {
+  const normalized = normalizeToken(token)
+  if (!normalized) {
+    localStorage.removeItem(PARTNER_TOKEN_KEY)
+    return
+  }
+  localStorage.setItem(PARTNER_TOKEN_KEY, normalized)
+}
+
+export function getPartnerRefreshToken() {
+  return normalizeToken(localStorage.getItem(PARTNER_REFRESH_TOKEN_KEY))
+}
+
+export function setPartnerRefreshToken(token) {
+  const normalized = normalizeToken(token)
+  if (!normalized) {
+    localStorage.removeItem(PARTNER_REFRESH_TOKEN_KEY)
+    return
+  }
+  localStorage.setItem(PARTNER_REFRESH_TOKEN_KEY, normalized)
+}
+
+export function setPartnerInfo(partner) {
+  if (!partner) {
+    localStorage.removeItem(PARTNER_INFO_KEY)
+    return
+  }
+  localStorage.setItem(PARTNER_INFO_KEY, JSON.stringify(partner))
+}
+
+export function getPartnerInfo() {
+  const raw = localStorage.getItem(PARTNER_INFO_KEY)
+  if (!raw) {
+    return null
+  }
+  try {
+    return JSON.parse(raw)
+  } catch {
+    return null
+  }
+}
+
+export function clearPartnerSession() {
+  localStorage.removeItem(PARTNER_TOKEN_KEY)
+  localStorage.removeItem(PARTNER_REFRESH_TOKEN_KEY)
+  localStorage.removeItem(PARTNER_INFO_KEY)
 }
 
 export function setUserInfo(user) {

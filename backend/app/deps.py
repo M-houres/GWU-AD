@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from app.client_source import get_client_source
 from app.config import get_settings
 from app.database import get_db
-from app.models import AdminUser, User
+from app.models import AdminUser, PartnerChannel, User
 from app.security import auth_session_key, decode_token
 
 settings = get_settings()
@@ -238,6 +238,69 @@ def current_admin(
     elif settings.is_prod:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="token upgrade required")
     return admin
+
+
+def _resolve_partner_from_token(
+    token: str | None,
+    *,
+    db: Session,
+    auth_store,
+    required: bool,
+) -> PartnerChannel | None:
+    normalized = str(token or "").strip()
+    if not normalized:
+        if required:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="missing token")
+        return None
+    try:
+        payload = decode_token(normalized)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid token") from exc
+    if payload.get("scope") != "partner":
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid scope")
+    token_type = str(payload.get("typ") or "access").strip().lower()
+    if token_type != "access":
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid scope")
+    try:
+        channel_id = int(payload["sub"])
+    except Exception as exc:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid token") from exc
+    channel = db.get(PartnerChannel, channel_id)
+    if not channel:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="partner not found")
+    if str(channel.status or "").strip().lower() != "active":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="partner disabled")
+    session_version = str(payload.get("sv") or "").strip()
+    if session_version:
+        current_version = str(auth_store.get(auth_session_key("partner", str(channel.id))) or "").strip()
+        if not current_version or current_version != session_version:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="token revoked")
+    elif settings.is_prod:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="token upgrade required")
+    return channel
+
+
+def current_partner(
+    cred: HTTPAuthorizationCredentials = Depends(auth_scheme),
+    partner_access_cookie: str | None = Cookie(default=None, alias="gw_partner_access"),
+    db: Session = Depends(db_dep),
+    auth_store=Depends(get_redis),
+) -> PartnerChannel:
+    token = cred.credentials if cred is not None and cred.credentials else str(partner_access_cookie or "").strip()
+    channel = _resolve_partner_from_token(token, db=db, auth_store=auth_store, required=True)
+    if channel is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="missing token")
+    return channel
+
+
+def optional_partner(
+    cred: HTTPAuthorizationCredentials = Depends(auth_scheme),
+    partner_access_cookie: str | None = Cookie(default=None, alias="gw_partner_access"),
+    db: Session = Depends(db_dep),
+    auth_store=Depends(get_redis),
+) -> PartnerChannel | None:
+    token = cred.credentials if cred is not None and cred.credentials else str(partner_access_cookie or "").strip()
+    return _resolve_partner_from_token(token, db=db, auth_store=auth_store, required=False)
 
 
 def current_super_admin(admin: AdminUser = Depends(current_admin)) -> AdminUser:

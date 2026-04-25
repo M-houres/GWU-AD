@@ -11,6 +11,8 @@ from app.utils import safe_filename
 
 logger = logging.getLogger("app.services.task_artifacts")
 settings = get_settings()
+UPLOAD_PREFIX = "uploads"
+OUTPUT_PREFIX = "output"
 
 
 def save_upload_to(path: Path, upload: UploadFile, max_bytes: int) -> None:
@@ -46,15 +48,82 @@ def remove_uploads(*paths: Path | None) -> None:
             logger.warning("uploaded_file_cleanup_failed", exc_info=True, extra={"path": str(path)})
 
 
+def _normalize_artifact_string(raw_path: str | Path | None) -> str:
+    return str(raw_path or "").strip().replace("\\", "/")
+
+
+def _split_artifact_relative_path(normalized: str, prefix: str) -> str | None:
+    target = f"/{prefix}/"
+    lowered = normalized.lower()
+    direct = f"{prefix}/"
+    if lowered.startswith(direct):
+        return normalized[len(direct) :].lstrip("/")
+    idx = lowered.find(target)
+    if idx >= 0:
+        return normalized[idx + len(target) :].lstrip("/")
+    return None
+
+
+def serialize_task_artifact_path(path: Path | None) -> str | None:
+    if path is None:
+        return None
+    if settings.app_env == "test":
+        return str(path)
+    try:
+        resolved = path.resolve()
+    except Exception:
+        resolved = path
+    roots = (
+        (UPLOAD_PREFIX, settings.upload_dir),
+        (OUTPUT_PREFIX, settings.output_dir),
+    )
+    for prefix, root in roots:
+        try:
+            root_resolved = root.resolve()
+            if resolved == root_resolved or root_resolved in resolved.parents:
+                relative = resolved.relative_to(root_resolved).as_posix().lstrip("/")
+                return f"{prefix}/{relative}" if relative else prefix
+        except Exception:
+            continue
+    normalized = _normalize_artifact_string(path)
+    for prefix in (UPLOAD_PREFIX, OUTPUT_PREFIX):
+        relative = _split_artifact_relative_path(normalized, prefix)
+        if relative is not None:
+            return f"{prefix}/{relative}" if relative else prefix
+    return normalized or None
+
+
+def resolve_task_artifact_path(raw_path: str | Path | None) -> Path | None:
+    normalized = _normalize_artifact_string(raw_path)
+    if not normalized:
+        return None
+    path = Path(normalized)
+    if path.is_absolute() and path.exists():
+        return path
+    roots = (
+        (UPLOAD_PREFIX, settings.upload_dir),
+        (OUTPUT_PREFIX, settings.output_dir),
+    )
+    for prefix, root in roots:
+        relative = _split_artifact_relative_path(normalized, prefix)
+        if relative is None:
+            continue
+        if not relative:
+            return root
+        return root / Path(relative)
+    return path
+
+
 def safe_remove_task_artifact(raw_path: str | None, *, warn_on_untrusted: bool = True) -> None:
-    if not raw_path:
+    path = resolve_task_artifact_path(raw_path)
+    if path is None:
         return
     try:
-        path = Path(raw_path).resolve()
+        path = path.resolve()
         allowed_roots = [settings.upload_dir.resolve(), settings.output_dir.resolve()]
         if not any(path == root or root in path.parents for root in allowed_roots):
             if warn_on_untrusted:
-                logger.warning("skip_untrusted_task_artifact_delete", extra={"path": str(path)})
+                logger.warning("skip_untrusted_task_artifact_delete", extra={"path": str(raw_path)})
             return
         path.unlink(missing_ok=True)
     except Exception:

@@ -6449,3 +6449,1062 @@
   - 算法：全文命中即改
   - 大模型：默认整文一次处理，超长仅做技术切分，不再限制“每块改多少处”
 - 代码已验证通过，剩余仅需在实际运行环境重启服务后即可在线测试新链路。
+
+## 第十批，渠道返佣体验继续收口
+- 时间：2026-04-25
+- 范围：`frontend/src/views/partner/PartnerPortalPage.vue`、`frontend/src/views/admin/AdminPartnerPage.vue`
+- 调整：
+  - 渠道门户首屏由“待办 + 团队关系 + 常用操作”三块，收成“先做这几步 + 团队情况”，减少解释性卡片堆叠。
+  - 常用操作并入工作台，桌面保持横向紧凑布局，手机自动落单列。
+  - 直属下级列表改为桌面双列，降低整页一直纵向下坠的问题。
+  - 文案继续去技术化，把“不同套餐返佣”等表述改成更偏运营口径的“商品单独返佣”等说法。
+
+## 第十一批，分销体系按主线继续做减法
+- 时间：2026-04-25
+- 范围：`frontend/src/views/partner/PartnerPortalPage.vue`、`frontend/src/views/admin/AdminPartnerPage.vue`
+- 调整：
+  - 以“发链接、建下级、看钱、提现”为唯一主线继续收页面。
+  - 渠道端首屏继续删除重复信息，团队关系卡改为弱化状态，重复分发卡和返佣说明卡折叠隐藏。
+  - 平台后台继续去掉说明性文案，只保留筛选、建一级、渠道表、月结动作。
+
+## 第十二批，分销体系极简结构继续落地
+- 时间：2026-04-25
+- 范围：`frontend/src/views/partner/PartnerPortalPage.vue`、`frontend/src/views/admin/AdminPartnerPage.vue`
+- 调整：
+  - 渠道端把重复的“推广入口列表”隐藏，只保留一套主分发卡，集中承载整段信息、推广链接、登录页、招募文案、小程序路径复制。
+  - 渠道端“推广信息与下级管理”进一步收成“分发与下级”，让页面更像单主线操作台。
+  - 平台后台顶部取消统计胶囊，仅保留筛选与刷新，减少非必要信息干扰。
+
+## 2026-04-24 推广中心 V2 改造
+
+- 需求落地
+1. 推广中心升级为 `promo_center_v2` 结构，但仍复用现有 `promo_center` 配置分类，不另起系统。
+2. 前台统一改为单路由四卡切页：`/app/promo-center?tab=invite|like|create|partner`。
+3. 活动全部改为点数激励，机构合作页作为第四张活动卡接入。
+4. 后台配置中心支持直接改顶部卡片、各页文案、点数阶梯和二维码素材。
+
+- 代码修改
+1. 后端推广配置升级
+   - 修改：`backend/app/api/admin.py`
+   - `promo_center` 默认配置从旧版
+     - `enabled`
+     - `invite_reward_points`
+     - `contacts`
+     扩展为 V2 结构：
+     - `schema_version / updated_by / updated_at`
+     - `nav_cards`
+     - `pages.invite / like / create / partner`
+     - `reward_rules`
+     - `assets`
+   - 新增统一归一化逻辑，兼容旧字段：
+     - 老配置只有 `invite_reward_points` 时，仍能自动迁移到新奖励结构
+     - 保存 `promo_center` 时自动回填 `updated_by / updated_at`
+   - readiness 改为按 V2 结构检查：
+     - 至少 1 张活动卡启用
+     - 机构合作至少 1 个有效联系卡
+     - 邀请奖励为空时给 warning
+2. 前台 `auth/options` 输出升级
+   - 修改：`backend/app/api/auth.py`
+   - `promo_center` 对外输出升级为完整 V2 结构
+   - 继续保留 `invite_reward_points` 与 `contacts`，避免旧调用方断裂
+3. 后台配置中心升级
+   - 修改：
+     - `frontend/src/lib/adminConfig.js`
+     - `frontend/src/views/admin/AdminConfigPage.vue`
+   - 新增推广中心 V2 默认值与前端归一化
+   - 后台配置页新增可视化编辑区：
+     - 顶部 4 张活动卡
+     - 邀请页规则与里程碑
+     - 集赞页规则、阶梯和其他活动入口
+     - 创作页平台、文案模板和阶梯
+     - 机构合作页权益、联系卡与二维码
+     - 活动素材地址
+4. 前台推广中心重做
+   - 修改：`frontend/src/views/user/UserPromoCenterPage.vue`
+   - 旧版“邀请 + 两张二维码”页面改为四卡切页版：
+     - 邀请有奖：规则、快捷操作区、小程序三步引导、里程碑
+     - 集赞有奖：流程、红框规则卡、二维码区、其他活动入口
+     - 创作有奖：平台入口、点数阶梯、推荐文案模板、提交区
+     - 机构合作：合作说明、权益、二维码联系卡
+   - 邀请码复制、邀请链接复制、分享文案复制已接通
+   - 当前仓库没有“绑定邀请码 / 投稿提交 / 投稿记录”后端接口，因此前台只做保守占位提示，不伪造成功业务
+5. 测试补充
+   - 修改：`backend/tests/test_admin_config_validation.py`
+   - 新增 `promo_center_v2` 配置保存与 `auth/options` 兼容性验证
+   - 顺手修复测试插入时造成的公告版本测试函数断裂
+
+- 验证
+1. 后端定向测试
+   - `cd backend && python -m pytest tests/test_admin_config_validation.py -k promo_center_v2`
+   - 结果：`1 passed`
+2. 前端构建
+   - `cd frontend && npm run build`
+   - 结果：构建成功
+
+- 当前状态
+- 推广中心已经升级为后台可配置的四卡 V2 页面。
+- 机构合作二维码默认接回：
+  - `/promo-contact-qr-1.jpg`
+  - `/promo-contact-qr-2.png`
+- 现阶段未实现的只有后端业务接口本身：
+  - 手动填写邀请码绑定
+  - 集赞 / 创作投稿提交
+  - 投稿记录查询
+- 页面与配置层已经为上述接口预留好落点，后续接接口时不需要再重做前台结构。
+
+## 2026-04-24 推广中心后台配置说明补充
+
+- 本次补充
+  - 调整后台配置中心“推广中心”入口描述，明确该分类用于运营直接配置点数规则、关键文案和活动素材。
+  - 调整后台推广中心说明文案，去掉偏技术化表达，改为运营视角说明“保存后前台直接生效”。
+  - 再次核对推广中心保存链路，确认以下内容已支持后台配置并落库：
+    - 顶部 4 张活动卡标题、角标、说明、排序、启用状态
+    - 邀请 / 集赞 / 创作 / 机构合作 4 个页面的标题、副标题、规则文案
+    - 邀请、集赞、创作的点数阶梯规则
+    - 创作平台状态与显示文案
+    - 集赞二维码、机构合作二维码与联系卡
+
+- 当前结论
+  - 推广中心这块已经具备独立后台配置页，运营后续改送点数和关键文案不需要再改代码。
+
+## 2026-04-24 渠道返佣升级为三级分销
+
+- 本次改动
+  - 后端渠道模型升级为最多三级分销：
+    - `partner_channels` 新增 `parent_channel_id / root_channel_id / level`
+    - `partner_user_bindings` 新增 `locked_at`
+    - `partner_order_attributions` 新增根渠道与层级快照
+    - `partner_rebate_ledger` 新增来源渠道、分润比例和来源渠道快照
+  - 新增迁移：
+    - `backend/alembic/versions/c5e4a9b1d2f3_add_partner_multilevel_distribution.py`
+  - 返佣服务升级：
+    - 支持一级/二级/三级差额分润
+    - 用户通过有效专属链接归属后默认锁定，不再被后续其他渠道链接覆盖
+    - 订单支付和任务消费都会按多级链路拆分返佣流水
+  - 后台渠道管理页重做：
+    - 支持层级展示
+    - 支持创建下级渠道
+    - 支持查看每个渠道的下单链接和门户链接
+    - 返佣流水展示“收益渠道 / 来源渠道 / 分润比例”
+
+- 测试与验证
+  - 后端：
+    - `cd backend && python -m pytest tests/test_partner_rebate_flow.py`
+    - 结果：`4 passed`
+  - 前端：
+    - `cd frontend && npm run build`
+    - 结果：构建成功
+
+- 部署注意
+  - 当前渠道链接和门户链接会优先使用请求头推断域名，其次回落到 `frontend_base_url`。
+  - 如果线上门户链接打不开，优先检查：
+    - 后端环境变量 `frontend_base_url` 是否配置为正式前端域名
+    - 前端服务器是否给 `/app/*` 和 `/admin/*` 做了 SPA history fallback 到 `index.html`
+
+## 2026-04-24 渠道门户补完
+
+- 本次补充
+  - 完成 `frontend/src/views/partner/PartnerPortalPage.vue`：
+    - 增加“直系下级管理”卡片，一级/二级代理可在自己的门户直接创建下级渠道
+    - 增加直系下级列表，展示下级名称、层级、客户数、下单链接、门户链接
+    - 订单列表增加“来源渠道”列，便于确认客户实际归属来源
+    - 返佣流水增加“来源渠道 + 返佣比例”列，便于核对差额分润
+  - 门户侧创建下级时增加前端校验：
+    - 渠道名称必填
+    - 返佣比例必须在 `0~100%`
+    - 下级返佣比例不能高于当前渠道默认比例
+  - 门户样式继续保持系统蓝色系，并把可横向的信息区改成双栏紧凑排布，避免再次出现整块纵向堆叠。
+
+- 测试与验证
+  - 前端：
+    - `cd frontend && npm run build`
+    - 结果：构建成功
+
+- 部署跟进
+  - 已记录：正式部署时一并处理渠道门户链接打不开的问题。
+  - 上线检查项：
+    - 后端 `frontend_base_url` 改成正式前端域名
+    - 前端/Nginx 对 `/app/*`、`/admin/*` 增加 SPA history fallback 到 `index.html`
+
+## 2026-04-24 知网降AIGC策略切换为大模型主策略
+
+- 本次改动
+  - 按桌面新文档 `rewrite_system_ULTIMATE.md` 落地知网降AIGC专用 prompt：
+    - 新增仓库资产 `data/strategy_assets/rewrite_prompt_system_ultimate.md`
+    - 新增专用 loader：`backend/app/services/cnki_rewrite_prompt.py`
+  - 知网降AIGC链路改为只走大模型主策略：
+    - `backend/app/services/rewrite_strategies/config.py` 中知网默认策略改为 `llm`
+    - 即使后台提交 `algorithm`，知网也会被归一化为 `llm`
+    - `backend/app/services/rewrite_strategies/cnki_llm.py` 不再回退旧算法改写
+    - `backend/app/services/rewrite_strategies/executor.py` 对知网 LLM 禁用算法候选兜底
+  - 后台配置页同步收口：
+    - 知网降AIGC策略不再提供旧算法选项
+    - 配置说明改成“知网旧算法已冻结，后续以大模型主策略为准”
+  - 保持知网降重复率链路不受影响：
+    - 原 `cnki_v5_prompt.py` 继续供知网降重使用，没有把 rewrite prompt 误套到 dedup 流程
+
+- 测试与验证
+  - 后端：
+    - `cd backend && python -m pytest tests/test_admin_config_validation.py`
+    - 结果：`25 passed`
+  - 前端：
+    - `cd frontend && npm run build`
+    - 结果：构建成功
+
+## 2026-04-24 管理后台移除策略运行时参数展示
+
+- 本次改动
+  - 后台配置页中：
+    - 删除“降重复率策略”页签下所有平台的运行时参数展示区块
+    - 删除“降AIGC率策略”页签下所有平台的运行时参数展示区块
+  - 现在后台只保留：
+    - 平台启用/停用
+    - 当前执行策略选择
+  - 底层配置结构与后端默认值暂未删除，只是先从管理后台页面隐藏，不再让运营侧直接调整。
+
+- 测试与验证
+  - 前端：
+    - `cd frontend && npm run build`
+    - 结果：构建成功
+
+## 2026-04-24 知网/维普改写与降重统一冻结为大模型主策略
+
+- 本次改动
+  - 后端四条处理链路全部冻结为仅大模型：
+    - 知网降AIGC：仅 `llm`
+    - 维普降AIGC：仅 `llm`
+    - 知网降重复率：仅 `llm`
+    - 维普降重复率：仅 `llm`
+  - 后端配置归一化已同步收紧：
+    - `backend/app/services/rewrite_strategies/config.py`
+    - `backend/app/services/dedup_strategies/config.py`
+    - 即使后台或接口提交 `algorithm`，保存后也会被强制纠正为 `llm`
+  - 执行器层彻底移除算法兜底：
+    - `backend/app/services/rewrite_strategies/executor.py`
+    - `backend/app/services/dedup_strategies/executor.py`
+    - 不再允许通过旧算法候选、质量闸门回退或手工传参绕开 LLM 主链
+  - 知网降重复率移除旧算法兜底：
+    - `backend/app/services/dedup_strategies/cnki_llm.py`
+    - LLM 异常或质检不通过时直接报错，不再静默回退算法结果
+  - 维普降AIGC、维普降重复率补充实际调用模型追踪：
+    - `rule_trace` 新增 `llm_provider` / `llm_model`
+
+- 知网降AIGC三段式对齐
+  - 严格按桌面文档 `rewrite_system_ULTIMATE.md` 执行 `Prompt P -> Prompt A -> Prompt B`
+  - `Prompt P` 只取原文前 300 字做预分析
+  - `Prompt A` 在主改写前强制注入预分析 JSON
+  - `Prompt B` 对完整改写结果做最终校验，未通过直接报错
+  - 当前链路实现位置：
+    - `backend/app/services/cnki_rewrite_prompt.py`
+    - `backend/app/services/rewrite_strategies/cnki_llm.py`
+
+- 后台页面同步
+  - 管理后台“降AIGC率策略 / 降重复率策略”页面现在只保留：
+    - 平台启用开关
+    - 固定展示的“大模型主策略（固定）”
+  - 不再给运营显示算法切换入口或误导性文案
+  - 相关前端文件：
+    - `frontend/src/lib/adminConfig.js`
+    - `frontend/src/views/admin/AdminConfigPage.vue`
+
+- 部署注意
+  - 当前后端数据库层在非生产环境允许 MySQL 失败后回落 SQLite：
+    - `backend/app/database.py`
+  - 如果部署时主库没连通，任务会从 SQLite 读取系统配置，可能继续读到旧的 `llm.provider=local_mock`
+  - 这会造成“后台明明配置了正式模型，但任务运行没真正用上”的假象
+  - 后续部署时需一并确认：
+    - 生产环境必须连主 MySQL
+    - 主库中的 `system.llm` 配置为正式 provider/model
+
+- 测试与验证
+  - 后端：
+    - `cd backend && python -m pytest tests/test_admin_config_validation.py`
+    - 结果：`26 passed`
+  - 前端：
+    - `cd frontend && npm run build`
+    - 结果：构建成功
+
+## 2026-04-25 00:00 V14知网策略强制切换
+
+- 目标
+  - 按桌面文档 `rewrite_system_V14.md`，将知网降AIGC策略与知网降重复率策略统一切换到 V14，要求严格执行 `Prompt P -> Prompt A -> Prompt B`，不再混用旧 `v5` prompt 或规则回退链路。
+
+- 本次代码调整
+  - 新增仓库策略资产：
+    - `data/strategy_assets/rewrite_system_V14.md`
+  - 知网提示词加载器改为读取 V14 资产，并同时提供：
+    - `build_cnki_rewrite_prompt / precheck / validation`
+    - `build_cnki_dedup_prompt / precheck / validation`
+  - 知网降AIGC链路：
+    - `backend/app/services/rewrite_strategies/cnki_llm.py`
+    - 强制使用 V14 的 `P/A/B`
+    - 对 `Prompt P` 与 `Prompt B` 返回 JSON 做严格字段校验，字段不符直接失败
+    - 去掉知网链路中不属于 V14 设计的额外长度后处理
+    - `strategy_version` 改为 `cnki_v14_llm_pab`
+  - 知网降重复率链路：
+    - `backend/app/services/dedup_strategies/cnki_llm.py`
+    - 从旧 `cnki_v5_prompt` 切到同一套 V14 `P/A/B`
+    - 增加与降AIGC一致的 JSON 结构校验与三段式校验通过门槛
+    - `strategy_version` 改为 `cnki_v14_dedup_llm_pab`
+  - 知网降AIGC执行器：
+    - `backend/app/services/rewrite_strategies/executor.py`
+    - 对 `cnki` 禁用额外 style normalize 候选，避免 `Prompt A` 产物再被二次改写，偏离 V14 原始设计
+  - 测试更新：
+    - `backend/tests/test_processing_engine_results.py`
+    - 同步调整知网 rewrite/dedup 的 prompt 断言、trace 断言和三段式 mock
+
+- 验证
+  - 语法校验通过：
+    - `python -m py_compile backend/app/services/cnki_rewrite_prompt.py backend/app/services/rewrite_strategies/cnki_llm.py backend/app/services/dedup_strategies/cnki_llm.py backend/app/services/rewrite_strategies/executor.py backend/tests/test_processing_engine_results.py`
+  - 目标测试通过：
+    - `cd backend && python -m pytest tests/test_processing_engine_results.py -k "cnki_llm_rewrite_uses_global_prompt_by_default or dedup_cnki_llm_strategy_uses_platform_prompt_and_keeps_dedup_meta or llm_prompts_include_cross_discipline_constraints"`
+    - 结果：`3 passed`
+
+- 2026-04-25 02:26:21 维普 WP2（rewrite_system_WP2_Wanfang.md）严格落地
+  - 本次代码调整
+    - 新增仓库策略资产：
+      - `data/strategy_assets/rewrite_system_WP2_Wanfang.md`
+    - 新增维普 WP2 提示词与运行时装配：
+      - `backend/app/services/vip_wp2_prompt.py`
+      - `backend/app/services/vip_wp2_runtime.py`
+    - 维普降AIGC链路：
+      - `backend/app/services/rewrite_strategies/vip_llm.py`
+      - 改为严格使用 WP2 的 `Prompt A + Prompt B`
+      - 去掉旧 `strategy_prompt_assets / style_profiles / adjust_to_target_length(5%-8%)` 运行路径
+      - `Prompt B` 按 WP2 精确字段校验：`semantic_ok / expansion_ratio / expansion_ok / additive_style / readability_ok / mechanism_distribution / issues / verdict`
+      - `strategy_version` 改为 `vip_wp2_rewrite_llm_ab`
+    - 维普降重复率链路：
+      - `backend/app/services/dedup_strategies/vip_llm.py`
+      - 同样切到 WP2 的 `Prompt A + Prompt B`
+      - `strategy_version` 改为 `vip_wp2_dedup_llm_ab`
+    - 维普校验与执行器联动：
+      - `backend/app/services/rewrite_strategies/validators.py`
+      - `backend/app/services/dedup_strategies/validators.py`
+      - 维普目标扩写量统一改为 `20%-30%`
+      - 维普硬性失败范围改为 `<10%` 或 `>40%`
+      - rewrite/dedup 选择候选时的目标扩写中心改为 `25%`
+    - 维普坏词拦截改造：
+      - `backend/app/services/rewrite_strategies/assets.py`
+      - `backend/app/services/dedup_strategies/assets.py`
+      - 将 WP2 明确允许的叠加表达从维普 bad pattern 中移除：
+        - `作为属于`
+        - `将把`
+        - `能够可以`
+        - `可以能够`
+        - `路径方式`
+        - `改变革`
+    - 旧维普算法彻底删除：
+      - 删除 `backend/app/services/rewrite_strategies/vip_algorithm.py`
+      - 删除 `backend/app/services/dedup_strategies/vip_algorithm.py`
+    - 策略槽位与资产校验同步缩减：
+      - `backend/app/services/strategy_asset_validation.py`
+      - `backend/app/services/strategy_slot_evaluation.py`
+      - 从“八槽位”改为仅保留维普 `llm` 的“六槽位”
+      - 维普 dedup 参考资产的 `target_slots` 改为单槽位 `vip.dedup.llm`
+    - 资产数据同步清理：
+      - `data/strategy_assets/*.jsonl`
+      - 清除 `vip.rewrite.algorithm / vip.dedup.algorithm`
+      - 维普 `mode_scope` 改为仅保留 `llm`
+    - 测试更新：
+      - `backend/tests/test_processing_engine_results.py`
+      - `backend/tests/test_strategy_asset_validation.py`
+      - `backend/tests/test_strategy_slot_evaluation.py`
+      - 将维普旧算法断言改为 WP2 大模型断言
+      - 增加维普 WP2 prompt / runtime / Prompt B 校验失败覆盖
+
+  - 验证
+    - 语法校验通过：
+      - `python -m py_compile backend/app/services/vip_wp2_prompt.py backend/app/services/vip_wp2_runtime.py backend/app/services/rewrite_strategies/vip_llm.py backend/app/services/dedup_strategies/vip_llm.py backend/app/services/rewrite_strategies/validators.py backend/app/services/dedup_strategies/validators.py backend/app/services/strategy_asset_validation.py backend/app/services/strategy_slot_evaluation.py backend/tests/test_processing_engine_results.py backend/tests/test_strategy_asset_validation.py backend/tests/test_strategy_slot_evaluation.py`
+    - 目标测试通过：
+      - `cd backend && python -m pytest tests/test_processing_engine_results.py -k "vip and (wp2 or llm_prompts_include_cross_discipline_constraints or forces_llm_strategy_and_uses_wp2_runtime or prompt_uses_wp2_template or allows_additive_expression_without_bad_pattern_rejection)"`
+      - 结果：`6 passed`
+      - `cd backend && python -m pytest tests/test_strategy_asset_validation.py tests/test_strategy_slot_evaluation.py`
+      - 结果：`9 passed`
+
+- 2026-04-25 03:18:42 知网旧策略彻底删除并收口为四槽位 LLM-only
+  - 本次代码调整
+    - 知网旧实现与旧文档删除：
+      - 删除 `backend/app/services/cnki_v5_prompt.py`
+      - 删除 `backend/app/services/rewrite_strategies/cnki_rule_rewrite.py`
+      - 删除 `backend/app/services/dedup_strategies/cnki_rule_dedup.py`
+      - 删除 `data/strategy_assets/rewrite_prompt_system_v5.md`
+      - 删除 `data/strategy_assets/rewrite_prompt_system_ultimate.md`
+    - 通用旧规则引擎删除：
+      - 删除 `backend/app/services/rewrite_strategies/rule_engine.py`
+      - 删除 `backend/app/services/dedup_strategies/rule_engine.py`
+    - 知网运行时清理：
+      - `backend/app/services/rewrite_strategies/assets.py`
+      - 去除对 `cnki_v5_prompt` 的模板依赖，`CNKI_TEMPLATES` 改为空
+      - `backend/app/services/rewrite_strategies/cnki_llm.py`
+      - `backend/app/services/dedup_strategies/cnki_llm.py`
+      - 删除 `template_library_size` 旧 trace 字段
+      - `backend/app/services/dedup_strategies/executor.py`
+      - 去除旧 `dedup_rule_engine / dedup_fallback` 后处理分支，仅保留 llm 主链路
+      - `backend/app/services/processing_engine.py`
+      - 去除对旧 dedup algorithm 常量的导入依赖
+    - 策略槽位与校验收口：
+      - `backend/app/services/strategy_asset_validation.py`
+      - `backend/app/services/strategy_slot_evaluation.py`
+      - 从“六槽位”继续收口为仅保留：
+        - `cnki.rewrite.llm`
+        - `cnki.dedup.llm`
+        - `vip.rewrite.llm`
+        - `vip.dedup.llm`
+      - 报告标题同步改为“四槽位策略评估”
+    - 测试收口：
+      - `backend/tests/test_processing_engine_results.py`
+      - 删除知网旧 algorithm / rule_engine / fallback 断言
+      - `backend/tests/test_strategy_asset_validation.py`
+      - `backend/tests/test_strategy_slot_evaluation.py`
+      - 同步改为四槽位、llm-only 断言
+    - 策略资产数据同步清理：
+      - `data/strategy_assets/*.jsonl`
+      - 清除所有 `cnki.rewrite.algorithm / cnki.dedup.algorithm`
+      - 知网 `mode_scope` 改为仅保留 `llm`
+
+  - 验证
+    - 语法校验通过：
+      - `python -m py_compile backend/app/services/rewrite_strategies/assets.py backend/app/services/rewrite_strategies/cnki_llm.py backend/app/services/dedup_strategies/cnki_llm.py backend/app/services/dedup_strategies/executor.py backend/app/services/processing_engine.py backend/app/services/strategy_asset_validation.py backend/app/services/strategy_slot_evaluation.py backend/tests/test_processing_engine_results.py backend/tests/test_strategy_asset_validation.py backend/tests/test_strategy_slot_evaluation.py`
+    - 目标测试通过：
+      - `cd backend && python -m pytest tests/test_strategy_asset_validation.py tests/test_strategy_slot_evaluation.py`
+      - 结果：`9 passed`
+      - `cd backend && python -m pytest tests/test_processing_engine_results.py -k "cnki_llm_rewrite_uses_global_prompt_by_default or dedup_cnki_llm_strategy_uses_platform_prompt_and_keeps_dedup_meta or llm_prompts_include_cross_discipline_constraints or execute_dedup_strategy_vip_rejects_wp2_output_when_prompt_b_fails or rewrite_vip_wp2_allows_additive_expression_without_bad_pattern_rejection or dedup_vip_prompt_uses_wp2_template"`
+      - 结果：`5 passed`
+
+- 2026-04-25 渠道返佣三级分销三端联动优化
+  - 后端
+    - `backend/app/services/partner_rebate_service.py`
+      - 渠道链接统一扩展为 Web + 小程序双链路：
+        - `order_link / portal_link`
+        - `miniapp_order_path / miniapp_portal_path`
+    - `backend/app/api/partners.py`
+      - 后台渠道列表返回小程序路径字段
+      - 后台返佣流水、提现列表补充渠道名称/编码，降低运营核单成本
+      - 门户侧新增直属下级管理接口：
+        - `PATCH /api/v1/partners/portal/subchannels/{id}`
+        - `GET /api/v1/partners/portal/subchannels/{id}/policies`
+        - `POST /api/v1/partners/portal/subchannels/{id}/policy`
+  - Web 前端
+    - `frontend/src/views/admin/AdminPartnerPage.vue`
+      - 渠道后台升级为可运营版：
+        - 渠道搜索 / 状态筛选
+        - Web 链接复制
+        - 小程序下单路径 / 门户路径复制
+        - 套餐返佣策略面板
+        - 流水 / 提现显示渠道名而非仅 ID
+    - `frontend/src/views/partner/PartnerPortalPage.vue`
+      - 渠道门户升级为管理页：
+        - 当前渠道 Web / 小程序链接分发
+        - 直属下级创建、编辑、启停
+        - 直属下级套餐策略维护
+        - 保留返佣、订单、提现视图
+  - 小程序
+    - `miniapp/utils/storage.js`
+      - 新增渠道追踪缓存读写
+    - `miniapp/utils/partnerTracking.js`
+      - 新增渠道参数捕获工具
+    - `miniapp/pages/home/index.js`
+      - 首页接入 `ch / ck` 捕获，支持渠道专属入口
+    - `miniapp/pages/profile/index.js`
+      - 充值下单自动带上 `channel_code / channel_token`
+      - 页面展示当前渠道归属提示
+    - `miniapp/pages/partner/index.*`
+      - 新增轻量小程序渠道门户页，可查看概览、复制 Web/小程序链接、查看直属下级
+  - 测试
+    - `backend/tests/test_partner_rebate_flow.py`
+      - 补充门户概览返回小程序路径字段断言
+  - 部署注意
+    - 小程序正式环境仍需把 `miniapp/config/env.js` 的 `trial / release apiBaseUrl` 替换为已备案 HTTPS 域名
+    - 当前小程序门户先做轻量版，重管理操作仍以 Web 门户为主
+
+- 2026-04-25 渠道返佣第二批：团队视图与客户归属
+  - 后端
+    - `backend/app/api/partners.py`
+      - 新增后台渠道团队接口：
+        - `GET /api/v1/partners/admin/channels/{id}/team-summary`
+        - `GET /api/v1/partners/admin/channels/{id}/customers`
+      - 新增门户团队接口：
+        - `GET /api/v1/partners/portal/team-summary`
+        - `GET /api/v1/partners/portal/customers`
+      - 门户订单/返佣流水支持 `scope=self|direct|subtree`
+      - 团队汇总维度补充：
+        - 渠道数
+        - 客户数
+        - 订单数
+        - 团队成交额
+        - 待结算 / 已结算返佣
+      - 客户归属清单返回：
+        - 用户昵称
+        - 脱敏手机号
+        - 归属渠道
+        - 归属来源
+        - 历史订单数
+        - 锁定时间
+  - Web 前端
+    - `frontend/src/views/partner/PartnerPortalPage.vue`
+      - 门户概览新增直属团队 / 全团队摘要条
+      - 订单列表与返佣流水新增范围切换：
+        - 仅自己
+        - 直属团队
+        - 全部团队
+      - 新增客户归属清单卡片
+    - `frontend/src/views/admin/AdminPartnerPage.vue`
+      - 渠道后台新增“团队归属”面板
+      - 运营可切换 `self / direct / subtree` 查看渠道团队与客户归属
+  - 测试
+    - `backend/tests/test_partner_rebate_flow.py`
+      - 补充团队汇总与客户归属范围查询断言
+  - 验证
+    - `cd backend && python -m pytest tests/test_partner_rebate_flow.py`
+      - 结果：`8 passed`
+    - `cd frontend && npm run build`
+      - 结果：通过
+
+- 2026-04-25 渠道返佣第三批：筛选、分页与导出
+  - 后端
+    - `backend/app/api/partners.py`
+      - 门户订单接口补充时间筛选：
+        - `GET /api/v1/partners/portal/orders`
+        - 支持 `created_from / created_to`
+      - 门户返佣流水接口补充时间筛选：
+        - `GET /api/v1/partners/portal/ledger`
+        - 支持 `created_from / created_to`
+      - 门户客户归属接口补充筛选：
+        - `GET /api/v1/partners/portal/customers`
+        - 支持 `keyword / created_from / created_to`
+      - 后台渠道客户归属接口补充筛选：
+        - `GET /api/v1/partners/admin/channels/{id}/customers`
+        - 支持 `keyword / created_from / created_to`
+  - Web 前端
+    - `frontend/src/views/partner/PartnerPortalPage.vue`
+      - 订单、返佣流水、客户归属三块列表补充分页状态
+      - 订单 / 流水支持日期筛选
+      - 客户归属支持关键词 + 日期筛选
+      - 三块列表均支持导出当前可见结果为 CSV
+    - `frontend/src/views/admin/AdminPartnerPage.vue`
+      - 团队归属面板补充关键词 / 日期筛选
+      - 团队归属面板补充分页
+      - 团队归属列表支持导出当前结果为 CSV
+  - 测试
+    - `backend/tests/test_partner_rebate_flow.py`
+      - 复跑通过，验证多级返佣链路未被本轮列表能力改动破坏
+  - 验证
+    - `cd backend && python -m pytest tests/test_partner_rebate_flow.py`
+      - 结果：`8 passed`
+    - `cd frontend && npm run build`
+      - 结果：通过
+
+- 2026-04-25 渠道返佣第四批：渠道门户正式登录态
+  - 后端
+    - `backend/app/models.py`
+      - `PartnerChannel` 新增门户登录字段：
+        - `portal_password_hash`
+        - `portal_password_updated_at`
+        - `portal_last_login_at`
+    - `backend/alembic/versions/f1a2b3c4d5e6_add_partner_portal_login_fields.py`
+      - 新增渠道门户登录字段迁移
+    - `backend/app/deps.py`
+      - 新增 `current_partner / optional_partner`
+      - 渠道门户支持 `partner` scope 的 JWT 会话校验
+    - `backend/app/services/partner_rebate_service.py`
+      - 新增渠道门户密码生成、账号密码登录校验、管理员重置密码能力
+      - 渠道链接补充 `portal_login_link`
+    - `backend/app/api/partners.py`
+      - 新增渠道门户认证接口：
+        - `POST /api/v1/partners/portal/auth/login`
+        - `POST /api/v1/partners/portal/auth/exchange`
+        - `POST /api/v1/partners/portal/auth/refresh`
+        - `POST /api/v1/partners/portal/auth/logout`
+      - 门户业务接口统一支持：
+        - 正式 `Authorization` 登录态访问
+        - 旧 `ch / pk` 直达链接兼容换 token
+      - 新增后台重置渠道门户密码接口：
+        - `POST /api/v1/partners/admin/channels/{id}/portal-password/reset`
+  - Web 前端
+    - `frontend/src/lib/session.js`
+      - 新增渠道门户 token / refresh token / channel info 存储
+    - `frontend/src/lib/http.js`
+      - 新增 `partnerHttp`
+      - 渠道门户接入独立 refresh 流程与 401 重定向
+    - `frontend/src/lib/redirect.js`
+      - 新增渠道门户登录后的安全跳转解析
+    - `frontend/src/router/index.js`
+      - 新增 `/app/partner/login`
+      - `/app/partner` 切到 `partner` 登录态守卫
+      - 保留旧 `ch / pk` 访问的兼容入口
+    - `frontend/src/views/partner/PartnerLoginPage.vue`
+      - 新增渠道账号密码登录页
+      - 支持旧专属门户链接自动换登录态
+    - `frontend/src/views/partner/PartnerPortalPage.vue`
+      - 渠道门户改走正式 token 会话
+      - 顶部补退出登录
+      - 空状态改为登录引导
+      - 链接区补门户登录页
+    - `frontend/src/views/admin/AdminPartnerPage.vue`
+      - 渠道后台新增门户账号展示
+      - 新增门户登录页链接复制
+      - 新增一键重置门户密码
+  - 测试
+    - `backend/tests/test_partner_rebate_flow.py`
+      - 新增渠道门户账号密码登录、refresh、旧链接 exchange 覆盖
+  - 验证
+    - `cd backend && python -m pytest tests/test_partner_rebate_flow.py`
+      - 结果：`9 passed`
+    - `cd frontend && npm run build`
+      - 结果：通过
+
+- 2026-04-25 继续推进：渠道返佣第五批，收口三级分销主流程与手机分发体验
+  - 目标
+    - 平台后台只保留“新建一级渠道”的正常流程
+    - 二级/三级渠道统一改为由上级在渠道后台创建直属下级
+    - 渠道门户改成更适合手机查看、复制、转发的分发页
+  - 后端
+    - `backend/app/api/partners.py`
+      - 平台后台创建渠道时，强制仅允许创建一级渠道
+      - 平台后台直建下级接口改为直接拦截，避免和业务流程冲突
+      - 新建一级渠道后，自动初始化门户登录密码，并随返回值回传
+      - 渠道门户创建直属下级后，自动初始化下级登录密码，并随返回值回传
+      - 渠道门户 overview 补充 `portal_account`，方便前端直接拼分发文案
+    - `backend/tests/test_partner_rebate_flow.py`
+      - 新增“平台创建一级渠道返回初始密码”覆盖
+      - 新增“平台不能直接创建下级”覆盖
+      - 新增“渠道门户创建下级返回初始密码”覆盖
+  - Web 前端
+    - `frontend/src/views/admin/AdminPartnerPage.vue`
+      - 渠道管理主流程改为仅新建一级渠道
+      - 移除平台侧“创建下级”按钮
+      - 文案改成更偏运营口径：
+        - `套餐策略` -> `不同套餐返佣`
+        - `团队归属` -> `客户归属`
+        - `下单链接/门户链接` -> `推广链接/渠道后台`
+      - 新建一级渠道后自动复制一整段分发信息
+      - 重置密码后自动复制“登录账号 + 临时密码 + 入口链接”整段文本
+      - 列表补“复制整段分发信息”按钮
+    - `frontend/src/views/partner/PartnerPortalPage.vue`
+      - 顶部文案改成更简洁的“渠道后台”
+      - 新增“我的分发信息”卡片，支持一键复制整段文案
+      - 直属下级卡片补“复制整段信息”
+      - 子渠道创建成功后自动复制下级登录与推广信息
+      - 手机端布局继续收紧，分发卡片、链接区、下级卡片都改成更适合转发的紧凑样式
+      - 范围筛选文案改成“仅本渠道 / 直属下级 / 全部下级”，降低理解门槛
+  - 验证
+    - `cd backend && python -m pytest tests/test_partner_rebate_flow.py`
+      - 结果：`12 passed`
+    - `cd frontend && npm run build`
+      - 结果：通过
+
+- 2026-04-25 继续推进：渠道返佣第六批，回切表格视图并补安全删除
+  - 目标
+    - 渠道列表恢复成更适合运营横向比对的表格模式
+    - “不同套餐返佣”不再藏得太深，列表中直接可点
+    - 补后台删除渠道能力，但必须防误删
+  - 后端
+    - `backend/app/api/partners.py`
+      - 新增 `DELETE /api/v1/partners/admin/channels/{id}`
+      - 删除前必须手工输入完整渠道名称确认
+      - 有直属下级、客户归属、订单归属、返佣流水、月结、提现记录时禁止删除
+      - 仅允许删除真正空白、未发生业务数据的渠道
+    - `backend/tests/test_partner_rebate_flow.py`
+      - 新增“管理员手输渠道名后删除空白一级渠道”覆盖
+  - Web 前端
+    - `frontend/src/views/admin/AdminPartnerPage.vue`
+      - 渠道列表由卡片改回表格
+      - 新增“套餐返佣”列，直接提供“配置套餐返佣”入口
+      - 主操作列保留：
+        - 编辑
+        - 重置密码
+        - 客户归属
+        - 删除
+      - 删除按钮接入“手输渠道名称确认”流程
+      - 列表头补说明，明确“默认返佣”和“套餐返佣”的区别
+  - 验证
+    - `cd backend && python -m pytest tests/test_partner_rebate_flow.py`
+      - 结果：`13 passed`
+    - `cd frontend && npm run build`
+      - 结果：通过
+
+- 2026-04-25 继续推进：渠道返佣第九批，整体体验再优化
+  - 管理后台
+    - `frontend/src/views/admin/AdminPartnerPage.vue`
+      - 把常用筛选、状态切换、刷新前置到渠道列表上方工具条
+      - 月结区域从混合操作改成单独“月结工具”，减少运营来回查找
+      - 新建一级渠道区域补充简短规则胶囊，页面信息更紧凑
+  - 渠道登录页
+    - `frontend/src/views/partner/PartnerLoginPage.vue`
+      - 重做成左右双区布局，左侧说明登录所需信息，右侧专注登录
+      - 增加密码可见切换，账号输入自动转大写，更适合手机端与转发场景
+  - 渠道门户
+    - `frontend/src/views/partner/PartnerPortalPage.vue`
+      - 新增顶部“常用操作”区，把复制整段信息、复制推广链接、复制登录页、建下级、提现、改密码全部前置
+      - 原“手机转发建议”卡改为可操作的账号信息卡，可直接复制账号和小程序路径
+      - 改密码区补充密码可见切换
+      - 增加页内跳转锚点，长页面可直接跳到建下级、提现、账号安全
+  - 验证
+    - `cd frontend && npm run build`
+      - 结果：通过
+- 2026-04-25 06:40 渠道后台本地 404 排查与修复
+  - 已定位：本地前端 `127.0.0.1:5173` 命中了 Docker/WSL 占用的旧后端 `127.0.0.1:8000`，不是当前仓库代码。
+  - 已确认：旧服务缺少 `POST /api/v1/partners/portal/auth/login` 与 `POST /api/v1/partners/portal/auth/exchange`，因此渠道登录页直接报 `Request failed with status code 404`。
+  - 已修复：`backend/alembic/versions/f1a2b3c4d5e6_add_partner_portal_login_fields.py` 与历史迁移存在重复 revision id，已改为唯一 revision `f1a2b3c4d5e7`，避免新版后端启动时迁移阶段直接退出。
+  - 已修复：本地前端开发环境直连后端端口从 `8000` 调整为 `8001`，避开旧 Docker 服务，确保本地管理后台与渠道后台联调命中当前代码。
+
+- 2026-04-25 继续推进：渠道返佣第七批，套餐返佣改为读取实时套餐列表
+  - 目标
+    - 不再手输套餐名，避免运营配置错字
+    - 套餐增删改后，渠道返佣配置面板自动跟随当前启用套餐同步
+  - Web 前端
+    - `frontend/src/views/admin/AdminPartnerPage.vue`
+      - 打开“配置套餐返佣”时，实时读取 `/api/v1/billing/packages`
+      - 套餐名改为下拉选择，展示 `套餐名 / 金额 / 点数`
+    - `frontend/src/views/partner/PartnerPortalPage.vue`
+      - 下级渠道的“不同套餐返佣”也改为实时读取套餐列表
+      - 平台后台与渠道后台保持同一套套餐来源
+  - 验证
+    - `cd backend && python -m pytest tests/test_partner_rebate_flow.py`
+      - 结果：`13 passed`
+    - `cd frontend && npm run build`
+      - 结果：通过
+
+- 2026-04-25 继续推进：渠道返佣第八批，收口渠道账号密码与后台入口
+  - 目标
+    - 渠道账号体系做成完整闭环
+    - 用户可见层只保留一个后台登录入口，避免“登录页 / 直达页”双入口混乱
+    - 一级、二级、三级渠道共用一套后台页与账号安全流程
+  - 后端
+    - `backend/app/services/partner_rebate_service.py`
+      - 新增渠道自助改密码逻辑
+    - `backend/app/api/partners.py`
+      - 新增 `POST /api/v1/partners/portal/auth/change-password`
+      - 要求渠道先登录，再提交原密码和新密码
+  - Web 前端
+    - `frontend/src/views/admin/AdminPartnerPage.vue`
+      - 分发信息里不再给运营展示“后台直达页”，只保留“渠道后台登录页”
+    - `frontend/src/views/partner/PartnerPortalPage.vue`
+      - 当前渠道链接区去掉“后台直达页”
+      - 下级渠道分发按钮改成“复制登录页”
+      - 新增“账号安全”区，支持渠道自己修改密码
+      - 复制整段分发信息时，统一只发：
+        - 登录账号
+        - 临时密码（如有）
+        - 推广链接
+        - 渠道后台登录页
+        - 小程序路径
+  - 测试
+    - `backend/tests/test_partner_rebate_flow.py`
+      - 新增渠道登录后自助改密码并重新登录覆盖
+  - 验证
+    - `cd backend && python -m pytest tests/test_partner_rebate_flow.py`
+      - 结果：`13 passed`
+    - `cd frontend && npm run build`
+      - 结果：通过
+
+- 2026-04-25 继续推进：渠道返佣第十三批，继续压缩成单主线工作台
+  - Web 前端
+    - `frontend/src/views/partner/PartnerPortalPage.vue`
+      - 继续清理渠道后台残留隐藏块，删除无效的招募/团队占位结构
+      - 将“分发与下级”进一步收口为单主线，分发卡与下级管理区改为更稳的紧凑布局
+      - 清理一批不再使用的样式定义，减少横竖屏切换时的塌陷风险
+    - `frontend/src/views/admin/AdminPartnerPage.vue`
+      - 渠道列表从偏信息仓库式宽表，压缩为更偏运营工作台的短表结构
+      - 合并“层级/上级/状态”与“登录/分发”信息，降低横向滚动和阅读负担
+  - 验证
+    - `cd frontend && npm run build`
+      - 结果：通过
+
+- 2026-04-25 本地任务提交异常修复：宿主机路径与 Docker worker 路径不一致
+  - 已定位
+    - 本地前端走 `127.0.0.1:8001` 宿主机后端，上传文件路径写入任务表时是 Windows 绝对路径
+    - 预处理与处理 worker 跑在 Docker 容器内，读取任务时拿到 `C:\...` 宿主机路径，导致 `Package not found at '...'`
+    - 同时 worker 产出的容器内输出路径如果直接落库，宿主机后端后续下载也会找不到文件
+  - 后端修复
+    - `backend/app/services/task_artifacts.py`
+      - 新增任务文件路径序列化/解析能力，统一支持 `uploads/...`、`output/...` 这种跨环境相对路径
+      - 兼容旧数据中的宿主机绝对路径与容器绝对路径
+    - `backend/app/api/tasks.py`
+      - 新提交任务的 `source_path`、`report_path` 改为存可迁移路径
+    - `backend/app/services/worker_preprocess_handler.py`
+    - `backend/app/services/worker_process_handler.py`
+    - `backend/app/services/task_submission_prepare.py`
+    - `backend/app/services/task_query_actions.py`
+    - `backend/app/api/admin.py`
+    - `backend/app/main.py`
+      - 统一改为先解析任务文件路径，再执行预处理、处理、下载与清理
+      - 处理完成后的 `output_path` 也改为存可迁移路径，避免宿主机/容器互相读不到
+  - 本地处理
+    - 已按原命令重启本地 `8001` 后端：
+      - `python -m uvicorn app.main:app --host 127.0.0.1 --port 8001`
+  - 验证
+    - `cd backend && python -m pytest tests\\test_task_artifacts.py tests\\test_worker_preprocess_handler.py tests\\test_worker_process_handler.py tests\\test_task_query_actions.py`
+      - 结果：`19 passed`
+
+- 2026-04-25 知网严格 V14 链路收口
+  - 策略文件
+    - 已将仓库 `data/strategy_assets/rewrite_system_V14.md` 直接对齐为桌面正式版 `C:\Users\m\Desktop\rewrite_system_V14.md`
+    - `backend/app/services/cnki_rewrite_prompt.py`
+      - 取消 Prompt A / P / B 的 fallback 简化提示词
+      - 改为必须从正式版 V14 文档中提取代码块，缺失即直接报错
+      - Prompt 构造改为只做占位符替换，不再额外注入“任务类型”“分块说明”等附加文案
+  - 知网降AIGC / 降重主链
+    - `backend/app/services/rewrite_strategies/cnki_llm.py`
+    - `backend/app/services/dedup_strategies/cnki_llm.py`
+      - 改为全文严格执行 `Prompt P -> Prompt A -> Prompt B`
+      - 取消知网技术分块，`mode` 调整为 `*_strict_v14_global`
+      - Prompt A 改写后不再被统一质检器二次否决，主裁决只认 Prompt B
+  - 执行入口
+    - `backend/app/services/rewrite_strategies/executor.py`
+    - `backend/app/services/dedup_strategies/executor.py`
+      - 知网链路改为透传严格 V14 结果，返回长度/相似度等基础指标
+      - 不再用通用 validator 作为知网主闸门
+  - 测试
+    - `backend/tests/test_processing_engine_results.py`
+      - 同步更新知网 trace、prompt 与冻结 llm 语义断言
+    - 验证：
+      - `cd backend && python -m pytest tests\\test_processing_engine_results.py -k "cnki or llm_prompts_include_cross_discipline_constraints"`
+      - 结果：`13 passed`
+
+- 2026-04-25 维普严格 WP2 链路收口
+  - 策略文件
+    - 已确认仓库 `data/strategy_assets/rewrite_system_WP2_Wanfang.md` 与桌面正式版 `C:\Users\m\Desktop\rewrite_system_WP2_Wanfang.md` 一致
+    - `backend/app/services/vip_wp2_prompt.py`
+      - 取消 Prompt A / Prompt B 的 fallback 简化提示词
+      - 改为必须从正式版 WP2 文档提取代码块，缺失即报错
+      - Prompt 构造改为只做占位符替换，不再追加“任务类型”“分块说明”等附加文案
+  - 维普降AIGC / 降重主链
+    - `backend/app/services/rewrite_strategies/vip_llm.py`
+    - `backend/app/services/dedup_strategies/vip_llm.py`
+      - 改为全文严格执行 `Prompt A -> Prompt B`
+      - 取消维普技术分块，`mode` 调整为 `*_strict_wp2_global`
+      - Prompt A 改写后不再被统一 validator 二次否决，主裁决只认 Prompt B
+    - `backend/app/services/vip_wp2_runtime.py`
+      - JSON 校验改为单次严格解析，不再对 Prompt B 追加“只输出 JSON”的重试尾巴
+  - 执行入口
+    - `backend/app/services/rewrite_strategies/executor.py`
+    - `backend/app/services/dedup_strategies/executor.py`
+      - 维普链路改为透传严格 WP2 结果，返回基础长度/相似度指标
+      - 不再用通用 validator 作为维普主闸门
+  - 测试
+    - `backend/tests/test_processing_engine_results.py`
+      - 同步更新维普 trace、prompt 与严格 WP2 语义断言
+    - 验证：
+      - `cd backend && python -m pytest tests\\test_processing_engine_results.py -k "vip or llm_prompts_include_cross_discipline_constraints"`
+      - 结果：`9 passed`
+
+- 2026-04-25 三级分销渠道树与门户收口
+  - 后端接口
+    - `backend/app/api/partners.py`
+      - 扩展 scope 语义，新增 `team`
+      - 新增 `_channel_tree_payload(...)`，为每个渠道节点补齐：
+        - 自身数据
+        - `self_summary`
+        - `team_summary`
+        - `subtree_summary`
+        - 递归 `children`
+      - 新增平台后台渠道树接口：
+        - `GET /api/v1/partners/admin/channels/tree`
+      - 新增渠道门户子树接口：
+        - `GET /api/v1/partners/portal/channel-tree`
+  - 前端组件
+    - `frontend/src/components/partner/PartnerChannelTreeNode.vue`
+      - 新增递归树节点组件
+      - 统一展示一二三级渠道、返佣比例、直属下级、我的客户、团队客户、待结算/已结算等核心信息
+  - 渠道门户
+    - `frontend/src/views/partner/PartnerPortalPage.vue`
+      - 去掉渠道端“修改密码”入口，主界面只保留分发、下级、客户、提现等核心动作
+      - 新增当前渠道子树展示，并支持点击节点快速切换查看直属下级
+      - 顶部总览改为：本月返佣、待结算、可提现、我的客户、团队客户、直属下级
+      - 客户区改为按 `self / team / subtree` 切换，明确区分我的客户与团队客户
+      - 层级文案统一改为“一级渠道 / 二级渠道 / 三级渠道”
+  - 平台管理后台
+    - `frontend/src/views/admin/AdminPartnerPage.vue`
+      - 新增渠道树总览区，可直接点击节点进入客户归属洞察
+      - 渠道列表层级文案统一改为“一级渠道 / 二级渠道 / 三级渠道”
+      - 相关保存、删除、重置密码、提现审核后同步刷新树形数据
+  - 验证
+    - 前端：
+      - `cd frontend && npm run build`
+      - 结果：通过
+    - 后端：
+      - `python -m py_compile backend\\app\\api\\partners.py`
+      - 结果：通过
+
+- 2026-04-25 三级分销商业化运营视角二次优化
+  - 渠道门户
+    - `frontend/src/views/partner/PartnerPortalPage.vue`
+      - 将订单、返佣、客户范围筛选从技术表达改为运营表达：
+        - `我的 / 团队 / 全部`
+      - 渠道树改为可点击浏览，并新增：
+        - 当前查看渠道提示
+        - 一键回到当前渠道
+      - 强化“看树 -> 看直属下级 -> 看客户归属”的连续操作体验
+  - 平台后台
+    - `frontend/src/views/admin/AdminPartnerPage.vue`
+      - 新增顶部运营总览胶囊：
+        - 一级渠道数
+        - 全部渠道数
+        - 待审核提现数
+        - 待结算返佣金额
+      - 新增三条运营原则说明卡，明确：
+        - 平台建一级
+        - 渠道带下级
+        - 客户归属锁定
+      - 让平台运营不看代码也能快速理解分销关系和处理重点
+  - 设计对齐
+    - 参考成熟伙伴分销产品常见模式，强化：
+      - 总览优先
+      - 高频动作前置
+      - 团队/个人数据分离
+      - 树形结构可视
+      - 复制与分发路径更直接
+  - 验证
+    - 前端：
+      - `cd frontend && npm run build`
+      - 结果：通过
+    - 后端：
+      - `python -m py_compile backend\\app\\api\\partners.py`
+      - 结果：通过
+
+- 2026-04-25 三级分销分发动作再收口
+  - 渠道门户
+    - `frontend/src/views/partner/PartnerPortalPage.vue`
+      - 将原“复制整段信息”拆成两条明确动作：
+        - 发给客户：只复制专属办理入口
+        - 发给下级：复制招募文案 + 登录页 + 推广信息
+      - 下级列表同样拆分为：
+        - 复制该渠道客户分发文案
+        - 重置并复制下级招募信息
+      - 避免客户误收到后台登录信息，降低运营误发风险
+  - 平台后台
+    - `frontend/src/views/admin/AdminPartnerPage.vue`
+      - 渠道列表复制动作同步拆分为：
+        - 重置并复制渠道招募信息
+        - 复制客户分发文案
+      - 客户归属洞察范围表达改为：
+        - `我的客户 / 团队客户 / 全部客户`
+      - 让平台运营复制给客户和复制给渠道时语义一致
+  - 验证
+    - 前端：
+      - `cd frontend && npm run build`
+      - 结果：通过
+    - 后端：
+      - `python -m py_compile backend\\app\\api\\partners.py`
+      - 结果：通过
+
+- 2026-04-25 三级分销后台配置流再收口
+  - 平台后台
+    - `frontend/src/views/admin/AdminPartnerPage.vue`
+      - 渠道列表去掉重复的默认返佣展示，保留更紧凑的：
+        - 渠道概况
+        - 商品返佣入口
+        - 核心数据
+        - 分发动作
+        - 运营动作
+      - 商品返佣配置区补充为运营工作流：
+        - 新增默认返佣摘要卡
+        - 新增已配置套餐数摘要卡
+        - 新增套餐快捷标签，一键带入表单
+        - 已配置套餐支持“套用到表单”快速编辑
+        - 新增返佣表单重置按钮
+      - 目标是降低运营在“找套餐、改比例、回填编辑”上的重复操作
+  - 验证
+    - 前端：
+      - `cd frontend && npm run build`
+      - 结果：通过
+    - 后端：
+      - `python -m py_compile backend\\app\\api\\partners.py`
+      - 结果：通过
+
+- 2026-04-25 三级分销管理看板继续收口
+  - 渠道门户
+    - `frontend/src/views/partner/PartnerPortalPage.vue`
+      - 在直属下级管理区补充摘要卡：
+        - 当前查看渠道
+        - 直属下级数
+        - 当前默认返佣
+      - 下级管理区头部补充当前视角和“继续新增下级”动作
+      - 让“看树 -> 看下级 -> 新增/编辑下级”形成更连续的操作闭环
+  - 平台后台
+    - `frontend/src/views/admin/AdminPartnerPage.vue`
+      - 客户归属洞察区补充看板式头部：
+        - 当前渠道
+        - 当前查看范围
+        - 默认返佣
+        - 直属下级数
+        - 我的客户数
+      - 新增范围说明文案，明确：
+        - 我的客户
+        - 团队客户
+        - 全部客户
+      - 让运营更容易理解当前看到的数据口径
+  - 验证
+    - 前端：
+      - `cd frontend && npm run build`
+      - 结果：通过
+    - 后端：
+      - `python -m py_compile backend\\app\\api\\partners.py`
+      - 结果：通过
+
+- 2026-04-25 渠道端免密码登录收口
+  - 后端
+    - `backend/app/services/partner_rebate_service.py`
+      - 渠道门户链接改为统一落在：
+        - `/app/partner/login?ch=...&pk=...`
+      - 新增 `rotate_partner_portal_token(...)`
+        - 用刷新门户令牌替代“重置密码”
+    - `backend/app/api/partners.py`
+      - 渠道密码登录接口 `/portal/auth/login` 停用，改为直接报错提示使用专属门户链接
+      - 渠道改密接口 `/portal/auth/change-password` 停用
+      - 平台创建渠道、渠道创建下级时，不再返回门户密码
+      - 原“重置密码”接口保留路径兼容，但内部改为：
+        - 刷新门户链接令牌
+        - 清理旧登录态
+  - 前端
+    - `frontend/src/views/partner/PartnerLoginPage.vue`
+      - 重做为“免密进入渠道后台”页面
+      - 支持：
+        - 直接通过 `ch + pk` 自动换取登录态
+        - 手动粘贴专属门户链接进入
+      - 移除账号密码表单
+    - `frontend/src/views/partner/PartnerPortalPage.vue`
+      - 渠道门户与招募文案改为围绕“门户链接”表达
+      - 移除登录账号、临时密码、登录页等旧文案
+      - 下级复制动作改为“刷新并复制下级门户信息”
+    - `frontend/src/views/admin/AdminPartnerPage.vue`
+      - 平台后台将“重置密码”改为“刷新门户链接”
+      - 渠道分发信息改为“门户链接 + 推广链接”
+      - 移除临时密码相关展示
+    - `frontend/src/router/index.js`
+      - 渠道入口标题由“渠道门户登录”改为“渠道门户入口”
+  - 验证
+    - 前端：
+      - `cd frontend && npm run build`
+      - 结果：通过
+    - 后端：
+      - `python -m py_compile backend\\app\\api\\partners.py backend\\app\\services\\partner_rebate_service.py`
+      - 结果：通过
+
+- 2026-04-25 渠道免密链路旧命名收口
+  - 后端
+    - `backend/app/api/partners.py`
+      - 新增正式接口命名：
+        - `POST /api/v1/partners/portal/subchannels/{channel_id}/portal-link/refresh`
+        - `POST /api/v1/partners/admin/channels/{channel_id}/portal-link/refresh`
+      - 旧的 `portal-password/reset` 路径保留兼容，但内部已全部转发到新的“刷新门户链接”实现
+      - 渠道返回体移除旧字段：
+        - `portal_password_initialized`
+        - `portal_password_updated_at`
+      - `overview` 中移除旧的 `portal_account`
+  - 前端
+    - `frontend/src/views/partner/PartnerPortalPage.vue`
+      - 下级门户刷新改用新的 `portal-link/refresh` 接口
+      - 复制与招募文案统一改为“门户链接”
+    - `frontend/src/views/admin/AdminPartnerPage.vue`
+      - 平台后台刷新门户链接改用新的 `portal-link/refresh` 接口
+  - 目标
+    - 功能层已免密后，继续清理接口和字段命名，避免后续维护时被旧 password 概念误导
+  - 验证
+    - 前端：
+      - `cd frontend && npm run build`
+      - 结果：通过
+    - 后端：
+      - `python -m py_compile backend\\app\\api\\partners.py backend\\app\\services\\partner_rebate_service.py`
+      - 结果：通过

@@ -46,11 +46,9 @@ def test_positive_few_shot_pairs_cover_rewrite_slots() -> None:
     summary = validate_positive_few_shot_pairs()
 
     assert summary.total >= 8
-    assert summary.slots["cnki.rewrite.algorithm"] >= 1
     assert summary.slots["cnki.rewrite.llm"] >= 1
-    assert summary.slots["vip.rewrite.algorithm"] >= 1
     assert summary.slots["vip.rewrite.llm"] >= 1
-    assert summary.slots["cnki.dedup.algorithm"] == 0
+    assert summary.slots["cnki.dedup.llm"] == 0
     assert summary.slots["vip.dedup.llm"] == 0
     assert set(summary.disciplines) <= DISCIPLINE_KEYS
 
@@ -59,9 +57,7 @@ def test_supplemental_positive_few_shot_pairs_cover_non_education_rewrite_discip
     summary = validate_supplemental_positive_few_shot_pairs(SUPPLEMENTAL_POSITIVE_PAIR_PATH)
 
     assert summary.total >= 8
-    assert summary.slots["cnki.rewrite.algorithm"] >= 1
     assert summary.slots["cnki.rewrite.llm"] >= 1
-    assert summary.slots["vip.rewrite.algorithm"] >= 1
     assert summary.slots["vip.rewrite.llm"] >= 1
     assert summary.disciplines.get("finance_management", 0) >= 1
     assert summary.disciplines.get("law_policy", 0) >= 1
@@ -73,11 +69,9 @@ def test_dedup_positive_references_cover_dedup_slots_and_multi_discipline() -> N
     summary = validate_dedup_positive_references()
 
     assert summary.total >= 12
-    assert summary.slots["cnki.dedup.algorithm"] >= 1
     assert summary.slots["cnki.dedup.llm"] >= 1
-    assert summary.slots["vip.dedup.algorithm"] >= 1
     assert summary.slots["vip.dedup.llm"] >= 1
-    assert summary.slots["cnki.rewrite.algorithm"] == 0
+    assert summary.slots["cnki.rewrite.llm"] == 0
     assert summary.slots["vip.rewrite.llm"] == 0
     assert summary.disciplines.get("medicine_public_health", 0) >= 1
     assert summary.disciplines.get("finance_management", 0) >= 1
@@ -91,7 +85,6 @@ def test_supplemental_dedup_positive_references_cover_cnki_non_education_slots()
     summary = validate_supplemental_dedup_positive_references(SUPPLEMENTAL_DEDUP_REFERENCE_PATH)
 
     assert summary.total >= 4
-    assert summary.slots["cnki.dedup.algorithm"] >= 1
     assert summary.slots["cnki.dedup.llm"] >= 1
     assert summary.disciplines.get("finance_management", 0) >= 1
     assert summary.disciplines.get("law_policy", 0) >= 1

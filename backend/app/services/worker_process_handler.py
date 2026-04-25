@@ -2,6 +2,7 @@ from datetime import datetime
 from pathlib import Path
 
 from app.models import Task, TaskStatus
+from app.services.task_artifacts import resolve_task_artifact_path, serialize_task_artifact_path
 
 
 def claim_process_task(db, *, task_id: int) -> dict:
@@ -53,7 +54,7 @@ def claim_process_task(db, *, task_id: int) -> dict:
 
 
 def build_process_output_path(task_snapshot: dict, *, settings) -> Path:
-    source_path = Path(task_snapshot["source_path"])
+    source_path = resolve_task_artifact_path(task_snapshot["source_path"]) or Path(task_snapshot["source_path"])
     output_dir = settings.output_dir / str(task_snapshot["user_id"])
     output_dir.mkdir(parents=True, exist_ok=True)
     output_ext = ".pdf" if task_snapshot["task_type"].value == "aigc_detect" else source_path.suffix.lower()
@@ -63,14 +64,18 @@ def build_process_output_path(task_snapshot: dict, *, settings) -> Path:
 
 
 def run_processing_engine(process_db, *, task_snapshot: dict, output_path: Path, processing_engine_cls):
+    source_path = resolve_task_artifact_path(task_snapshot["source_path"])
+    if source_path is None:
+        raise FileNotFoundError("任务原文不存在")
+    report_path = resolve_task_artifact_path(task_snapshot["report_path"]) if task_snapshot["report_path"] else None
     engine = processing_engine_cls(process_db)
     result = engine.process(
         task_snapshot["task_type"],
         task_snapshot["platform"],
-        Path(task_snapshot["source_path"]),
+        source_path,
         output_path,
         task_id=task_snapshot["id"],
-        report_path=Path(task_snapshot["report_path"]) if task_snapshot["report_path"] else None,
+        report_path=report_path,
         processing_mode=task_snapshot["processing_mode"],
     )
     process_db.flush()
@@ -83,7 +88,7 @@ def finalize_processed_task(db, *, task_id: int, result, task_snapshot: dict, me
         return {"ok": False, "reason": "task_not_found_after_process"}
     merged_result_json = merge_task_result_metadata(task_snapshot["result_json"], result.result_json)
     task.status = TaskStatus.COMPLETED
-    task.output_path = result.output_path
+    task.output_path = serialize_task_artifact_path(Path(result.output_path)) or result.output_path
     task.result_json = merged_result_json
     task.error_message = None
     task.updated_at = datetime.utcnow()

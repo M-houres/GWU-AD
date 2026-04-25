@@ -8,7 +8,7 @@ from app.exceptions import BizError
 from app.models import Task, TaskStatus, TaskType
 from app.pagination import paginate
 from app.services.process_strategy_service import normalize_platform
-from app.services.task_artifacts import safe_remove_task_artifact
+from app.services.task_artifacts import resolve_task_artifact_path, safe_remove_task_artifact
 from app.services.task_response_builder import build_detail_payload, build_list_item
 
 
@@ -74,8 +74,8 @@ def get_user_task_download_path(db: Session, *, user_id: int, task_id: int) -> P
         raise BizError(code=4041, message="任务不存在", http_status=404)
     if row.status != TaskStatus.COMPLETED or not row.output_path:
         raise BizError(code=4108, message="任务尚未完成")
-    path = Path(row.output_path)
-    if not path.exists():
+    path = resolve_task_artifact_path(row.output_path)
+    if path is None or not path.exists():
         raise BizError(code=4109, message="输出文件不存在")
     return path
 

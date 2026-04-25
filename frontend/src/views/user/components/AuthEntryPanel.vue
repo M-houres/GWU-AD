@@ -4,7 +4,9 @@
       <section class="gw-auth-card" aria-label="登录面板">
         <header class="gw-auth-card__head">
           <div class="gw-auth-card__brand" role="img" aria-label="格物学术">
-            <span class="gw-auth-card__brand-mark">GW</span>
+            <span class="gw-auth-card__brand-mark">
+              <img src="/brand-logo.png" alt="格物学术 Logo" />
+            </span>
             <span class="gw-auth-card__brand-name">格物学术</span>
           </div>
 
@@ -411,13 +413,18 @@ function enterGuest() {
   width: 32px;
   height: 32px;
   border-radius: 8px;
-  display: grid;
-  place-items: center;
-  background: linear-gradient(135deg, #2d6ff0 0%, #1e5bdf 60%, #184ec8 100%);
-  color: #ffffff;
-  font-size: 11px;
-  font-weight: 800;
-  letter-spacing: 0.08em;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.gw-auth-card__brand-mark img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  border-radius: inherit;
 }
 
 .gw-auth-card__brand-name {

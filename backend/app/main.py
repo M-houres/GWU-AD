@@ -25,6 +25,7 @@ from app.logging_setup import clear_log_context, set_log_context, setup_logging
 from app.models import AdminUser, RegistrationRiskLog, Task, TaskStatus, User
 from app.responses import fail, ok
 from app.security import hash_password
+from app.services.task_artifacts import resolve_task_artifact_path
 
 settings = get_settings()
 setup_logging(level=getattr(logging, str(settings.log_level or "INFO").upper(), logging.INFO))
@@ -325,32 +326,76 @@ def repair_missing_tables() -> None:
 
 
 def normalize_user_phone_storage() -> None:
-    from sqlalchemy.orm import Session
+    from app.security import decrypt_at_rest, encrypt_at_rest
 
-    with Session(engine) as db:
-        users = db.query(User).all()
-        changed = 0
-        for user in users:
-            plain_phone = str(user.phone or "").strip()
-            if plain_phone:
-                expected_last4 = plain_phone[-4:] if len(plain_phone) >= 4 else plain_phone
-                if getattr(user, "phone_last4", "") != expected_last4:
-                    user.phone_last4 = expected_last4
-                    changed += 1
-                raw_stored = user.__dict__.get("phone")
-                if isinstance(raw_stored, str) and not raw_stored.startswith("enc:"):
-                    user.phone = plain_phone
-                    changed += 1
-        risk_logs = db.query(RegistrationRiskLog).all()
-        for row in risk_logs:
-            plain_phone = str(row.phone or "").strip()
-            raw_stored = row.__dict__.get("phone")
-            if plain_phone and isinstance(raw_stored, str) and not raw_stored.startswith("enc:"):
-                row.phone = plain_phone
-                changed += 1
-        if changed:
-            db.commit()
-            logger.warning("runtime_phone_storage_normalized", extra={"rows_changed": changed})
+    changed = 0
+    skipped = 0
+    user_updates: list[dict[str, object]] = []
+    risk_log_updates: list[dict[str, object]] = []
+
+    with engine.begin() as conn:
+        user_rows = conn.execute(text("SELECT id, phone, phone_last4 FROM users")).mappings().all()
+        for row in user_rows:
+            raw_stored = str(row.get("phone") or "").strip()
+            if not raw_stored:
+                continue
+            try:
+                plain_phone = str(decrypt_at_rest(raw_stored) or "").strip()
+            except Exception:
+                skipped += 1
+                continue
+            if not plain_phone:
+                continue
+            expected_last4 = plain_phone[-4:] if len(plain_phone) >= 4 else plain_phone
+            normalized_phone = encrypt_at_rest(plain_phone) if not raw_stored.startswith("enc:") else raw_stored
+            current_last4 = str(row.get("phone_last4") or "").strip()
+            if current_last4 == expected_last4 and normalized_phone == raw_stored:
+                continue
+            user_updates.append(
+                {
+                    "id": row["id"],
+                    "phone": normalized_phone,
+                    "phone_last4": expected_last4,
+                }
+            )
+
+        if user_updates:
+            conn.execute(
+                text("UPDATE users SET phone = :phone, phone_last4 = :phone_last4 WHERE id = :id"),
+                user_updates,
+            )
+            changed += len(user_updates)
+
+        risk_log_rows = conn.execute(text("SELECT id, phone FROM registration_risk_logs")).mappings().all()
+        for row in risk_log_rows:
+            raw_stored = str(row.get("phone") or "").strip()
+            if not raw_stored or raw_stored.startswith("enc:"):
+                continue
+            try:
+                plain_phone = str(decrypt_at_rest(raw_stored) or "").strip()
+            except Exception:
+                skipped += 1
+                continue
+            if not plain_phone:
+                continue
+            risk_log_updates.append(
+                {
+                    "id": row["id"],
+                    "phone": encrypt_at_rest(plain_phone),
+                }
+            )
+
+        if risk_log_updates:
+            conn.execute(
+                text("UPDATE registration_risk_logs SET phone = :phone WHERE id = :id"),
+                risk_log_updates,
+            )
+            changed += len(risk_log_updates)
+
+    if changed:
+        logger.warning("runtime_phone_storage_normalized", extra={"rows_changed": changed})
+    if skipped:
+        logger.warning("runtime_phone_storage_skipped_unreadable_rows", extra={"rows_skipped": skipped})
 
 
 def cleanup_expired_task_artifacts() -> None:
@@ -362,10 +407,11 @@ def cleanup_expired_task_artifacts() -> None:
     deadline = datetime.utcnow() - timedelta(days=retention_days)
 
     def _safe_delete(raw_path: str | None) -> bool:
-        if not raw_path:
+        path = resolve_task_artifact_path(raw_path)
+        if path is None:
             return False
         try:
-            path = Path(raw_path).resolve()
+            path = path.resolve()
             allowed_roots = [settings.upload_dir.resolve(), settings.output_dir.resolve()]
             if not any(path == root or root in path.parents for root in allowed_roots):
                 return False

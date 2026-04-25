@@ -132,11 +132,14 @@
               <div class="flex flex-wrap items-center justify-between gap-2">
                   <div>
                     <div class="text-sm font-semibold text-[#1f2c35]">通用点数套餐（前台展示）</div>
-                    <div class="mt-1 text-xs leading-5 text-[#5f6d79]">每个套餐都要同时配置支付金额和到账通用点数，前台购买页只会展示这里配置的套餐。</div>
+                    <div class="mt-1 text-xs leading-5 text-[#5f6d79]">套餐统一按“可处理字数”对外表达，内部仍按通用积分到账。当前固定口径：1 积分 = 1 字符。</div>
                   </div>
                 <button class="rounded-lg bg-[#edf2f6] px-3 py-2 text-xs text-[#344250]" @click="addBillingPackage">
                   新增套餐
                 </button>
+              </div>
+              <div class="mt-3 rounded-2xl border border-[#dce4eb] bg-[#fbfcfd] p-3 text-xs leading-6 text-[#4f5d69]">
+                前台将展示：价格、获得积分、可处理字数、约元/千字、适合人群、梯度说明。
               </div>
               <div class="mt-3 space-y-3">
                 <article
@@ -150,11 +153,11 @@
                       <input v-model.trim="pkg.name" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" placeholder="例如：标准包" />
                     </label>
                     <label class="space-y-1 text-sm">
-                        <span>价格（元）</span>
-                        <input v-model.number="pkg.price" type="number" min="0.01" step="0.01" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" />
+                      <span>价格（元）</span>
+                      <input v-model.number="pkg.price" type="number" min="0.01" step="0.01" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" />
                     </label>
                     <label class="space-y-1 text-sm">
-                      <span>到账通用点数</span>
+                      <span>获得积分</span>
                       <input v-model.number="pkg.credits" type="number" min="1" step="1" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" />
                     </label>
                     <label class="space-y-1 text-sm">
@@ -170,14 +173,29 @@
                         删除
                       </button>
                     </div>
-                     <label class="space-y-1 text-sm md:col-span-5">
-                       <span>套餐介绍</span>
-                       <input v-model.trim="pkg.description" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" placeholder="给普通运营人员看的简介，前台会展示" />
-                     </label>
+                    <label class="space-y-1 text-sm">
+                      <span>排序</span>
+                      <input v-model.number="pkg.sort_order" type="number" min="1" step="1" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" />
+                    </label>
                     <label class="inline-flex items-center gap-2 text-sm md:col-span-1">
                       <input v-model="pkg.enabled" type="checkbox" />
                       前台启用
                     </label>
+                    <label class="space-y-1 text-sm md:col-span-2">
+                      <span>适合人群</span>
+                      <input v-model.trim="pkg.audience" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" placeholder="例如：个人长期自用" />
+                    </label>
+                    <label class="space-y-1 text-sm md:col-span-3">
+                      <span>梯度说明</span>
+                      <input v-model.trim="pkg.discount_note" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" placeholder="例如：中等优惠" />
+                    </label>
+                    <label class="space-y-1 text-sm md:col-span-5">
+                      <span>套餐介绍</span>
+                      <input v-model.trim="pkg.description" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" placeholder="给普通运营人员看的简介，前台会展示" />
+                    </label>
+                    <div class="rounded-xl border border-[#dce4eb] bg-[#fbfcfd] px-3 py-3 text-xs leading-6 text-[#4f5d69] md:col-span-6">
+                      预览：可处理字数 {{ Number(pkg.credits || 0).toLocaleString() }} 字，约 {{ billingPricePerKchar(pkg).toFixed(2) }} 元/千字
+                    </div>
                   </div>
                 </article>
               </div>
@@ -225,13 +243,13 @@
           <template v-else-if="activeTab === 'dedup_strategy'">
             <section class="rounded-2xl border border-[#dce4eb] bg-[#fbfcfd] p-4">
               <div class="text-sm font-semibold text-[#1f2c35]">MVP 范围</div>
-              <div class="mt-1 text-xs leading-5 text-[#5f6d79]">这里只决定知网和维普降重复率任务由哪种策略处理，只保留平台启停和当前执行策略。</div>
+              <div class="mt-1 text-xs leading-5 text-[#5f6d79]">这里只决定知网和维普降重复率任务是否启用。当前两端均固定走大模型主策略，不再提供算法切换。</div>
               <div class="mt-3 grid gap-3 md:grid-cols-2">
                 <div class="rounded-xl border border-[#dce4eb] bg-white px-3 py-3 text-sm leading-6 text-[#4f5d69]">
                   后端只对 `dedup + cnki/vip` 任务读取这里的配置，用户提交链路、计费链路和下载链路保持不变。
                 </div>
                 <div class="rounded-xl border border-[#dce4eb] bg-white px-3 py-3 text-sm leading-6 text-[#4f5d69]">
-                  算法策略更稳，适合先跑规则体系；大模型策略更灵活，适合走专用 prompt，但依赖 LLM 配置可用。
+                  知网和维普降重复率算法策略均已冻结。只要平台启用，任务会直接走对应的大模型链路。
                 </div>
               </div>
             </section>
@@ -259,6 +277,7 @@
                     <select
                       v-model="forms.dedup_strategy[platform.key].dedup.active_strategy"
                       class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2"
+                      disabled
                     >
                       <option v-for="item in dedupStrategyOptions" :key="item.value" :value="item.value">
                         {{ item.label }}
@@ -270,48 +289,6 @@
                   </div>
                 </div>
 
-                <div class="mt-4 rounded-2xl border border-[#dce4eb] bg-[#fbfcfd] p-3">
-                  <div class="text-sm font-semibold text-[#1f2c35]">运行时参数（算法 + 大模型共用）</div>
-                  <div class="mt-1 text-xs leading-5 text-[#5f6d79]">修改后立即影响该平台降重复率处理：分块大小、算法每块改写上限、LLM每块改写预算上限。</div>
-                  <div class="mt-3 grid gap-3 md:grid-cols-2">
-                    <label class="space-y-1 text-sm">
-                      <span>分块最小字数</span>
-                      <input v-model.number="forms.dedup_strategy[platform.key].runtime.chunk_min_chars" type="number" min="80" max="1200" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" />
-                    </label>
-                    <label class="space-y-1 text-sm">
-                      <span>分块最大字数</span>
-                      <input v-model.number="forms.dedup_strategy[platform.key].runtime.chunk_max_chars" type="number" min="100" max="1600" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" />
-                    </label>
-                    <label class="space-y-1 text-sm">
-                      <span>算法每块最大改写数</span>
-                      <input v-model.number="forms.dedup_strategy[platform.key].runtime.algorithm_chunk_max_changes" type="number" min="1" max="20" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" />
-                    </label>
-                    <div class="rounded-xl border border-[#dce4eb] bg-white px-3 py-3 text-xs leading-5 text-[#5f6d79]">
-                      LLM 每块预算上限会按段长分档：
-                      ≤120、121-200、201-260、261-360、>360。
-                    </div>
-                    <label class="space-y-1 text-sm">
-                      <span>LLM ≤120字 每块上限</span>
-                      <input v-model.number="forms.dedup_strategy[platform.key].runtime.llm_short_chunk_max_changes" type="number" min="1" max="20" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" />
-                    </label>
-                    <label class="space-y-1 text-sm">
-                      <span>LLM 121-200字 每块上限</span>
-                      <input v-model.number="forms.dedup_strategy[platform.key].runtime.llm_medium_chunk_max_changes" type="number" min="1" max="20" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" />
-                    </label>
-                    <label class="space-y-1 text-sm">
-                      <span>LLM 201-260字 每块上限</span>
-                      <input v-model.number="forms.dedup_strategy[platform.key].runtime.llm_standard_chunk_max_changes" type="number" min="1" max="20" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" />
-                    </label>
-                    <label class="space-y-1 text-sm">
-                      <span>LLM 261-360字 每块上限</span>
-                      <input v-model.number="forms.dedup_strategy[platform.key].runtime.llm_long_chunk_max_changes" type="number" min="1" max="20" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" />
-                    </label>
-                    <label class="space-y-1 text-sm md:col-span-2">
-                      <span>LLM >360字 每块上限</span>
-                      <input v-model.number="forms.dedup_strategy[platform.key].runtime.llm_xlong_chunk_max_changes" type="number" min="1" max="20" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" />
-                    </label>
-                  </div>
-                </div>
               </article>
             </section>
           </template>
@@ -319,13 +296,13 @@
           <template v-else-if="activeTab === 'rewrite_strategy'">
             <section class="rounded-2xl border border-[#dce4eb] bg-[#fbfcfd] p-4">
               <div class="text-sm font-semibold text-[#1f2c35]">MVP 范围</div>
-              <div class="mt-1 text-xs leading-5 text-[#5f6d79]">这里只决定知网和维普降AIGC率任务由哪种策略处理，只保留平台启停和当前执行策略。</div>
+              <div class="mt-1 text-xs leading-5 text-[#5f6d79]">这里只决定知网和维普降AIGC率任务是否启用。当前两端均固定走大模型主策略，不再提供算法切换。</div>
               <div class="mt-3 grid gap-3 md:grid-cols-2">
                 <div class="rounded-xl border border-[#dce4eb] bg-white px-3 py-3 text-sm leading-6 text-[#4f5d69]">
                   后端只对 `rewrite + cnki/vip` 任务读取这里的配置，用户提交链路、计费链路和下载链路保持不变。
                 </div>
                 <div class="rounded-xl border border-[#dce4eb] bg-white px-3 py-3 text-sm leading-6 text-[#4f5d69]">
-                  算法策略更稳，适合先跑规则体系；大模型策略更灵活，适合走专用 prompt，但依赖 LLM 配置可用。
+                  知网和维普降AIGC率算法策略均已冻结。知网链路严格执行 Prompt P -> Prompt A -> Prompt B 三段式，大模型配置可用时直接生效。
                 </div>
               </div>
             </section>
@@ -353,59 +330,18 @@
                     <select
                       v-model="forms.rewrite_strategy[platform.key].rewrite.active_strategy"
                       class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2"
+                      disabled
                     >
-                      <option v-for="item in rewriteStrategyOptions" :key="item.value" :value="item.value">
+                      <option v-for="item in getRewriteStrategyOptions(platform.key)" :key="item.value" :value="item.value">
                         {{ item.label }}
                       </option>
                     </select>
                   </label>
                   <div class="rounded-xl border border-[#dce4eb] bg-[#fbfcfd] px-3 py-3 text-sm leading-6 text-[#4f5d69]">
-                    当前说明：{{ strategyDescription(forms.rewrite_strategy[platform.key].rewrite.active_strategy) }}
+                    当前说明：{{ strategyDescription(forms.rewrite_strategy[platform.key].rewrite.active_strategy, platform.key) }}
                   </div>
                 </div>
 
-                <div class="mt-4 rounded-2xl border border-[#dce4eb] bg-[#fbfcfd] p-3">
-                  <div class="text-sm font-semibold text-[#1f2c35]">运行时参数（算法 + 大模型共用）</div>
-                  <div class="mt-1 text-xs leading-5 text-[#5f6d79]">修改后立即影响该平台降AIGC处理：分块大小、算法每块改写上限、LLM每块改写预算上限。</div>
-                  <div class="mt-3 grid gap-3 md:grid-cols-2">
-                    <label class="space-y-1 text-sm">
-                      <span>分块最小字数</span>
-                      <input v-model.number="forms.rewrite_strategy[platform.key].runtime.chunk_min_chars" type="number" min="80" max="1200" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" />
-                    </label>
-                    <label class="space-y-1 text-sm">
-                      <span>分块最大字数</span>
-                      <input v-model.number="forms.rewrite_strategy[platform.key].runtime.chunk_max_chars" type="number" min="100" max="1600" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" />
-                    </label>
-                    <label class="space-y-1 text-sm">
-                      <span>算法每块最大改写数</span>
-                      <input v-model.number="forms.rewrite_strategy[platform.key].runtime.algorithm_chunk_max_changes" type="number" min="1" max="20" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" />
-                    </label>
-                    <div class="rounded-xl border border-[#dce4eb] bg-white px-3 py-3 text-xs leading-5 text-[#5f6d79]">
-                      LLM 每块预算上限会按段长分档：
-                      ≤120、121-200、201-260、261-360、>360。
-                    </div>
-                    <label class="space-y-1 text-sm">
-                      <span>LLM ≤120字 每块上限</span>
-                      <input v-model.number="forms.rewrite_strategy[platform.key].runtime.llm_short_chunk_max_changes" type="number" min="1" max="20" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" />
-                    </label>
-                    <label class="space-y-1 text-sm">
-                      <span>LLM 121-200字 每块上限</span>
-                      <input v-model.number="forms.rewrite_strategy[platform.key].runtime.llm_medium_chunk_max_changes" type="number" min="1" max="20" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" />
-                    </label>
-                    <label class="space-y-1 text-sm">
-                      <span>LLM 201-260字 每块上限</span>
-                      <input v-model.number="forms.rewrite_strategy[platform.key].runtime.llm_standard_chunk_max_changes" type="number" min="1" max="20" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" />
-                    </label>
-                    <label class="space-y-1 text-sm">
-                      <span>LLM 261-360字 每块上限</span>
-                      <input v-model.number="forms.rewrite_strategy[platform.key].runtime.llm_long_chunk_max_changes" type="number" min="1" max="20" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" />
-                    </label>
-                    <label class="space-y-1 text-sm md:col-span-2">
-                      <span>LLM >360字 每块上限</span>
-                      <input v-model.number="forms.rewrite_strategy[platform.key].runtime.llm_xlong_chunk_max_changes" type="number" min="1" max="20" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" />
-                    </label>
-                  </div>
-                </div>
               </article>
             </section>
           </template>
@@ -633,81 +569,402 @@
             <section class="rounded-2xl border border-[#dce4eb] bg-[#fbfcfd] p-4">
               <div class="text-sm font-semibold text-[#1f2c35]">推广策略说明</div>
               <div class="mt-1 text-xs leading-5 text-[#5f6d79]">
-                前台推广中心会展示专属邀请奖励和机构合作信息。邀请码与邀请链接按登录用户动态生成，奖励积分和联系方式由这里统一配置。
+                运营可在这里统一调整邀请有奖、集赞有奖、创作有奖、机构合作 4 个活动的点数、标题文案、平台状态和二维码素材，保存后前台直接按最新配置展示。
               </div>
             </section>
 
             <section class="rounded-2xl border border-[#dce4eb] bg-white p-4">
-              <div class="text-sm font-semibold text-[#1f2c35]">邀请奖励</div>
-              <div class="mt-3 grid gap-3 md:grid-cols-2">
+              <div class="text-sm font-semibold text-[#1f2c35]">基础信息</div>
+              <div class="mt-3 grid gap-3 md:grid-cols-4">
                 <label class="inline-flex items-center gap-2 text-sm md:col-span-2">
                   <input v-model="forms.promo_center.enabled" type="checkbox" />
                   启用推广中心
                 </label>
                 <label class="space-y-1 text-sm">
-                  <span>邀请奖励积分（邀请人/被邀请人各得）</span>
+                  <span>Schema 版本</span>
                   <input
-                    v-model.number="forms.promo_center.invite_reward_points"
+                    :value="forms.promo_center.schema_version"
                     type="number"
-                    min="0"
-                    max="100000"
-                    step="1"
+                    min="1"
+                    max="99"
+                    disabled
                     class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2"
                   />
                 </label>
-                <div class="rounded-xl border border-[#dce4eb] bg-[#fbfcfd] px-3 py-3 text-xs leading-5 text-[#4f5d69]">
-                  该积分值会在前台推广页实时显示，单位为通用点数。设置为 0 时，仅保留推广页联系方式展示。
+                <label class="space-y-1 text-sm">
+                  <span>最近更新人</span>
+                  <input :value="forms.promo_center.updated_by || '未记录'" type="text" disabled class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" />
+                </label>
+                <label class="space-y-1 text-sm">
+                  <span>最近更新时间</span>
+                  <input :value="forms.promo_center.updated_at || '未记录'" type="text" disabled class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" />
+                </label>
+              </div>
+            </section>
+
+            <section class="rounded-2xl border border-[#dce4eb] bg-white p-4">
+              <div class="text-sm font-semibold text-[#1f2c35]">顶部 4 张活动卡</div>
+              <div class="mt-1 text-xs leading-5 text-[#5f6d79]">卡片顺序、标题、角标和说明均可配置。前台用 `tab` 参数切页。</div>
+
+              <div class="mt-3 grid gap-3 xl:grid-cols-2">
+                <article
+                  v-for="card in forms.promo_center.nav_cards"
+                  :key="card.key"
+                  class="rounded-2xl border border-[#d6dfe7] bg-[#fbfcfd] p-3"
+                >
+                  <div class="flex items-center justify-between gap-3">
+                    <div class="text-sm font-semibold text-[#21303a]">{{ card.key }}</div>
+                    <label class="inline-flex items-center gap-2 text-xs text-[#5f6d79]">
+                      <input v-model="card.enabled" type="checkbox" />
+                      启用
+                    </label>
+                  </div>
+                  <div class="mt-3 grid gap-3 md:grid-cols-2">
+                    <label class="space-y-1 text-sm">
+                      <span>标题</span>
+                      <input v-model.trim="card.title" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" />
+                    </label>
+                    <label class="space-y-1 text-sm">
+                      <span>角标</span>
+                      <input v-model.trim="card.badge" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" />
+                    </label>
+                    <label class="space-y-1 text-sm md:col-span-2">
+                      <span>说明</span>
+                      <input v-model.trim="card.description" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" />
+                    </label>
+                    <label class="space-y-1 text-sm">
+                      <span>排序</span>
+                      <input v-model.number="card.sort_order" type="number" min="1" max="99" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" />
+                    </label>
+                  </div>
+                </article>
+              </div>
+            </section>
+
+            <section class="rounded-2xl border border-[#dce4eb] bg-white p-4">
+              <div class="text-sm font-semibold text-[#1f2c35]">邀请有奖</div>
+              <div class="mt-3 grid gap-3 md:grid-cols-2">
+                <label class="inline-flex items-center gap-2 text-sm md:col-span-2">
+                  <input v-model="forms.promo_center.pages.invite.enabled" type="checkbox" />
+                  启用邀请页
+                </label>
+                <label class="space-y-1 text-sm">
+                  <span>页面标题</span>
+                  <input v-model.trim="forms.promo_center.pages.invite.title" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" />
+                </label>
+                <label class="space-y-1 text-sm">
+                  <span>副标题</span>
+                  <input v-model.trim="forms.promo_center.pages.invite.subtitle" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" />
+                </label>
+                <label class="space-y-1 text-sm">
+                  <span>被邀请人奖励点数</span>
+                  <input v-model.number="forms.promo_center.reward_rules.invite.invitee_bind_reward_points" type="number" min="0" max="1000000" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" />
+                </label>
+                <label class="space-y-1 text-sm">
+                  <span>邀请人奖励点数</span>
+                  <input v-model.number="forms.promo_center.reward_rules.invite.inviter_valid_invite_reward_points" type="number" min="0" max="1000000" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" />
+                </label>
+                <label class="space-y-1 text-sm md:col-span-2">
+                  <span>规则说明（每行一条）</span>
+                  <textarea
+                    rows="4"
+                    class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2"
+                    :value="stringListValue(forms.promo_center.pages.invite.rule_lines)"
+                    @input="updatePromoStringList(forms.promo_center.pages.invite, 'rule_lines', $event, 6, 120)"
+                  ></textarea>
+                </label>
+                <label class="space-y-1 text-sm">
+                  <span>快捷操作区标题</span>
+                  <input v-model.trim="forms.promo_center.pages.invite.quick_actions_title" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" />
+                </label>
+                <label class="space-y-1 text-sm">
+                  <span>分享文案标题</span>
+                  <input v-model.trim="forms.promo_center.pages.invite.share_copy_title" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" />
+                </label>
+                <label class="space-y-1 text-sm">
+                  <span>邀请码输入标题</span>
+                  <input v-model.trim="forms.promo_center.pages.invite.bind_code_label" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" />
+                </label>
+                <label class="space-y-1 text-sm">
+                  <span>邀请码占位文案</span>
+                  <input v-model.trim="forms.promo_center.pages.invite.bind_code_placeholder" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" />
+                </label>
+                <label class="space-y-1 text-sm">
+                  <span>确认按钮文案</span>
+                  <input v-model.trim="forms.promo_center.pages.invite.bind_code_button_text" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" />
+                </label>
+                <label class="space-y-1 text-sm">
+                  <span>按钮提示文案</span>
+                  <input v-model.trim="forms.promo_center.pages.invite.bind_code_notice" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" />
+                </label>
+                <label class="space-y-1 text-sm md:col-span-2">
+                  <span>分享文案正文</span>
+                  <textarea v-model.trim="forms.promo_center.pages.invite.share_copy_text" rows="3" maxlength="300" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2"></textarea>
+                </label>
+                <label class="space-y-1 text-sm md:col-span-2">
+                  <span>小程序引导标题</span>
+                  <input v-model.trim="forms.promo_center.pages.invite.miniapp_guide_title" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" />
+                </label>
+                <label class="space-y-1 text-sm md:col-span-2">
+                  <span>小程序引导步骤（每行一条）</span>
+                  <textarea
+                    rows="3"
+                    class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2"
+                    :value="stringListValue(forms.promo_center.pages.invite.miniapp_steps)"
+                    @input="updatePromoStringList(forms.promo_center.pages.invite, 'miniapp_steps', $event, 5, 80)"
+                  ></textarea>
+                </label>
+              </div>
+              <div class="mt-4 rounded-2xl border border-[#d6dfe7] bg-[#fbfcfd] p-3">
+                <div class="flex items-center justify-between gap-3">
+                  <div class="text-sm font-semibold text-[#21303a]">里程碑加奖</div>
+                  <button type="button" class="rounded-lg bg-[#edf2f6] px-3 py-2 text-xs text-[#344250]" @click="addPromoInviteMilestone">新增里程碑</button>
+                </div>
+                <div class="mt-3 space-y-2">
+                  <div v-for="(item, index) in forms.promo_center.reward_rules.invite.milestones" :key="`invite-milestone-${index}`" class="grid gap-2 md:grid-cols-[120px_140px_minmax(0,1fr)_80px]">
+                    <input v-model.number="item.threshold" type="number" min="0" max="100000" placeholder="人数" class="rounded-xl border border-[#ccd5dd] px-3 py-2 text-sm" />
+                    <input v-model.number="item.reward_points" type="number" min="0" max="1000000" placeholder="奖励点数" class="rounded-xl border border-[#ccd5dd] px-3 py-2 text-sm" />
+                    <input v-model.trim="item.label" placeholder="里程碑说明" class="rounded-xl border border-[#ccd5dd] px-3 py-2 text-sm" />
+                    <button type="button" class="rounded-lg bg-[#edf2f6] px-3 py-2 text-xs text-[#344250]" @click="removePromoInviteMilestone(index)">删除</button>
+                  </div>
                 </div>
               </div>
             </section>
 
             <section class="rounded-2xl border border-[#dce4eb] bg-white p-4">
-              <div class="text-sm font-semibold text-[#1f2c35]">机构客户合作区联系方式</div>
-              <div class="mt-1 text-xs leading-5 text-[#5f6d79]">电话、微信号、邮箱每类支持配置多条，前台会按卡片形式展示。</div>
-
-              <div class="mt-3 grid gap-3 xl:grid-cols-3">
-                <article
-                  v-for="contact in promoContactFields"
-                  :key="contact.key"
-                  class="rounded-2xl border border-[#d6dfe7] bg-[#fbfcfd] p-3"
-                >
-                  <div class="mb-2 flex items-center justify-between">
-                    <div class="text-sm font-semibold text-[#21303a]">{{ contact.label }}</div>
-                    <span class="text-xs text-[#5f6d79]">
-                      {{ forms.promo_center.contacts[contact.key]?.length || 0 }}/20
-                    </span>
+              <div class="text-sm font-semibold text-[#1f2c35]">集赞有奖</div>
+              <div class="mt-3 grid gap-3 md:grid-cols-2">
+                <label class="inline-flex items-center gap-2 text-sm md:col-span-2">
+                  <input v-model="forms.promo_center.pages.like.enabled" type="checkbox" />
+                  启用集赞页
+                </label>
+                <label class="space-y-1 text-sm">
+                  <span>页面标题</span>
+                  <input v-model.trim="forms.promo_center.pages.like.title" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" />
+                </label>
+                <label class="space-y-1 text-sm">
+                  <span>副标题</span>
+                  <input v-model.trim="forms.promo_center.pages.like.subtitle" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" />
+                </label>
+                <label class="space-y-1 text-sm md:col-span-2">
+                  <span>规则说明（每行一条）</span>
+                  <textarea rows="4" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" :value="stringListValue(forms.promo_center.pages.like.rule_lines)" @input="updatePromoStringList(forms.promo_center.pages.like, 'rule_lines', $event, 6, 120)"></textarea>
+                </label>
+                <label class="space-y-1 text-sm">
+                  <span>二维码标题</span>
+                  <input v-model.trim="forms.promo_center.pages.like.qrcode_title" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" />
+                </label>
+                <label class="space-y-1 text-sm">
+                  <span>审核提示</span>
+                  <input v-model.trim="forms.promo_center.pages.like.review_notice" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" />
+                </label>
+                <label class="space-y-1 text-sm md:col-span-2">
+                  <span>其他活动入口标题</span>
+                  <input v-model.trim="forms.promo_center.pages.like.other_entries_title" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" />
+                </label>
+              </div>
+              <div class="mt-4 rounded-2xl border border-[#d6dfe7] bg-[#fbfcfd] p-3">
+                <div class="flex items-center justify-between gap-3">
+                  <div class="text-sm font-semibold text-[#21303a]">点赞奖励阶梯</div>
+                  <button type="button" class="rounded-lg bg-[#edf2f6] px-3 py-2 text-xs text-[#344250]" @click="addPromoLikeTier">新增阶梯</button>
+                </div>
+                <div class="mt-3 space-y-2">
+                  <div v-for="(item, index) in forms.promo_center.reward_rules.like.tiers" :key="`like-tier-${index}`" class="grid gap-2 md:grid-cols-[120px_140px_minmax(0,1fr)_80px]">
+                    <input v-model.number="item.threshold" type="number" min="0" max="100000" placeholder="点赞阈值" class="rounded-xl border border-[#ccd5dd] px-3 py-2 text-sm" />
+                    <input v-model.number="item.reward_points" type="number" min="0" max="1000000" placeholder="奖励点数" class="rounded-xl border border-[#ccd5dd] px-3 py-2 text-sm" />
+                    <input v-model.trim="item.label" placeholder="阶梯说明" class="rounded-xl border border-[#ccd5dd] px-3 py-2 text-sm" />
+                    <button type="button" class="rounded-lg bg-[#edf2f6] px-3 py-2 text-xs text-[#344250]" @click="removePromoLikeTier(index)">删除</button>
                   </div>
-
-                  <div class="space-y-2">
-                    <div
-                      v-for="(value, index) in forms.promo_center.contacts[contact.key]"
-                      :key="`${contact.key}-${index}`"
-                      class="flex items-center gap-2"
-                    >
-                      <input
-                        v-model.trim="forms.promo_center.contacts[contact.key][index]"
-                        class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2 text-sm"
-                        :placeholder="contact.placeholder"
-                      />
-                      <button
-                        type="button"
-                        class="rounded-lg bg-[#edf2f6] px-2 py-2 text-xs text-[#344250]"
-                        @click="removePromoContact(contact.key, index)"
-                      >
-                        删除
-                      </button>
+                </div>
+              </div>
+              <div class="mt-4 rounded-2xl border border-[#d6dfe7] bg-[#fbfcfd] p-3">
+                <div class="flex items-center justify-between gap-3">
+                  <div class="text-sm font-semibold text-[#21303a]">其他活动入口</div>
+                  <button type="button" class="rounded-lg bg-[#edf2f6] px-3 py-2 text-xs text-[#344250]" @click="addPromoLikeEntry">新增入口</button>
+                </div>
+                <div class="mt-3 space-y-3">
+                  <div v-for="(entry, index) in forms.promo_center.pages.like.other_entries" :key="`like-entry-${index}`" class="grid gap-2 md:grid-cols-2">
+                    <label class="space-y-1 text-sm">
+                      <span>标题</span>
+                      <input v-model.trim="entry.title" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" />
+                    </label>
+                    <label class="space-y-1 text-sm">
+                      <span>二维码地址</span>
+                      <input v-model.trim="entry.qrcode_url" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" />
+                    </label>
+                    <label class="space-y-1 text-sm md:col-span-2">
+                      <span>说明</span>
+                      <input v-model.trim="entry.description" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" />
+                    </label>
+                    <div class="flex items-center justify-between md:col-span-2">
+                      <label class="inline-flex items-center gap-2 text-sm text-[#5f6d79]">
+                        <input v-model="entry.enabled" type="checkbox" />
+                        启用入口
+                      </label>
+                      <button type="button" class="rounded-lg bg-[#edf2f6] px-3 py-2 text-xs text-[#344250]" @click="removePromoLikeEntry(index)">删除入口</button>
                     </div>
                   </div>
+                </div>
+              </div>
+            </section>
 
-                  <button
-                    type="button"
-                    class="mt-2 rounded-lg bg-[#edf2f6] px-3 py-2 text-xs text-[#344250] disabled:opacity-50"
-                    :disabled="(forms.promo_center.contacts[contact.key]?.length || 0) >= 20"
-                    @click="addPromoContact(contact.key)"
-                  >
-                    新增{{ contact.label }}
-                  </button>
-                </article>
+            <section class="rounded-2xl border border-[#dce4eb] bg-white p-4">
+              <div class="text-sm font-semibold text-[#1f2c35]">创作有奖</div>
+              <div class="mt-3 grid gap-3 md:grid-cols-2">
+                <label class="inline-flex items-center gap-2 text-sm md:col-span-2">
+                  <input v-model="forms.promo_center.pages.create.enabled" type="checkbox" />
+                  启用创作页
+                </label>
+                <label class="space-y-1 text-sm">
+                  <span>页面标题</span>
+                  <input v-model.trim="forms.promo_center.pages.create.title" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" />
+                </label>
+                <label class="space-y-1 text-sm">
+                  <span>副标题</span>
+                  <input v-model.trim="forms.promo_center.pages.create.subtitle" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" />
+                </label>
+                <label class="space-y-1 text-sm md:col-span-2">
+                  <span>规则说明（每行一条）</span>
+                  <textarea rows="4" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" :value="stringListValue(forms.promo_center.pages.create.rule_lines)" @input="updatePromoStringList(forms.promo_center.pages.create, 'rule_lines', $event, 6, 120)"></textarea>
+                </label>
+                <label class="space-y-1 text-sm">
+                  <span>文案模板标题</span>
+                  <input v-model.trim="forms.promo_center.pages.create.template_title" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" />
+                </label>
+                <label class="space-y-1 text-sm">
+                  <span>链接占位文案</span>
+                  <input v-model.trim="forms.promo_center.pages.create.submit_placeholder" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" />
+                </label>
+                <label class="space-y-1 text-sm">
+                  <span>提交按钮文案</span>
+                  <input v-model.trim="forms.promo_center.pages.create.submit_button_text" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" />
+                </label>
+                <label class="space-y-1 text-sm">
+                  <span>记录按钮文案</span>
+                  <input v-model.trim="forms.promo_center.pages.create.history_button_text" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" />
+                </label>
+                <label class="space-y-1 text-sm md:col-span-2">
+                  <span>推荐文案模板（每行一条）</span>
+                  <textarea rows="4" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" :value="stringListValue(forms.promo_center.pages.create.templates)" @input="updatePromoStringList(forms.promo_center.pages.create, 'templates', $event, 8, 220)"></textarea>
+                </label>
+              </div>
+              <div class="mt-4 rounded-2xl border border-[#d6dfe7] bg-[#fbfcfd] p-3">
+                <div class="text-sm font-semibold text-[#21303a]">平台入口</div>
+                <div class="mt-3 grid gap-3 md:grid-cols-2">
+                  <article v-for="platform in forms.promo_center.pages.create.platforms" :key="platform.key" class="rounded-2xl border border-[#dce4eb] bg-white p-3">
+                    <div class="flex items-center justify-between gap-3">
+                      <div class="text-sm font-semibold text-[#21303a]">{{ platform.key }}</div>
+                      <label class="inline-flex items-center gap-2 text-xs text-[#5f6d79]">
+                        <input v-model="platform.enabled" type="checkbox" />
+                        启用
+                      </label>
+                    </div>
+                    <div class="mt-3 grid gap-2">
+                      <input v-model.trim="platform.label" placeholder="平台名称" class="rounded-xl border border-[#ccd5dd] px-3 py-2 text-sm" />
+                      <input v-model.trim="platform.status_text" placeholder="状态文案" class="rounded-xl border border-[#ccd5dd] px-3 py-2 text-sm" />
+                    </div>
+                  </article>
+                </div>
+              </div>
+              <div class="mt-4 rounded-2xl border border-[#d6dfe7] bg-[#fbfcfd] p-3">
+                <div class="flex items-center justify-between gap-3">
+                  <div class="text-sm font-semibold text-[#21303a]">创作奖励阶梯</div>
+                  <button type="button" class="rounded-lg bg-[#edf2f6] px-3 py-2 text-xs text-[#344250]" @click="addPromoCreateTier">新增阶梯</button>
+                </div>
+                <div class="mt-3 space-y-2">
+                  <div v-for="(item, index) in forms.promo_center.reward_rules.create.tiers" :key="`create-tier-${index}`" class="grid gap-2 md:grid-cols-[120px_140px_minmax(0,1fr)_80px]">
+                    <input v-model.number="item.threshold" type="number" min="0" max="100000" placeholder="点赞阈值" class="rounded-xl border border-[#ccd5dd] px-3 py-2 text-sm" />
+                    <input v-model.number="item.reward_points" type="number" min="0" max="1000000" placeholder="奖励点数" class="rounded-xl border border-[#ccd5dd] px-3 py-2 text-sm" />
+                    <input v-model.trim="item.label" placeholder="阶梯说明" class="rounded-xl border border-[#ccd5dd] px-3 py-2 text-sm" />
+                    <button type="button" class="rounded-lg bg-[#edf2f6] px-3 py-2 text-xs text-[#344250]" @click="removePromoCreateTier(index)">删除</button>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <section class="rounded-2xl border border-[#dce4eb] bg-white p-4">
+              <div class="text-sm font-semibold text-[#1f2c35]">机构合作</div>
+              <div class="mt-3 grid gap-3 md:grid-cols-2">
+                <label class="inline-flex items-center gap-2 text-sm md:col-span-2">
+                  <input v-model="forms.promo_center.pages.partner.enabled" type="checkbox" />
+                  启用机构合作页
+                </label>
+                <label class="space-y-1 text-sm">
+                  <span>页面标题</span>
+                  <input v-model.trim="forms.promo_center.pages.partner.title" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" />
+                </label>
+                <label class="space-y-1 text-sm">
+                  <span>副标题</span>
+                  <input v-model.trim="forms.promo_center.pages.partner.subtitle" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" />
+                </label>
+                <label class="space-y-1 text-sm md:col-span-2">
+                  <span>合作说明</span>
+                  <textarea v-model.trim="forms.promo_center.pages.partner.description" rows="3" maxlength="240" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2"></textarea>
+                </label>
+                <label class="space-y-1 text-sm md:col-span-2">
+                  <span>合作权益（每行一条）</span>
+                  <textarea rows="4" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" :value="stringListValue(forms.promo_center.pages.partner.benefits)" @input="updatePromoStringList(forms.promo_center.pages.partner, 'benefits', $event, 6, 120)"></textarea>
+                </label>
+              </div>
+              <div class="mt-4 rounded-2xl border border-[#d6dfe7] bg-[#fbfcfd] p-3">
+                <div class="flex items-center justify-between gap-3">
+                  <div class="text-sm font-semibold text-[#21303a]">合作联系卡片</div>
+                  <button type="button" class="rounded-lg bg-[#edf2f6] px-3 py-2 text-xs text-[#344250]" @click="addPromoPartnerContact">新增联系卡</button>
+                </div>
+                <div class="mt-3 space-y-3">
+                  <article v-for="(item, index) in forms.promo_center.pages.partner.contacts" :key="`partner-contact-${index}`" class="rounded-2xl border border-[#dce4eb] bg-white p-3">
+                    <div class="flex items-center justify-between gap-3">
+                      <div class="text-sm font-semibold text-[#21303a]">联系卡 {{ index + 1 }}</div>
+                      <div class="flex items-center gap-2">
+                        <label class="inline-flex items-center gap-2 text-xs text-[#5f6d79]">
+                          <input v-model="item.enabled" type="checkbox" />
+                          启用
+                        </label>
+                        <button type="button" class="rounded-lg bg-[#edf2f6] px-3 py-2 text-xs text-[#344250]" @click="removePromoPartnerContact(index)">删除</button>
+                      </div>
+                    </div>
+                    <div class="mt-3 grid gap-3 md:grid-cols-2">
+                      <label class="space-y-1 text-sm">
+                        <span>标题</span>
+                        <input v-model.trim="item.title" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" />
+                      </label>
+                      <label class="space-y-1 text-sm">
+                        <span>微信号</span>
+                        <input v-model.trim="item.wechat_id" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" />
+                      </label>
+                      <label class="space-y-1 text-sm md:col-span-2">
+                        <span>说明</span>
+                        <input v-model.trim="item.description" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" />
+                      </label>
+                      <label class="space-y-1 text-sm md:col-span-2">
+                        <span>二维码地址</span>
+                        <input v-model.trim="item.qrcode_url" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" />
+                      </label>
+                    </div>
+                  </article>
+                </div>
+              </div>
+            </section>
+
+            <section class="rounded-2xl border border-[#dce4eb] bg-white p-4">
+              <div class="text-sm font-semibold text-[#1f2c35]">活动素材</div>
+              <div class="mt-3 grid gap-3 md:grid-cols-2">
+                <label class="space-y-1 text-sm">
+                  <span>集赞二维码地址</span>
+                  <input v-model.trim="forms.promo_center.assets.like_qrcode_url" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" />
+                </label>
+                <label class="space-y-1 text-sm">
+                  <span>邀请示例图地址</span>
+                  <input v-model.trim="forms.promo_center.assets.invite_example_image_url" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" />
+                </label>
+                <label class="space-y-1 text-sm">
+                  <span>机构合作主二维码</span>
+                  <input v-model.trim="forms.promo_center.assets.partner_primary_qrcode_url" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" />
+                </label>
+                <label class="space-y-1 text-sm">
+                  <span>机构合作次二维码</span>
+                  <input v-model.trim="forms.promo_center.assets.partner_secondary_qrcode_url" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" />
+                </label>
               </div>
             </section>
           </template>
@@ -812,7 +1069,6 @@ import {
   LLM_PRESETS,
   LLM_PROVIDERS,
   PAYMENT_PROVIDERS,
-  REWRITE_STRATEGY_OPTIONS,
   REWRITE_STRATEGY_PLATFORMS,
   SMS_PROVIDERS,
   adminConfigReadinessChipClass,
@@ -828,6 +1084,7 @@ import {
   normalizeRewriteStrategyConfig,
   reorderAdminConfigItems,
   resolvePaymentNotifyPreview as resolvePaymentNotifyPreviewText,
+  getRewriteStrategyOptions,
   strategyDescription,
   validateAdminConfigCategory,
 } from "../../lib/adminConfig"
@@ -844,14 +1101,7 @@ const aigcDetectStrategyPlatforms = AIGC_DETECT_STRATEGY_PLATFORMS
 const dedupStrategyPlatforms = DEDUP_STRATEGY_PLATFORMS
 const dedupStrategyOptions = DEDUP_STRATEGY_OPTIONS
 const rewriteStrategyPlatforms = REWRITE_STRATEGY_PLATFORMS
-const rewriteStrategyOptions = REWRITE_STRATEGY_OPTIONS
 const guideMap = ADMIN_CONFIG_GUIDES
-const promoContactFields = [
-  { key: "phone", label: "电话", placeholder: "例如：400-800-1234" },
-  { key: "wechat", label: "微信号", placeholder: "例如：gewu_service_01" },
-  { key: "email", label: "邮箱", placeholder: "例如：biz@gewu.example.com" },
-]
-
 const activeTab = ref("login")
 const route = useRoute()
 const router = useRouter()
@@ -1026,7 +1276,10 @@ function addBillingPackage() {
   if (!Array.isArray(forms.value.billing.packages)) {
     forms.value.billing.packages = []
   }
-  forms.value.billing.packages.push(createBillingPackage())
+  forms.value.billing.packages.push({
+    ...createBillingPackage(),
+    sort_order: forms.value.billing.packages.length + 1,
+  })
 }
 
 function removeBillingPackage(index) {
@@ -1036,27 +1289,101 @@ function removeBillingPackage(index) {
   forms.value.billing.packages.splice(index, 1)
 }
 
-function addPromoContact(type) {
-  const contacts = forms.value.promo_center?.contacts
-  if (!contacts || typeof contacts !== "object") {
-    forms.value.promo_center.contacts = { phone: [], wechat: [], email: [] }
+function billingPricePerKchar(pkg) {
+  const price = Number(pkg?.price || 0)
+  const credits = Number(pkg?.credits || 0)
+  if (!(price > 0) || !(credits > 0)) {
+    return 0
   }
-  const values = forms.value.promo_center.contacts[type]
-  if (!Array.isArray(values)) {
-    forms.value.promo_center.contacts[type] = []
-  }
-  if (forms.value.promo_center.contacts[type].length >= 20) {
-    return
-  }
-  forms.value.promo_center.contacts[type].push("")
+  return price / (credits / 1000)
 }
 
-function removePromoContact(type, index) {
-  const values = forms.value.promo_center?.contacts?.[type]
-  if (!Array.isArray(values)) {
-    return
+function stringListValue(values) {
+  return Array.isArray(values) ? values.join("\n") : ""
+}
+
+function updatePromoStringList(target, key, event, limit = 6, maxLen = 120) {
+  const text = String(event?.target?.value || "")
+  target[key] = text
+    .split(/\r?\n/)
+    .map((item) => item.trim().slice(0, maxLen))
+    .filter(Boolean)
+    .slice(0, limit)
+}
+
+function addPromoInviteMilestone() {
+  const list = forms.value.promo_center?.reward_rules?.invite?.milestones
+  if (!Array.isArray(list)) {
+    forms.value.promo_center.reward_rules.invite.milestones = []
   }
-  values.splice(index, 1)
+  forms.value.promo_center.reward_rules.invite.milestones.push({ threshold: 0, reward_points: 0, label: "" })
+}
+
+function removePromoInviteMilestone(index) {
+  const list = forms.value.promo_center?.reward_rules?.invite?.milestones
+  if (Array.isArray(list)) {
+    list.splice(index, 1)
+  }
+}
+
+function addPromoLikeTier() {
+  const list = forms.value.promo_center?.reward_rules?.like?.tiers
+  if (!Array.isArray(list)) {
+    forms.value.promo_center.reward_rules.like.tiers = []
+  }
+  forms.value.promo_center.reward_rules.like.tiers.push({ threshold: 0, reward_points: 0, label: "" })
+}
+
+function removePromoLikeTier(index) {
+  const list = forms.value.promo_center?.reward_rules?.like?.tiers
+  if (Array.isArray(list)) {
+    list.splice(index, 1)
+  }
+}
+
+function addPromoLikeEntry() {
+  const entries = forms.value.promo_center?.pages?.like?.other_entries
+  if (!Array.isArray(entries)) {
+    forms.value.promo_center.pages.like.other_entries = []
+  }
+  forms.value.promo_center.pages.like.other_entries.push({ title: "", description: "", qrcode_url: "", enabled: true })
+}
+
+function removePromoLikeEntry(index) {
+  const entries = forms.value.promo_center?.pages?.like?.other_entries
+  if (Array.isArray(entries)) {
+    entries.splice(index, 1)
+  }
+}
+
+function addPromoCreateTier() {
+  const list = forms.value.promo_center?.reward_rules?.create?.tiers
+  if (!Array.isArray(list)) {
+    forms.value.promo_center.reward_rules.create.tiers = []
+  }
+  forms.value.promo_center.reward_rules.create.tiers.push({ threshold: 0, reward_points: 0, label: "" })
+}
+
+function removePromoCreateTier(index) {
+  const list = forms.value.promo_center?.reward_rules?.create?.tiers
+  if (Array.isArray(list)) {
+    list.splice(index, 1)
+  }
+}
+
+function addPromoPartnerContact() {
+  const contacts = forms.value.promo_center?.pages?.partner?.contacts
+  if (!Array.isArray(contacts)) {
+    forms.value.promo_center.pages.partner.contacts = []
+  }
+  forms.value.promo_center.pages.partner.contacts.push({ title: "", description: "", wechat_id: "", qrcode_url: "", enabled: true })
+}
+
+function removePromoPartnerContact(index) {
+  const contacts = forms.value.promo_center?.pages?.partner?.contacts
+  if (Array.isArray(contacts)) {
+    contacts.splice(index, 1)
+  }
 }
 
 function navGroupLabel(group) {

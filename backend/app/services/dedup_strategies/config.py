@@ -13,6 +13,10 @@ STRATEGY_ALGORITHM = "algorithm"
 STRATEGY_LLM = "llm"
 SUPPORTED_DEDUP_PLATFORMS = ("cnki", "vip")
 SUPPORTED_DEDUP_STRATEGIES = {STRATEGY_ALGORITHM, STRATEGY_LLM}
+PLATFORM_ALLOWED_DEDUP_STRATEGIES: dict[str, set[str]] = {
+    "cnki": {STRATEGY_LLM},
+    "vip": {STRATEGY_LLM},
+}
 
 DEFAULT_DEDUP_RUNTIME_CONFIG: dict[str, int] = {
     "chunk_min_chars": 180,
@@ -29,14 +33,14 @@ DEFAULT_DEDUP_STRATEGY_CONFIG: dict[str, Any] = {
     "cnki": {
         "dedup": {
             "enabled": True,
-            "active_strategy": STRATEGY_ALGORITHM,
+            "active_strategy": STRATEGY_LLM,
         },
         "runtime": deepcopy(DEFAULT_DEDUP_RUNTIME_CONFIG),
     },
     "vip": {
         "dedup": {
             "enabled": True,
-            "active_strategy": STRATEGY_ALGORITHM,
+            "active_strategy": STRATEGY_LLM,
         },
         "runtime": deepcopy(DEFAULT_DEDUP_RUNTIME_CONFIG),
     },
@@ -71,6 +75,17 @@ def normalize_strategy_name(raw: Any) -> str:
     if value in SUPPORTED_DEDUP_STRATEGIES:
         return value
     raise BizError(code=4341, message="降重复率策略仅支持 algorithm 或 llm")
+
+
+def normalize_platform_strategy(platform: str, raw: Any) -> str:
+    normalized_platform = str(platform or "").strip().lower()
+    strategy = normalize_strategy_name(raw)
+    allowed = PLATFORM_ALLOWED_DEDUP_STRATEGIES.get(normalized_platform, SUPPORTED_DEDUP_STRATEGIES)
+    if strategy in allowed:
+        return strategy
+    if normalized_platform in {"cnki", "vip"}:
+        return STRATEGY_LLM
+    raise BizError(code=4341, message="当前平台不支持该降重复率策略")
 
 
 def _as_runtime_int(raw: Any, *, field: str, fallback: int) -> int:
@@ -112,7 +127,8 @@ def normalize_dedup_strategy_config(raw: dict | None) -> dict[str, Any]:
         if not isinstance(dedup_source, dict):
             continue
         result[platform]["dedup"]["enabled"] = bool(dedup_source.get("enabled", result[platform]["dedup"]["enabled"]))
-        result[platform]["dedup"]["active_strategy"] = normalize_strategy_name(
+        result[platform]["dedup"]["active_strategy"] = normalize_platform_strategy(
+            platform,
             dedup_source.get("active_strategy", result[platform]["dedup"]["active_strategy"])
         )
         runtime_source = platform_source.get("runtime")
@@ -148,7 +164,7 @@ def get_active_dedup_strategy(db: Session, *, platform: str) -> str:
     slot = config[normalized_platform]["dedup"]
     if not bool(slot.get("enabled", True)):
         raise BizError(code=4117, message="当前平台暂不支持降重复率")
-    return normalize_strategy_name(slot.get("active_strategy"))
+    return normalize_platform_strategy(normalized_platform, slot.get("active_strategy"))
 
 
 def get_dedup_runtime_config(db: Session, *, platform: str) -> dict[str, int]:
@@ -175,7 +191,8 @@ def dedup_strategy_readiness(value: dict) -> dict:
         slot = config[platform]["dedup"]
         label = "知网" if platform == "cnki" else "维普"
         if slot["enabled"]:
-            strategy_label = "算法策略" if slot["active_strategy"] == STRATEGY_ALGORITHM else "大模型策略"
+            normalize_platform_strategy(platform, slot["active_strategy"])
+            strategy_label = "大模型主策略"
             summary.append(f"{label}:{strategy_label}")
         else:
             summary.append(f"{label}:未启用")

@@ -1,0 +1,118 @@
+<view class="page-shell">
+  <view class="content-stack">
+    <view class="hero-panel hero-panel--light">
+      <view class="eyebrow">渠道门户</view>
+      <view class="hero-title">渠道链接与返佣概览</view>
+      <view class="hero-subtitle">小程序里查看当前渠道的链接分发与直属下级。</view>
+      <view class="hero-meta" wx:if="{{ overview }}">
+        <view class="hero-chip">{{ overview.channel_name || '-' }}</view>
+        <view class="hero-chip">{{ overview.channel_code || '-' }}</view>
+        <view class="hero-chip">下级 {{ overview.child_count || 0 }}</view>
+      </view>
+    </view>
+
+    <view class="surface surface--compact" wx:if="{{ errorText }}">
+      <view class="list-subtitle">{{ errorText }}</view>
+    </view>
+
+    <view class="surface surface--compact" wx:if="{{ !hasCredential }}">
+      <view class="section-head">
+        <view class="section-copy">
+          <view class="section-title">渠道访问参数缺失</view>
+          <view class="section-desc">请使用后台生成的小程序门户路径进入本页。</view>
+        </view>
+      </view>
+    </view>
+
+    <block wx:if="{{ hasCredential && overview }}">
+      <view class="surface surface--compact">
+        <view class="section-head">
+          <view class="section-copy">
+            <view class="section-kicker">概览</view>
+            <view class="section-title">返佣概览</view>
+          </view>
+          <button class="plain-tag" bindtap="onRefresh">{{ loading ? '刷新中' : '刷新' }}</button>
+        </view>
+        <view class="partner-stats">
+          <view class="partner-stat">
+            <view class="partner-stat-label">本月返佣</view>
+            <view class="partner-stat-value">{{ formatFenToCny(overview.month_rebate_fen) }}</view>
+          </view>
+          <view class="partner-stat">
+            <view class="partner-stat-label">待结算</view>
+            <view class="partner-stat-value">{{ formatFenToCny(overview.pending_rebate_fen) }}</view>
+          </view>
+          <view class="partner-stat">
+            <view class="partner-stat-label">可提现</view>
+            <view class="partner-stat-value">{{ formatFenToCny(overview.withdrawable_fen) }}</view>
+          </view>
+          <view class="partner-stat">
+            <view class="partner-stat-label">客户数</view>
+            <view class="partner-stat-value">{{ overview.user_count || 0 }}</view>
+          </view>
+        </view>
+      </view>
+
+      <view class="surface surface--compact">
+        <view class="section-head">
+          <view class="section-copy">
+            <view class="section-kicker">链接分发</view>
+            <view class="section-title">当前渠道链接</view>
+          </view>
+        </view>
+        <view class="partner-link-card">
+          <view class="partner-link-item">
+            <view class="partner-link-label">Web 下单链接</view>
+            <view class="partner-link-value">{{ overview.order_link }}</view>
+            <button class="primary-btn" data-value="{{ overview.order_link }}" data-label="下单链接" bindtap="onCopyText">复制</button>
+          </view>
+          <view class="partner-link-item">
+            <view class="partner-link-label">Web 门户链接</view>
+            <view class="partner-link-value">{{ overview.portal_link }}</view>
+            <button class="primary-btn" data-value="{{ overview.portal_link }}" data-label="门户链接" bindtap="onCopyText">复制</button>
+          </view>
+          <view class="partner-link-item">
+            <view class="partner-link-label">小程序下单路径</view>
+            <view class="partner-link-value">{{ overview.miniapp_order_path }}</view>
+            <button class="primary-btn" data-value="{{ overview.miniapp_order_path }}" data-label="小程序下单路径" bindtap="onCopyText">复制</button>
+          </view>
+          <view class="partner-link-item">
+            <view class="partner-link-label">小程序门户路径</view>
+            <view class="partner-link-value">{{ overview.miniapp_portal_path }}</view>
+            <button class="primary-btn" data-value="{{ overview.miniapp_portal_path }}" data-label="小程序门户路径" bindtap="onCopyText">复制</button>
+          </view>
+        </view>
+      </view>
+
+      <view class="surface surface--compact">
+        <view class="section-head">
+          <view class="section-copy">
+            <view class="section-kicker">直属下级</view>
+            <view class="section-title">直属下级渠道</view>
+            <view class="section-desc">一级和二级渠道可在 Web 门户继续做完整管理，小程序先保留移动查看与分发能力。</view>
+          </view>
+        </view>
+        <view class="partner-child-list" wx:if="{{ subchannels.length }}">
+          <view class="partner-child-card" wx:for="{{ subchannels }}" wx:key="id">
+            <view class="partner-child-top">
+              <view>
+                <view class="list-title">{{ item.name }}</view>
+                <view class="list-subtitle">{{ item.channel_code }} · {{ formatLevel(item.level) }}</view>
+              </view>
+              <view class="plain-tag">{{ item.default_rebate_rate_pct }}%</view>
+            </view>
+            <view class="meta-row">
+              <view class="meta-pill">{{ item.status === 'active' ? '启用中' : '已停用' }}</view>
+              <view class="meta-pill">客户 {{ item.user_count || 0 }}</view>
+            </view>
+            <view class="partner-child-actions">
+              <button class="primary-btn" data-value="{{ item.order_link }}" data-label="下单链接" bindtap="onCopyText">复制下单链接</button>
+              <button class="primary-btn" data-value="{{ item.portal_link }}" data-label="门户链接" bindtap="onCopyText">复制门户链接</button>
+            </view>
+          </view>
+        </view>
+        <view class="list-subtitle" wx:else>当前还没有直属下级渠道。</view>
+      </view>
+    </block>
+  </view>
+</view>

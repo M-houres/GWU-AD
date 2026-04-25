@@ -11,13 +11,9 @@ SUPPLEMENTAL_POSITIVE_PAIR_PATH = STRATEGY_ASSET_DIR / "supplemental_positive_fe
 SUPPLEMENTAL_DEDUP_REFERENCE_PATH = STRATEGY_ASSET_DIR / "supplemental_dedup_positive_references_v1.jsonl"
 
 SLOT_KEYS = {
-    "cnki.rewrite.algorithm",
     "cnki.rewrite.llm",
-    "cnki.dedup.algorithm",
     "cnki.dedup.llm",
-    "vip.rewrite.algorithm",
     "vip.rewrite.llm",
-    "vip.dedup.algorithm",
     "vip.dedup.llm",
 }
 
@@ -233,8 +229,9 @@ def validate_dedup_positive_references(
         discipline_counts[discipline] = discipline_counts.get(discipline, 0) + 1
 
         target_slots = tuple(row.get("target_slots") or [])
-        if len(target_slots) != 2:
-            raise ValueError(f"{asset_path.name}:{index} must target exactly two dedup slots")
+        expected_slot_count = 1
+        if len(target_slots) != expected_slot_count:
+            raise ValueError(f"{asset_path.name}:{index} must target exactly {expected_slot_count} dedup slots")
         for slot in target_slots:
             normalized = str(slot).strip()
             if normalized not in SLOT_KEYS:

@@ -347,6 +347,86 @@ def test_notice_version_increases_when_notice_content_changes(
     assert int(notice["version"]) == second_version
 
 
+def test_save_promo_center_v2_config_and_auth_options_keep_compatibility(
+    client: TestClient,
+    admin_override,
+) -> None:
+    resp = client.post(
+        "/api/v1/admin/configs/promo_center",
+        json={
+            "enabled": True,
+            "schema_version": 2,
+            "invite_reward_points": 2000,
+            "nav_cards": [
+                {"key": "invite", "title": "邀请有奖", "badge": "点数激励", "description": "邀请绑定即可得点数", "sort_order": 1, "enabled": True},
+                {"key": "like", "title": "集赞有奖", "badge": "截图审核", "description": "集赞后提交截图", "sort_order": 2, "enabled": True},
+                {"key": "create", "title": "创作有奖", "badge": "最高 20000 点", "description": "创作投稿按阶梯领点数", "sort_order": 3, "enabled": True},
+                {"key": "partner", "title": "机构合作", "badge": "校园合作", "description": "机构合作统一入口", "sort_order": 4, "enabled": True},
+            ],
+            "pages": {
+                "invite": {
+                    "title": "邀请有奖",
+                    "subtitle": "邀请好友绑定即可得点数。",
+                    "rule_lines": [
+                        "被邀请者完成手机号与微信绑定后可获得 2000 点数。",
+                        "邀请者每个有效邀请可获得 1000 点数。",
+                    ],
+                    "quick_actions_title": "快捷操作区",
+                    "bind_code_notice": "邀请码接口待接通。",
+                },
+                "partner": {
+                    "title": "机构合作",
+                    "subtitle": "校园与机构合作统一入口。",
+                    "description": "支持校园大使、机构采购与企业合作。",
+                    "benefits": ["支持批量采购", "支持定制化合作"],
+                    "contacts": [
+                        {
+                            "title": "机构合作顾问",
+                            "description": "优先处理合作需求",
+                            "wechat_id": "gewu_partner",
+                            "qrcode_url": "/promo-contact-qr-1.jpg",
+                            "enabled": True,
+                        }
+                    ],
+                },
+            },
+            "reward_rules": {
+                "invite": {
+                    "invitee_bind_reward_points": 2000,
+                    "inviter_valid_invite_reward_points": 1000,
+                    "milestones": [{"threshold": 5, "reward_points": 3000, "label": "邀请满 5 人"}],
+                },
+                "like": {
+                    "tiers": [{"threshold": 10, "reward_points": 10000, "label": "10 赞"}],
+                },
+                "create": {
+                    "tiers": [{"threshold": 20, "reward_points": 20000, "label": "20+ 赞"}],
+                },
+            },
+            "assets": {
+                "partner_primary_qrcode_url": "/promo-contact-qr-1.jpg",
+                "partner_secondary_qrcode_url": "/promo-contact-qr-2.png",
+            },
+        },
+    )
+    assert resp.status_code == 200
+    value = resp.json()["data"]["value"]
+    assert value["schema_version"] == 2
+    assert value["reward_rules"]["invite"]["invitee_bind_reward_points"] == 2000
+    assert value["pages"]["partner"]["contacts"][0]["qrcode_url"] == "/promo-contact-qr-1.jpg"
+    assert value["updated_by"]
+    assert value["updated_at"]
+
+    options = client.get("/api/v1/auth/options")
+    assert options.status_code == 200
+    promo = options.json()["data"]["promo_center"]
+    assert promo["invite_reward_points"] == 2000
+    assert promo["reward_rules"]["invite"]["inviter_valid_invite_reward_points"] == 1000
+    assert len(promo["nav_cards"]) == 4
+    assert promo["pages"]["invite"]["title"] == "邀请有奖"
+    assert promo["pages"]["partner"]["contacts"][0]["wechat_id"] == "gewu_partner"
+
+
 def test_save_local_mock_llm_config_without_api_key(
     client: TestClient,
     admin_override,
@@ -407,8 +487,25 @@ def test_save_rewrite_strategy_config_and_readiness(
 
     readiness = _readiness_item(client, "rewrite_strategy")
     assert readiness["status"] == "ready"
-    assert "知网:大模型策略" in readiness["message"]
+    assert "知网:大模型主策略" in readiness["message"]
     assert "维普:未启用" in readiness["message"]
+
+
+def test_cnki_rewrite_strategy_forces_llm_when_algorithm_submitted(
+    client: TestClient,
+    admin_override,
+) -> None:
+    resp = client.post(
+        "/api/v1/admin/configs/rewrite_strategy",
+        json={
+            "cnki": {"rewrite": {"enabled": True, "active_strategy": "algorithm"}},
+            "vip": {"rewrite": {"enabled": True, "active_strategy": "algorithm"}},
+        },
+    )
+    assert resp.status_code == 200
+    value = resp.json()["data"]["value"]
+    assert value["cnki"]["rewrite"]["active_strategy"] == "llm"
+    assert value["vip"]["rewrite"]["active_strategy"] == "llm"
 
 
 def test_save_dedup_strategy_config_and_readiness(
@@ -446,8 +543,25 @@ def test_save_dedup_strategy_config_and_readiness(
 
     readiness = _readiness_item(client, "dedup_strategy")
     assert readiness["status"] == "ready"
-    assert "知网:大模型策略" in readiness["message"]
+    assert "知网:大模型主策略" in readiness["message"]
     assert "维普:未启用" in readiness["message"]
+
+
+def test_dedup_strategy_forces_llm_when_algorithm_submitted(
+    client: TestClient,
+    admin_override,
+) -> None:
+    resp = client.post(
+        "/api/v1/admin/configs/dedup_strategy",
+        json={
+            "cnki": {"dedup": {"enabled": True, "active_strategy": "algorithm"}},
+            "vip": {"dedup": {"enabled": True, "active_strategy": "algorithm"}},
+        },
+    )
+    assert resp.status_code == 200
+    value = resp.json()["data"]["value"]
+    assert value["cnki"]["dedup"]["active_strategy"] == "llm"
+    assert value["vip"]["dedup"]["active_strategy"] == "llm"
 
 
 def test_save_aigc_detect_strategy_config_and_readiness(

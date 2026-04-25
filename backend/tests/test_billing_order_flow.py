@@ -136,6 +136,36 @@ def test_create_order_for_miniprogram_returns_payment_params(
         app.dependency_overrides.pop(current_user, None)
 
 
+def test_create_order_persists_package_snapshot(
+    client: TestClient,
+    db_session: Session,
+) -> None:
+    package = DEFAULT_BILLING_PACKAGES[0]
+    user = User(phone="13800006698", nickname="snapshot-user", credits=0)
+    db_session.add(user)
+    db_session.commit()
+    db_session.refresh(user)
+
+    app.dependency_overrides[current_user] = lambda: user
+    try:
+        resp = client.post("/api/v1/billing/create-order", json={"package_name": package["name"], "provider": "mock"})
+        assert resp.status_code == 200
+        data = resp.json()["data"]
+        snapshot = data["package_snapshot"]
+        assert snapshot["name"] == package["name"]
+        assert snapshot["credits"] == int(package["credits"])
+        assert snapshot["processable_chars"] == int(package["credits"])
+        assert snapshot["audience"] == package["audience"]
+
+        row = db_session.query(Order).filter(Order.order_no == data["order_no"]).first()
+        assert row is not None
+        assert isinstance(row.package_snapshot, dict)
+        assert row.package_snapshot["name"] == package["name"]
+        assert row.package_snapshot["discount_note"] == package["discount_note"]
+    finally:
+        app.dependency_overrides.pop(current_user, None)
+
+
 def test_create_order_for_miniprogram_requires_openid(
     client: TestClient,
     db_session: Session,

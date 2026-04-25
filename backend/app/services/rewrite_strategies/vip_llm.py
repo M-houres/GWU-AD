@@ -1,40 +1,70 @@
 from __future__ import annotations
 
+from app.exceptions import BizError
 from app.models import Task, TaskType
+from app.services.llm_service import load_llm_config
+from app.services.vip_wp2_prompt import build_vip_rewrite_prompt, build_vip_rewrite_validation_prompt
+from app.services.vip_wp2_runtime import (
+    generate_json_payload,
+    validate_wp2_prompt_b_payload,
+    wp2_prompt_b_passed,
+)
 from app.services.llm_service import generate_with_llm
-from app.services.strategy_prompt_assets import build_slot_positive_examples, build_slot_prompt_examples
-from app.services.strategy_style_profiles import build_rewrite_style_guidance
-from app.services.rewrite_strategies.validators import adjust_to_target_length
-from app.services.rewrite_strategies.vip_algorithm import rewrite as algorithm_rewrite
 
 
-def _prompt(text: str) -> str:
-    positive_examples = build_slot_positive_examples("vip.rewrite.llm")
-    negative_examples = build_slot_prompt_examples("vip.rewrite.llm")
-    style_guidance = build_rewrite_style_guidance("vip")
-    return (
-        "你是一名专业中文文本改写师。请对以下文本执行维普降AIGC率改写。\n"
-        "综合运用句式重组、句序微调、长短句调节和段落级顺滑，不要依赖词级硬替换。"
-        "保持标题、段落、表格、引文、数据、术语和主旨不变；中文字符数优先控制在增加 5% 到 8%。\n"
-        "需要兼容教育、医学、法学/政策、财经管理、工程/计算机、人文社科等不同专业论文，"
-        "必须保留“临床路径”“证据链完整性”“并购整合”“边缘计算架构”“社区记忆”等专业名词的完整表达。\n"
-        f"{style_guidance}\n"
-        "需要优先改写核心判断句和总结句的句法骨架，不要只做局部替词或只把“本文/本研究”替换成“该研究”。"
-        "禁止输出“作为属于”“蕴含包括着”“将把”“能够可以”“可以能够”“路径方式”“模型式”等低质量拼接表达。"
-        "需要兼容不同专业论文，优先保证自然度、完整术语和论证连贯性。\n"
-        f"{positive_examples}\n"
-        f"{negative_examples}\n"
-        "只输出改写后的完整文本，不要解释。\n\n"
-        f"原文：\n{text}"
+def _prompt(text: str, *, chunk_index: int = 1, chunk_total: int = 1) -> str:
+    return build_vip_rewrite_prompt(text, chunk_index=chunk_index, chunk_total=chunk_total)
+
+
+def _run_prompt_b_validation(db, *, source_text: str, rewritten_text: str) -> dict:
+    payload = generate_json_payload(
+        db,
+        task_type=TaskType.REWRITE,
+        prompt=build_vip_rewrite_validation_prompt(source_text, rewritten_text),
+        error_code=4631,
+        error_message="维普降AIGC校验阶段未返回有效JSON",
     )
+    return validate_wp2_prompt_b_payload(payload, error_code=4631, stage_label="维普降AIGC校验阶段")
 
 
 def rewrite(db, *, task: Task | None, text: str, report_summary: dict | None = None) -> dict:
+    llm_cfg = load_llm_config(db)
+    content = str(text or "")
+
     try:
-        output = generate_with_llm(db, task_type=TaskType.REWRITE, text=_prompt(text))
-        rule_trace = {"mode": "llm_prompt", "applied_rules": ["llm:vip_prompt"], "protected_hits": []}
-    except Exception:
-        output = algorithm_rewrite(db, task=task, text=text, report_summary=report_summary)
-        return output
-    output = adjust_to_target_length(output, source_text=text, platform="vip")
-    return {"text": output, "rule_trace": rule_trace}
+        output = str(
+            generate_with_llm(
+                db,
+                task_type=TaskType.REWRITE,
+                text=_prompt(content, chunk_index=1, chunk_total=1),
+            )
+            or ""
+        ).strip()
+        if not output:
+            raise BizError(code=4623, message="维普降AIGC大模型改写失败: Prompt A 输出为空")
+        prompt_b = _run_prompt_b_validation(db, source_text=text, rewritten_text=output)
+        if not wp2_prompt_b_passed(prompt_b):
+            issues = prompt_b.get("issues") if isinstance(prompt_b.get("issues"), list) else []
+            issue_text = "；".join(str(item.get("detail") or "").strip() for item in issues[:3] if isinstance(item, dict))
+            raise BizError(code=4632, message=f"维普降AIGC WP2校验未通过{f'：{issue_text}' if issue_text else ''}")
+        rule_trace = {
+            "mode": "llm_prompt_ab_strict_wp2_global",
+            "applied_rules": [
+                "llm:vip_wp2_prompt_a:strict_wp2_global",
+                "llm:vip_wp2_prompt_b:validation",
+            ],
+            "protected_hits": [],
+            "strategy_version": "vip_wp2_rewrite_llm_ab_strict",
+            "chunk_count": 1,
+            "technical_chunking": False,
+            "prompt_b_validation": prompt_b,
+            "llm_provider": str(llm_cfg.get("provider") or ""),
+            "llm_model": str(llm_cfg.get("model") or ""),
+        }
+    except Exception as exc:
+        raise BizError(code=4623, message=f"维普降AIGC大模型改写失败: {exc}") from exc
+
+    if output.strip():
+        return {"text": output, "rule_trace": rule_trace}
+
+    raise BizError(code=4633, message="维普降AIGC大模型结果为空")

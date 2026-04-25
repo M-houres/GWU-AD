@@ -29,6 +29,7 @@ from app.services.task_query_actions import (
 from app.services.task_artifacts import (
     build_storage_name,
     remove_uploads,
+    serialize_task_artifact_path,
     safe_remove_task_artifact,
     save_upload_to,
 )
@@ -464,8 +465,8 @@ def submit_task(
             source=client_source,
             status=TaskStatus.PREPROCESSING if settings.app_env != "test" else TaskStatus.PENDING,
             source_filename=src_name,
-            source_path=str(src_path),
-            report_path=report_path,
+            source_path=serialize_task_artifact_path(src_path) or str(src_path),
+            report_path=serialize_task_artifact_path(report_file_path) if report_file_path else report_path,
             char_count=0,
             cost_credits=0,
             result_json=submission_meta or None,

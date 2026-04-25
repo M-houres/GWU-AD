@@ -1,32 +1,22 @@
 export const PACKAGE_PRESENTATION = {
-  入门版: {
-    audienceText: "适合首次提交或轻量试用",
-    descriptionText: "适合首次提交或轻量试用，先完成一篇文稿的真实处理体验。",
+  体验包: {
+    audienceText: "C端新人体验",
+    descriptionText: "适合首次充值和轻量体验，先验证整套处理链路是否符合自己的使用预期。",
     toneClass: "is-slate",
   },
-  基础版: {
-    audienceText: "适合常规单人使用",
-    descriptionText: "适合常规单人使用，覆盖日常检测、降重和降 AIGC 需求。",
+  进阶包: {
+    audienceText: "个人长期自用",
+    descriptionText: "适合个人持续使用，兼顾价格门槛、处理规模和日常储备。",
     toneClass: "is-azure",
   },
-  专业版: {
-    audienceText: "适合多篇文稿反复修改",
-    descriptionText: "适合多篇文稿反复修改，在定稿阶段更从容地做多轮处理。",
+  团队包: {
+    audienceText: "小团队 / 小代理",
+    descriptionText: "适合多人协作或多篇文稿集中处理，单价已经进入高优惠区间。",
     toneClass: "is-amber",
   },
-  增强版: {
-    audienceText: "适合连续提交和批量处理",
-    descriptionText: "适合连续提交和批量处理，兼顾批量任务与点数储备。",
-    toneClass: "is-graphite",
-  },
-  高级版: {
-    audienceText: "适合中高频长期使用",
-    descriptionText: "适合中高频长期使用，在较长周期内保持稳定处理能力。",
-    toneClass: "is-azure",
-  },
-  旗舰版: {
-    audienceText: "适合团队或高频大规模使用",
-    descriptionText: "适合团队或高频大规模使用，满足持续批量提交场景。",
+  批量包: {
+    audienceText: "B端工作室批发",
+    descriptionText: "适合稳定批量处理场景，在现有套餐体系中达到更低的单位处理成本。",
     toneClass: "is-graphite",
   },
 }
@@ -54,22 +44,31 @@ export function normalizePackageOption(item, index) {
   }
 
   const presentation = PACKAGE_PRESENTATION[packageName] || {}
-  const estimatedArticles = Math.max(1, Math.floor(credits / 8000))
+  const processableChars = Math.max(0, Math.round(Number(item?.processable_chars ?? credits) || 0))
+  const pricePerKchar = Number(item?.price_per_kchar ?? (processableChars > 0 ? amountCny / (processableChars / 1000) : 0))
+  const audienceText = String(item?.audience || "").trim() || presentation.audienceText || "适合按需补充处理字数"
+  const descriptionText = String(item?.description || "").trim() || presentation.descriptionText || "适合当前阶段补充处理字数储备。"
+  const discountNote = String(item?.discount_note || "").trim()
 
   return {
     key: packageName || `package_${index}`,
     packageName,
     displayName: packageName,
-    priceLabel: amountCny.toFixed(2),
-    priceHint: "一次购买，立即到账",
+    priceLabel: amountCny.toFixed(1).replace(/\.0$/, ".0"),
+    priceHint: "一次购买，支付成功后立即到账",
     credits,
-    creditsLabel: `${credits.toLocaleString()} 通用点数`,
+    creditsLabel: `${credits.toLocaleString()} 积分`,
+    processableChars,
+    processableCharsLabel: `${processableChars.toLocaleString()} 字`,
+    pricePerKchar,
+    pricePerKcharLabel: `${pricePerKchar.toFixed(2)} 元/千字`,
     badge: String(item?.badge || "").trim(),
     toneClass: presentation.toneClass || "is-slate",
-    audienceText: presentation.audienceText || "适合按需补充通用点数",
-    descriptionText: presentation.descriptionText || String(item?.description || "").trim() || "适合当前阶段补充点数储备。",
-    estimateHeadline: `约可处理 ${estimatedArticles} 篇 8000 字文稿`,
-    estimateText: `按当前计费口径估算，约可处理 ${estimatedArticles} 篇 8000 字文稿。`,
+    audienceText,
+    descriptionText,
+    discountNote,
+    estimateHeadline: `约可处理 ${processableChars.toLocaleString()} 字`,
+    estimateText: `按当前规则 1 积分 = 1 字符，约可处理 ${processableChars.toLocaleString()} 字内容。`,
   }
 }
 

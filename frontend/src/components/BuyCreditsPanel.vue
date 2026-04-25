@@ -3,19 +3,19 @@
     <header class="pricing-hero">
       <div class="pricing-hero__copy">
         <div class="pricing-stage__top-tags">
-          <span class="pricing-stage__tag pricing-stage__tag--solid">充值通用点数</span>
+          <span class="pricing-stage__tag pricing-stage__tag--solid">可处理字数套餐</span>
           <span class="pricing-stage__tag" :class="paymentTestMode ? 'pricing-stage__tag--warn' : 'pricing-stage__tag--soft'">
             {{ paymentTipText }}
           </span>
         </div>
-        <h2 class="pricing-hero__title">按任务体量选择合适套餐</h2>
+        <h2 class="pricing-hero__title">按处理规模选择合适套餐</h2>
         <p class="pricing-hero__lead">
-          当前按字符数扣减通用点数。以下估算统一按 8000 字 / 篇文稿计算，便于快速判断大致使用量。
+          套餐适用于检测、降重、改写等多个业务场景。统一规则：1 积分 = 1 字符。
         </p>
       </div>
       <div class="pricing-hero__hint">
         <strong>当前口径</strong>
-        <span>1 字符约扣 1 点数</span>
+        <span>1 积分 = 1 字符</span>
       </div>
     </header>
 
@@ -51,12 +51,22 @@
 
         <div class="pricing-card__points">
           <strong>{{ item.creditsLabel }}</strong>
-          <span>{{ item.estimateHeadline }}</span>
+          <span>约可处理 {{ item.processableCharsLabel }}</span>
         </div>
 
         <div class="pricing-card__estimate">
-          <div class="pricing-card__estimate-kicker">使用估算</div>
-          <p>{{ item.estimateText }}</p>
+          <div class="pricing-card__estimate-kicker">折合单价</div>
+          <p>{{ item.pricePerKcharLabel }}</p>
+        </div>
+
+        <div class="pricing-card__estimate">
+          <div class="pricing-card__estimate-kicker">适合人群</div>
+          <p>{{ item.audienceText }}</p>
+        </div>
+
+        <div v-if="item.discountNote" class="pricing-card__estimate">
+          <div class="pricing-card__estimate-kicker">梯度说明</div>
+          <p>{{ item.discountNote }}</p>
         </div>
 
         <p class="pricing-card__desc">{{ item.descriptionText }}</p>
@@ -92,21 +102,25 @@
                 <strong>¥{{ selectedPackage.priceLabel }}</strong>
               </div>
               <div class="pricing-modal__fact">
-                <span>到账点数</span>
+                <span>获得积分</span>
                 <strong>{{ selectedPackage.creditsLabel }}</strong>
               </div>
               <div class="pricing-modal__fact">
-                <span>使用场景</span>
-                <strong>{{ selectedPackage.audienceText }}</strong>
+                <span>可处理字数</span>
+                <strong>{{ selectedPackage.processableCharsLabel }}</strong>
               </div>
               <div class="pricing-modal__fact">
-                <span>估算处理量</span>
-                <strong>{{ selectedPackage.estimateHeadline }}</strong>
+                <span>折合单价</span>
+                <strong>{{ selectedPackage.pricePerKcharLabel }}</strong>
+              </div>
+              <div class="pricing-modal__fact">
+                <span>适合人群</span>
+                <strong>{{ selectedPackage.audienceText }}</strong>
               </div>
             </div>
 
             <div class="pricing-modal__note">
-              <strong>估算说明</strong>
+              <strong>规则说明</strong>
               <span>{{ selectedPackage.estimateText }}</span>
             </div>
           </div>

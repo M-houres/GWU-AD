@@ -162,6 +162,20 @@ def _merge_task_result_metadata(existing_result, new_result) -> dict:
 def dispatch_background_task(task, *args, queue: str | None = None, **kwargs) -> str:
     task_name = getattr(task, "name", getattr(task, "__name__", "unknown_task"))
     normalized_queue = _normalize_local_queue_name(queue)
+    if not settings.is_prod and settings.celery_local_fallback_enabled:
+        try:
+            local_queue = _get_local_task_queue(normalized_queue)
+            _ensure_local_workers(normalized_queue)
+            local_queue.put((task, args, kwargs, task_name))
+            return "local-queue"
+        except Exception:
+            logger.warning(
+                "local_queue_dispatch_failed_run_inline",
+                exc_info=True,
+                extra={"task_name": task_name},
+            )
+            _run_task_locally(task, args, kwargs, task_name)
+            return "inline"
     if _celery_broker_available():
         can_dispatch_celery = True
         if not settings.is_prod and settings.celery_local_fallback_enabled and not _celery_worker_available():

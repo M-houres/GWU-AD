@@ -1,19 +1,15 @@
 from app.services.strategy_slot_evaluation import evaluate_strategy_slots, render_strategy_slot_evaluation_report
 
 
-def test_evaluate_strategy_slots_covers_all_eight_slots() -> None:
+def test_evaluate_strategy_slots_covers_all_four_slots() -> None:
     payload = evaluate_strategy_slots()
     slots = {row["slot"] for row in payload["slots"]}
 
-    assert payload["summary"]["slot_count"] == 8
+    assert payload["summary"]["slot_count"] == 4
     assert slots == {
-        "cnki.rewrite.algorithm",
         "cnki.rewrite.llm",
-        "cnki.dedup.algorithm",
         "cnki.dedup.llm",
-        "vip.rewrite.algorithm",
         "vip.rewrite.llm",
-        "vip.dedup.algorithm",
         "vip.dedup.llm",
     }
 
@@ -31,6 +27,6 @@ def test_render_strategy_slot_evaluation_report_includes_slot_names() -> None:
     payload = evaluate_strategy_slots()
     content = render_strategy_slot_evaluation_report(payload)
 
-    assert "八槽位策略评估" in content
-    assert "cnki.rewrite.algorithm" in content
+    assert "四槽位策略评估" in content
+    assert "cnki.rewrite.llm" in content
     assert "vip.dedup.llm" in content

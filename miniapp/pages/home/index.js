@@ -9,6 +9,7 @@ const {
   clearHomeDraft,
   setReferrerCode,
 } = require("../../utils/storage")
+const { capturePartnerTracking } = require("../../utils/partnerTracking")
 const {
   isTaskSubmitRecoverableError,
   recoverSubmittedTask,
@@ -157,6 +158,7 @@ Page({
     if (sharedRef) {
       setReferrerCode(sharedRef)
     }
+    capturePartnerTracking(options)
     this.restoreDraft()
     this.syncSelectedMeta()
   },

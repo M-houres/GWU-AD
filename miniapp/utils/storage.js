@@ -4,6 +4,7 @@ const USER_KEY = "gw_user_profile"
 const AUTH_PENDING_KEY = "gw_auth_pending"
 const HOME_DRAFT_KEY = "gw_home_draft"
 const REFERRER_CODE_KEY = "gw_referrer_code"
+const PARTNER_TRACKING_KEY = "gw_partner_tracking"
 
 const ACCESS_TOKEN_TTL_MS = 2 * 60 * 60 * 1000
 const REFRESH_TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000
@@ -125,6 +126,44 @@ function clearReferrerCode() {
   wx.removeStorageSync(REFERRER_CODE_KEY)
 }
 
+function normalizeChannelCode(value = "") {
+  return String(value || "").trim().toUpperCase().replace(/[^A-Z0-9_-]/g, "").slice(0, 32)
+}
+
+function normalizeChannelToken(value = "") {
+  return String(value || "").trim().slice(0, 128)
+}
+
+function setPartnerTracking(payload) {
+  const channelCode = normalizeChannelCode(payload && payload.channel_code)
+  const channelToken = normalizeChannelToken(payload && payload.channel_token)
+  if (!channelCode || !channelToken) {
+    wx.removeStorageSync(PARTNER_TRACKING_KEY)
+    return
+  }
+  wx.setStorageSync(PARTNER_TRACKING_KEY, {
+    channel_code: channelCode,
+    channel_token: channelToken,
+    captured_at: Date.now(),
+  })
+}
+
+function getPartnerTracking() {
+  const raw = wx.getStorageSync(PARTNER_TRACKING_KEY)
+  if (!raw || typeof raw !== "object") return null
+  const channelCode = normalizeChannelCode(raw.channel_code)
+  const channelToken = normalizeChannelToken(raw.channel_token)
+  if (!channelCode || !channelToken) return null
+  return {
+    channel_code: channelCode,
+    channel_token: channelToken,
+  }
+}
+
+function clearPartnerTracking() {
+  wx.removeStorageSync(PARTNER_TRACKING_KEY)
+}
+
 function clearAuthState() {
   clearToken()
   clearRefreshToken()
@@ -152,5 +191,8 @@ module.exports = {
   setReferrerCode,
   getReferrerCode,
   clearReferrerCode,
+  setPartnerTracking,
+  getPartnerTracking,
+  clearPartnerTracking,
   clearAuthState,
 }

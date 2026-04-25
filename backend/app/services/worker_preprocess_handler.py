@@ -3,6 +3,7 @@ from pathlib import Path
 
 from app.models import CreditType, Task, TaskStatus, TaskType, User
 from app.services.partner_rebate_service import record_task_consume_rebate
+from app.services.task_artifacts import resolve_task_artifact_path
 
 
 def run_preprocess_submission(
@@ -45,10 +46,16 @@ def run_preprocess_submission(
     if task is None:
         return {"ok": False, "reason": "task_not_found"}
 
+    source_path = resolve_task_artifact_path(task.source_path)
+    if source_path is None:
+        raise FileNotFoundError("任务原文不存在")
     if task.report_path:
-        validate_report_content(task.task_type, Path(task.report_path))
+        report_path = resolve_task_artifact_path(task.report_path)
+        if report_path is None:
+            raise FileNotFoundError("任务报告不存在")
+        validate_report_content(task.task_type, report_path)
 
-    text = extract_text_from_file(Path(task.source_path))
+    text = extract_text_from_file(source_path)
     char_count = count_billable_chars(text)
     if char_count <= 0:
         raise ValueError("文档字符数为0，无法处理")

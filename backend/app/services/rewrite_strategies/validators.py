@@ -47,6 +47,9 @@ def adjust_to_target_length(
     if source_len <= 0 or not output:
         return output
     normalized_platform = str(platform or "").strip().lower()
+    if normalized_platform == "vip" and min_ratio == 0.03 and max_ratio == 0.10:
+        min_ratio = 0.20
+        max_ratio = 0.30
     min_len = int(source_len * (1 + min_ratio))
     max_len = int(source_len * (1 + max_ratio))
     current = chinese_length(output)
@@ -57,7 +60,7 @@ def adjust_to_target_length(
         if chinese_length(expanded) > current:
             output = expanded
             current = chinese_length(output)
-        if current < min_len and allow_soft_expansion and normalized_platform != "cnki":
+        if current < min_len and allow_soft_expansion and normalized_platform not in {"cnki", "vip"}:
             expanded = _expand_with_sentence_connectors(output, min_len=min_len)
             if chinese_length(expanded) > current:
                 output = expanded
@@ -127,15 +130,27 @@ def validate_rewrite_output(
 
     length_ok = True
     if strict_length and source_len >= 40:
-        length_ok = 0.03 <= ratio <= 0.10
-        if not length_ok:
-            warnings.append(f"降AIGC率结果字数浮动未达到建议 3%~10%: {ratio:.2%}")
-        if not (-0.1 <= ratio <= 0.2):
-            raise BizError(code=4612, message=f"降AIGC率结果字数浮动超出可处理范围: {ratio:.2%}")
+        if normalized_platform == "vip":
+            length_ok = 0.20 <= ratio <= 0.30
+            if not length_ok:
+                warnings.append(f"维普WP2扩写量未达到建议 20%~30%: {ratio:.2%}")
+            if not (0.10 <= ratio <= 0.40):
+                raise BizError(code=4612, message=f"维普WP2扩写量超出允许范围: {ratio:.2%}")
+        else:
+            length_ok = 0.03 <= ratio <= 0.10
+            if not length_ok:
+                warnings.append(f"降AIGC率结果字数浮动未达到建议 3%~10%: {ratio:.2%}")
+            if not (-0.1 <= ratio <= 0.2):
+                raise BizError(code=4612, message=f"降AIGC率结果字数浮动超出可处理范围: {ratio:.2%}")
     elif source_len >= 40:
-        length_ok = 0.03 <= ratio <= 0.10
-        if not length_ok:
-            warnings.append(f"降AIGC率结果字数浮动未达到建议 3%~10%: {ratio:.2%}")
+        if normalized_platform == "vip":
+            length_ok = 0.20 <= ratio <= 0.30
+            if not length_ok:
+                warnings.append(f"维普WP2扩写量未达到建议 20%~30%: {ratio:.2%}")
+        else:
+            length_ok = 0.03 <= ratio <= 0.10
+            if not length_ok:
+                warnings.append(f"降AIGC率结果字数浮动未达到建议 3%~10%: {ratio:.2%}")
     elif source_len > 0 and not (0 <= output_len <= max(int(source_len * 1.35), source_len + 30)):
         length_ok = False
         warnings.append("短文本字数浮动偏离较大")

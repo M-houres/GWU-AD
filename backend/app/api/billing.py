@@ -28,6 +28,7 @@ from app.services.payment_service import (
 )
 from app.services.partner_rebate_service import (
     attach_order_attribution_from_request,
+    record_paid_order_rebate,
 )
 from app.utils import make_order_no
 from app.utils_qrcode import build_qrcode_data_url
@@ -94,23 +95,32 @@ def _load_available_packages(db: Session) -> list[dict]:
                     "credits": credits,
                     "description": str(item.get("description", "")).strip(),
                     "badge": str(item.get("badge", "")).strip(),
+                    "audience": str(item.get("audience", "")).strip(),
+                    "discount_note": str(item.get("discount_note", "")).strip(),
+                    "sort_order": int(item.get("sort_order") or len(normalized) + 1),
                 }
             )
 
     if normalized:
-        return normalized
+        return sorted(normalized, key=lambda item: (int(item.get("sort_order", 999)), item["name"]))
 
-    return [
-        {
-            "name": _normalize_package_name(item["name"]),
-            "price": round(float(item["price"]), 2),
-            "credits": int(item["credits"]),
-            "description": str(item.get("description", "")).strip(),
-            "badge": str(item.get("badge", "")).strip(),
-        }
-        for item in DEFAULT_BILLING_PACKAGES
-        if bool(item.get("enabled", True))
-    ]
+    return sorted(
+        [
+            {
+                "name": _normalize_package_name(item["name"]),
+                "price": round(float(item["price"]), 2),
+                "credits": int(item["credits"]),
+                "description": str(item.get("description", "")).strip(),
+                "badge": str(item.get("badge", "")).strip(),
+                "audience": str(item.get("audience", "")).strip(),
+                "discount_note": str(item.get("discount_note", "")).strip(),
+                "sort_order": int(item.get("sort_order") or index + 1),
+            }
+            for index, item in enumerate(DEFAULT_BILLING_PACKAGES)
+            if bool(item.get("enabled", True))
+        ],
+        key=lambda item: (int(item.get("sort_order", 999)), item["name"]),
+    )
 
 
 def _find_package(db: Session, package_name: str) -> dict | None:
@@ -128,8 +138,54 @@ def _find_package(db: Session, package_name: str) -> dict | None:
             "credits": int(legacy["credits"]),
             "description": "",
             "badge": "",
+            "audience": "",
+            "discount_note": "",
+            "sort_order": 999,
         }
     return None
+
+
+def _package_price_per_kchar(price: float | Decimal, credits: int) -> float:
+    if credits <= 0:
+        return 0.0
+    return round(float(price) / (credits / 1000.0), 2)
+
+
+def _build_package_snapshot(
+    package: dict | None,
+    *,
+    fallback_name: str = "",
+    fallback_price: Decimal | float | None = None,
+    fallback_credits: int | None = None,
+) -> dict:
+    source = package if isinstance(package, dict) else {}
+    name = str(source.get("name") or fallback_name or "").strip()
+    price = round(float(source.get("price", fallback_price or 0) or 0), 2)
+    credits = int(source.get("credits", fallback_credits or 0) or 0)
+    price_per_kchar = _package_price_per_kchar(price, credits)
+    return {
+        "name": name,
+        "price": price,
+        "credits": credits,
+        "processable_chars": credits,
+        "price_per_kchar": price_per_kchar,
+        "price_per_kchar_label": f"{price_per_kchar:.2f} 元/千字",
+        "description": str(source.get("description", "")).strip(),
+        "badge": str(source.get("badge", "")).strip(),
+        "audience": str(source.get("audience", "")).strip(),
+        "discount_note": str(source.get("discount_note", "")).strip(),
+        "sort_order": int(source.get("sort_order") or 999),
+    }
+
+
+def _order_package_snapshot(order: Order) -> dict:
+    snapshot = order.package_snapshot if isinstance(order.package_snapshot, dict) else {}
+    return _build_package_snapshot(
+        snapshot,
+        fallback_name=str(snapshot.get("name", "") if isinstance(snapshot, dict) else ""),
+        fallback_price=order.amount_cny,
+        fallback_credits=int(order.credits or 0),
+    )
 
 
 def _order_amount_fen(order: Order) -> int:
@@ -172,6 +228,12 @@ def _settle_package_order(
         paid_amount = to_cny_decimal(pkg["price"])
         package_credits = int(pkg["credits"])
         display_name = normalized_package_name or str(pkg["name"])
+        package_snapshot = _build_package_snapshot(
+            pkg,
+            fallback_name=display_name,
+            fallback_price=paid_amount,
+            fallback_credits=package_credits,
+        )
     else:
         paid_amount = to_cny_decimal(amount_cny)
         if paid_amount < CUSTOM_RECHARGE_MIN_CNY or paid_amount > CUSTOM_RECHARGE_MAX_CNY:
@@ -182,6 +244,12 @@ def _settle_package_order(
             )
         package_credits = int(recharge_credits) if recharge_credits is not None else cny_to_fen(paid_amount)
         display_name = normalized_package_name or f"自定义充值 ¥{cny_to_api(paid_amount):.2f}"
+        package_snapshot = _build_package_snapshot(
+            None,
+            fallback_name=display_name,
+            fallback_price=paid_amount,
+            fallback_credits=package_credits,
+        )
 
     locked_user = db.query(User).filter(User.id == user.id).with_for_update().first()
     if locked_user is None:
@@ -207,6 +275,7 @@ def _settle_package_order(
             user_id=user.id,
             amount_cny=paid_amount,
             credits=recharge_fen,
+            package_snapshot=package_snapshot,
             source=order_source,
             status="paid",
             provider=provider,
@@ -226,6 +295,7 @@ def _settle_package_order(
         )
         order.amount_cny = paid_amount
         order.credits = recharge_fen
+        order.package_snapshot = package_snapshot
         if not order.source:
             order.source = order_source
         order.status = "paid"
@@ -304,6 +374,7 @@ def _pay_pending_order(db: Session, order: Order) -> tuple[Order, bool]:
         source=order.source or getattr(user, "source", "") or DEFAULT_CLIENT_SOURCE,
     )
     db.flush()
+    record_paid_order_rebate(db, order=order)
     return order, False
 
 
@@ -426,13 +497,20 @@ def packages(
     if normalized_scene == MINIPROGRAM_SCENE and supported_providers == ["mock"]:
         payment_test_mode = True
     payment_mode = payment_cfg.get("provider", "wechatpay_v3")
-    items = [
-        {
-            **item,
-            "amount_cny": round(float(item["price"]), 2),
-        }
-        for item in _load_available_packages(db)
-    ]
+    items = []
+    for item in _load_available_packages(db):
+        credits = int(item["credits"])
+        amount_cny = round(float(item["price"]), 2)
+        price_per_kchar = _package_price_per_kchar(amount_cny, credits)
+        items.append(
+            {
+                **item,
+                "amount_cny": amount_cny,
+                "processable_chars": credits,
+                "price_per_kchar": price_per_kchar,
+                "price_per_kchar_label": f"{price_per_kchar:.2f} 元/千字",
+            }
+        )
     if normalized_scene == MINIPROGRAM_SCENE:
         if supported_providers == ["wechat"]:
             message = "小程序当前为微信支付模式"
@@ -509,6 +587,13 @@ def create_order(
     client_source = get_client_source(request)
     recharge_fen = int(recharge_credits)
     reused_open_order = False
+    package = _find_package(db, package_name)
+    package_snapshot = _build_package_snapshot(
+        package,
+        fallback_name=package_name,
+        fallback_price=amount_cny,
+        fallback_credits=recharge_fen,
+    )
     order = _find_reusable_open_order(
         db,
         user_id=user.id,
@@ -523,6 +608,7 @@ def create_order(
             user_id=user.id,
             amount_cny=amount_cny,
             credits=recharge_fen,
+            package_snapshot=package_snapshot,
             source=client_source,
             status="created",
             provider=provider,
@@ -533,6 +619,8 @@ def create_order(
     else:
         reused_open_order = True
         order_no = order.order_no
+        if not isinstance(order.package_snapshot, dict) or not order.package_snapshot:
+            order.package_snapshot = package_snapshot
 
     attach_order_attribution_from_request(
         db,
@@ -610,6 +698,7 @@ def create_order(
             "recharge_fen": _order_amount_fen(order),
             "recharge_cny": _order_amount_cny_api(order),
             "package_name": package_name,
+            "package_snapshot": _order_package_snapshot(order),
             "credits": order.credits,
             "expire_seconds": ORDER_PAY_TIMEOUT_SECONDS,
             "qrcode_data_url": _build_qrcode_data(pay_url) if pay_url else "",
@@ -650,6 +739,7 @@ def order_status(order_no: str, user: User = Depends(current_user), db: Session 
                     "provider": order.provider,
                     "amount_cny": _order_amount_cny_api(order),
                     "recharge_fen": _order_amount_fen(order),
+                    "package_snapshot": _order_package_snapshot(order),
                 }
             )
 
@@ -693,6 +783,7 @@ def order_status(order_no: str, user: User = Depends(current_user), db: Session 
                         "provider": settled_order.provider,
                         "amount_cny": _order_amount_cny_api(settled_order),
                         "recharge_fen": _order_amount_fen(settled_order),
+                        "package_snapshot": _order_package_snapshot(settled_order),
                     }
                 )
             if remote_status == "closed":
@@ -710,6 +801,7 @@ def order_status(order_no: str, user: User = Depends(current_user), db: Session 
                         "provider": order.provider,
                         "amount_cny": _order_amount_cny_api(order),
                         "recharge_fen": _order_amount_fen(order),
+                        "package_snapshot": _order_package_snapshot(order),
                     }
                 )
 
@@ -721,6 +813,7 @@ def order_status(order_no: str, user: User = Depends(current_user), db: Session 
                 "provider": order.provider,
                 "amount_cny": _order_amount_cny_api(order),
                 "recharge_fen": _order_amount_fen(order),
+                "package_snapshot": _order_package_snapshot(order),
             }
         )
     return ok(
@@ -731,6 +824,7 @@ def order_status(order_no: str, user: User = Depends(current_user), db: Session 
             "provider": order.provider,
             "amount_cny": _order_amount_cny_api(order),
             "recharge_fen": _order_amount_fen(order),
+            "package_snapshot": _order_package_snapshot(order),
         }
     )
 
@@ -867,6 +961,7 @@ def mock_pay(
             explicit_channel_code=None,
             explicit_channel_token=None,
         )
+        record_paid_order_rebate(db, order=order)
         db.commit()
     except Exception:
         db.rollback()

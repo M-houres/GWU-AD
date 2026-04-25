@@ -7,11 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.models import SystemConfig
 from app.models import TaskType
-from app.services.rewrite_strategies.assets import CNKI_ASSETS, VIP_ASSETS
-from app.services.rewrite_strategies.rule_engine import apply_platform_rules
 from app.services.dedup_strategies.executor import execute_dedup_strategy
-from app.services.dedup_strategies.assets import CNKI_DEDUP_ASSETS, VIP_DEDUP_ASSETS
-from app.services.dedup_strategies.rule_engine import apply_dedup_rules
 from app.services.dedup_strategies.cnki_llm import _prompt as cnki_dedup_prompt
 from app.services.dedup_strategies.vip_llm import _prompt as vip_dedup_prompt
 from app.services.dedup_strategies.validators import validate_dedup_output
@@ -36,27 +32,33 @@ def test_cnki_llm_rewrite_uses_global_prompt_by_default(db_session: Session, mon
 
     def _fake_generate(_db, *, task_type, text: str):
         calls.append(text)
-        marker = "【输入】\n"
-        if marker in text:
-            return text.split(marker, 1)[1].strip()
-        return text
+        if "输出JSON" in text:
+            if "对比原文与改写文" in text:
+                return (
+                    '{"semantic_ok": true, "grammar_ok": true, "formality_maintained": true, '
+                    '"avg_changes_per_sentence": 2, "char_change": "+12字(+5%)", "diversity_ok": true, '
+                    '"issues": [], "verdict": "pass"}'
+                )
+            return (
+                '{"ambient_formality": "高度书面", "p1_candidates": ["因此"], "p2_candidates": ["路径"], '
+                '"p3_candidates": ["因此"], "p4_candidates": ["本研究"], "frozen_terms": ["方法层面"], '
+                '"high_freq_targets": ["路径"], "avg_n_per_sentence": 3, "needs_sentence_ops": true}'
+            )
+        marker = "输入文本：\n"
+        return text.split(marker, 1)[1].strip() if marker in text else text
 
-    class _Validation:
-        quality_score = 0.95
-
-    monkeypatch.setattr("app.services.rewrite_strategies.cnki_llm.validate_rewrite_output", lambda **kwargs: _Validation())
     monkeypatch.setattr("app.services.rewrite_strategies.cnki_llm.generate_with_llm", _fake_generate)
 
     result = cnki_llm.rewrite(db_session, task=None, text=text, report_summary={})
     trace = result.get("rule_trace") or {}
 
     assert trace.get("chunk_count", 0) == 1
-    assert trace.get("mode") == "llm_prompt_global"
+    assert trace.get("mode") == "llm_prompt_pab_strict_v14_global"
     assert trace.get("technical_chunking") is False
-    assert str(trace.get("strategy_version") or "").startswith("cnki_v5_")
-    assert int(trace.get("template_library_size") or 0) >= 500
-    assert any("当前处理片段：第" in prompt for prompt in calls)
-    assert len(calls) == 1
+    assert trace.get("strategy_version") == "cnki_v14_llm_pab_strict"
+    assert any("分析文本，输出JSON，不加说明。" in prompt for prompt in calls)
+    assert any("阶段一：文本校准" in prompt for prompt in calls)
+    assert len(calls) == 3
 
 
 def test_rewrite_process_uses_report_summary(tmp_path: Path, db_session: Session, monkeypatch) -> None:
@@ -301,9 +303,25 @@ def test_rewrite_cnki_uses_configured_llm_strategy(tmp_path: Path, db_session: S
     )
     db_session.commit()
 
+    def _fake_generate(*_args, **kwargs):
+        prompt = str(kwargs.get("text") or "")
+        if '"ambient_formality"' in prompt:
+            return (
+                '{"ambient_formality": "高度书面", "p1_candidates": ["核心素养"], "p2_candidates": ["过程反馈"], '
+                '"p3_candidates": ["并"], "p4_candidates": ["教学设计"], "frozen_terms": ["核心素养"], '
+                '"high_freq_targets": ["设计"], "avg_n_per_sentence": 3, "needs_sentence_ops": true}'
+            )
+        if '"semantic_ok"' in prompt:
+            return (
+                '{"semantic_ok": true, "grammar_ok": true, "formality_maintained": true, '
+                '"avg_changes_per_sentence": 3, "char_change": "+12字(+14%)", "diversity_ok": true, '
+                '"issues": [], "verdict": "pass"}'
+            )
+        return "核心素养导向下的教学设计需要兼顾活动组织、过程反馈与实施节奏，以保持原有论证脉络。"
+
     monkeypatch.setattr(
         "app.services.rewrite_strategies.cnki_llm.generate_with_llm",
-        lambda *_args, **_kwargs: "核心素养导向下的教学设计需要兼顾活动组织、过程反馈与实施节奏，以保持原有论证脉络。",
+        _fake_generate,
     )
 
     engine = ProcessingEngine(db_session)
@@ -316,10 +334,32 @@ def test_rewrite_cnki_uses_configured_llm_strategy(tmp_path: Path, db_session: S
     assert "algo_package_used" not in result.result_json
 
 
-def test_rewrite_vip_uses_configured_algorithm_strategy(tmp_path: Path, db_session: Session) -> None:
+def test_rewrite_vip_forces_llm_strategy_and_uses_wp2_runtime(
+    tmp_path: Path, db_session: Session, monkeypatch
+) -> None:
     source_path = tmp_path / "rewrite_vip.txt"
     output_path = tmp_path / "rewrite_vip_out.txt"
-    source_path.write_text("课程评价机制的优化需要兼顾反馈时效与教学组织的可执行性。", encoding="utf-8")
+    source_path.write_text(
+        "课程评价机制的优化需要兼顾反馈时效与教学组织的可执行性，并保持实施反馈的稳定衔接，以支撑课堂治理质量提升。",
+        encoding="utf-8",
+    )
+
+    def _fake_generate(*_args, **_kwargs):
+        text = str(_kwargs.get("text") or "")
+        if "输出JSON" in text and "对比原文与改写文" in text:
+            return (
+                '{"semantic_ok": true, "expansion_ratio": "+26%", "expansion_ok": true, '
+                '"additive_style": true, "readability_ok": true, '
+                '"mechanism_distribution": {"M1动词叠加": 2, "M2名词叠加": 2, "M3功能词并置": 1, '
+                '"M4进行化": 1, "M5字符融合": 0}, "issues": [], "verdict": "pass"}'
+            )
+        return (
+            "课程评价机制方式的优化需要兼顾反馈时效与教学组织的可执行性，并保持实施反馈的稳定衔接过程环节，"
+            "以支撑课堂治理质量提升并形成更清晰的执行步骤。"
+        )
+
+    monkeypatch.setattr("app.services.rewrite_strategies.vip_llm.generate_with_llm", _fake_generate)
+    monkeypatch.setattr("app.services.vip_wp2_runtime.generate_with_llm", _fake_generate)
 
     db_session.add(
         SystemConfig(
@@ -338,139 +378,43 @@ def test_rewrite_vip_uses_configured_algorithm_strategy(tmp_path: Path, db_sessi
     result = engine.process(TaskType.REWRITE, "vip", source_path, output_path, task_id=12)
 
     assert output_path.exists()
-    assert result.result_json["rewrite_strategy"]["strategy"] == "algorithm"
-    assert result.result_json["rewrite_strategy"]["platform"] == "vip"
-    assert result.result_json["llm_used"] is False
+    strategy = result.result_json["rewrite_strategy"]
+    assert strategy["strategy"] == "llm"
+    assert strategy["platform"] == "vip"
+    assert result.result_json["llm_used"] is True
     assert "algo_package_used" not in result.result_json
+    assert "vip_wp2_rewrite_llm_ab_strict" == strategy["rule_trace"]["strategy_version"]
+    assert strategy["rule_trace"]["prompt_b_validation"]["verdict"] == "pass"
+    assert strategy["quality_flags"]["strict_wp2_prompt_b_passed"] is True
     assert output_path.read_text(encoding="utf-8")
 
 
-def test_rewrite_cnki_broken_term_output_uses_internal_fallback(tmp_path: Path, db_session: Session, monkeypatch) -> None:
-    source_path = tmp_path / "rewrite_broken_term.txt"
-    output_path = tmp_path / "rewrite_broken_term_out.txt"
-    source_path.write_text("研究强调可视化表达在课堂反馈中的支撑作用。", encoding="utf-8")
-
-    db_session.add(
-        SystemConfig(
-            category="system",
-            config_key="rewrite_strategy",
-            config_value={
-                "cnki": {"rewrite": {"enabled": True, "active_strategy": "llm"}},
-                "vip": {"rewrite": {"enabled": True, "active_strategy": "algorithm"}},
-            },
-            updated_by=1,
-        )
-    )
-    db_session.commit()
-
-    monkeypatch.setattr(
-        "app.services.rewrite_strategies.cnki_llm.generate_with_llm",
-        lambda *_args, **_kwargs: "研究强调可以视化表达在课堂反馈中的支撑作用，并进一步保持原有论证脉络。",
-    )
-
-    engine = ProcessingEngine(db_session)
-    result = engine.process(TaskType.REWRITE, "cnki", source_path, output_path, task_id=13)
-
-    content = output_path.read_text(encoding="utf-8")
-    strategy = result.result_json["rewrite_strategy"]
-    assert output_path.exists()
-    assert content
-    assert "可视化表达" in content
-    assert strategy["rule_trace"]["mode"] == "rewrite_rule_engine"
-    assert strategy["rule_trace"]["llm_fallback"] is True
-    assert strategy["rule_trace"]["rule_pool_size"] >= 1000
-
-
-def test_rewrite_cnki_algorithm_keeps_protected_terms_and_records_rule_trace(
-    tmp_path: Path, db_session: Session
-) -> None:
-    source_path = tmp_path / "rewrite_cnki_assets.txt"
-    output_path = tmp_path / "rewrite_cnki_assets_out.txt"
-    source_path.write_text(
-        "研究表明，核心素养导向下的可视化学习任务需要依托学情诊断结果进行统筹设计。",
-        encoding="utf-8",
-    )
-
-    db_session.add(
-        SystemConfig(
-            category="system",
-            config_key="rewrite_strategy",
-            config_value={
-                "cnki": {"rewrite": {"enabled": True, "active_strategy": "algorithm"}},
-                "vip": {"rewrite": {"enabled": True, "active_strategy": "algorithm"}},
-            },
-            updated_by=1,
-        )
-    )
-    db_session.commit()
-
-    engine = ProcessingEngine(db_session)
-    result = engine.process(TaskType.REWRITE, "cnki", source_path, output_path, task_id=14)
-
-    content = output_path.read_text(encoding="utf-8")
-    trace = result.result_json["rewrite_strategy"]["rule_trace"]
-    assert "核心素养" in content
-    assert "可视化" in content
-    assert "学情诊断" in content
-    assert trace["protected_hits"]
-    assert trace["rule_pool_size"] >= 1000
-    assert trace["chunk_count"] >= 1
-    assert "S" in trace["active_quality_tiers"]
-    assert "A" in trace["active_quality_tiers"]
-    assert any(
-        item.startswith("synonym:")
-        or item.startswith("sentence_shape:")
-        or item.startswith("sentence_opening:")
-        or item.startswith("cnki_reframe:")
-        or item.startswith("structural:")
-        for item in trace["applied_rules"]
-    )
-
-
-def test_rewrite_cnki_algorithm_applies_safe_sentence_reframe(tmp_path: Path, db_session: Session) -> None:
-    source_path = tmp_path / "rewrite_cnki_reframe.txt"
-    output_path = tmp_path / "rewrite_cnki_reframe_out.txt"
-    source_path.write_text(
-        "从理论层面来看，本研究认为其核心在于教师共同体建设，这意味着课程实施需要系统协同。",
-        encoding="utf-8",
-    )
-
-    db_session.add(
-        SystemConfig(
-            category="system",
-            config_key="rewrite_strategy",
-            config_value={
-                "cnki": {"rewrite": {"enabled": True, "active_strategy": "algorithm"}},
-                "vip": {"rewrite": {"enabled": True, "active_strategy": "algorithm"}},
-            },
-            updated_by=1,
-        )
-    )
-    db_session.commit()
-
-    engine = ProcessingEngine(db_session)
-    result = engine.process(TaskType.REWRITE, "cnki", source_path, output_path, task_id=43)
-
-    content = output_path.read_text(encoding="utf-8")
-    trace = result.result_json["rewrite_strategy"]["rule_trace"]
-    assert "理论层面" in content
-    assert "研究指出" in content
-    assert "关键在于" in content or "核心在于" in content
-    assert any(
-        item.startswith("cnki_reframe:") or item.startswith("structural:")
-        for item in trace["applied_rules"]
-    )
-
-
-def test_rewrite_vip_algorithm_uses_structural_rules_and_rule_trace(
-    tmp_path: Path, db_session: Session
+def test_rewrite_vip_wp2_prompt_and_rule_trace(
+    tmp_path: Path, db_session: Session, monkeypatch
 ) -> None:
     source_path = tmp_path / "rewrite_vip_assets.txt"
     output_path = tmp_path / "rewrite_vip_assets_out.txt"
     source_path.write_text(
-        "将图书管理与阅读活动结合，能够提升校园阅读生态的整体质量，并形成更加稳定的实施机制。",
+        "将图书管理与阅读活动结合，能够提升校园阅读生态的整体质量，并形成更加稳定的实施机制，以支撑书香校园建设。",
         encoding="utf-8",
     )
+
+    def _fake_generate(*_args, **_kwargs):
+        text = str(_kwargs.get("text") or "")
+        if "输出JSON" in text and "对比原文与改写文" in text:
+            return (
+                '{"semantic_ok": true, "expansion_ratio": "+24%", "expansion_ok": true, '
+                '"additive_style": true, "readability_ok": true, '
+                '"mechanism_distribution": {"M1动词叠加": 2, "M2名词叠加": 2, "M3功能词并置": 2, '
+                '"M4进行化": 1, "M5字符融合": 1}, "issues": [], "verdict": "pass"}'
+            )
+        return (
+            "将把图书管理与阅读活动结合，能够可以提升校园阅读生态的整体质量，并形成更加稳定的实施机制方式，"
+            "以支撑书香校园建设过程环节。"
+        )
+
+    monkeypatch.setattr("app.services.rewrite_strategies.vip_llm.generate_with_llm", _fake_generate)
+    monkeypatch.setattr("app.services.vip_wp2_runtime.generate_with_llm", _fake_generate)
 
     db_session.add(
         SystemConfig(
@@ -492,21 +436,15 @@ def test_rewrite_vip_algorithm_uses_structural_rules_and_rule_trace(
     trace = result.result_json["rewrite_strategy"]["rule_trace"]
     assert content
     assert content != "将图书管理与阅读活动结合，能够提升校园阅读生态的整体质量，并形成更加稳定的实施机制。"
-    assert "将把" not in content
-    assert "能够可以" not in content
-    assert any(
-        item.startswith("synonym:")
-        or item.startswith("sentence_shape:")
-        or item.startswith("postprocess:")
-        or item.startswith("nominalization:")
-        or item.startswith("structural:")
-        or item.startswith("length_adjust:")
-        for item in trace["applied_rules"]
-    )
+    assert "将把" in content
+    assert "能够可以" in content
+    assert trace["strategy_version"] == "vip_wp2_rewrite_llm_ab_strict"
+    assert trace["mode"] == "llm_prompt_ab_strict_wp2_global"
+    assert trace["prompt_b_validation"]["mechanism_distribution"]["M3功能词并置"] >= 1
 
 
-def test_rewrite_cnki_algorithm_applies_structural_parallel_operator(
-    tmp_path: Path, db_session: Session
+def test_rewrite_cnki_freezes_algorithm_config_to_strict_v14_llm(
+    tmp_path: Path, db_session: Session, monkeypatch
 ) -> None:
     source_path = tmp_path / "rewrite_cnki_structural.txt"
     output_path = tmp_path / "rewrite_cnki_structural_out.txt"
@@ -526,64 +464,71 @@ def test_rewrite_cnki_algorithm_applies_structural_parallel_operator(
             updated_by=1,
         )
     )
+    db_session.add(
+        SystemConfig(
+            category="system",
+            config_key="llm",
+            config_value={"enabled": True, "provider": "local_mock", "model": "local-mock-v1", "api_key": "", "base_url": ""},
+            updated_by=1,
+        )
+    )
     db_session.commit()
+
+    def _fake_generate(*_args, **kwargs):
+        prompt = str(kwargs.get("text") or "")
+        if '"ambient_formality"' in prompt:
+            return (
+                '{"ambient_formality": "高度书面", "p1_candidates": ["提升"], "p2_candidates": ["实施节奏"], '
+                '"p3_candidates": ["并"], "p4_candidates": ["需要"], "frozen_terms": ["课程治理"], '
+                '"high_freq_targets": ["提升"], "avg_n_per_sentence": 3, "needs_sentence_ops": true}'
+            )
+        if '"semantic_ok"' in prompt:
+            return (
+                '{"semantic_ok": true, "grammar_ok": true, "formality_maintained": true, '
+                '"avg_changes_per_sentence": 3, "char_change": "+8字(+9%)", "diversity_ok": true, '
+                '"issues": [], "verdict": "pass"}'
+            )
+        return "为了提升课程治理质量，需要同步优化实施节奏，并保持评价反馈的稳定衔接。"
+
+    monkeypatch.setattr("app.services.rewrite_strategies.cnki_llm.generate_with_llm", _fake_generate)
 
     engine = ProcessingEngine(db_session)
     result = engine.process(TaskType.REWRITE, "cnki", source_path, output_path, task_id=109)
 
     content = output_path.read_text(encoding="utf-8")
     trace = result.result_json["rewrite_strategy"]["rule_trace"]
-    assert "既要" in content or "一方面要" in content or "若要" in content
-    assert any(item.startswith("structural:") for item in trace["applied_rules"])
+    assert "同步优化实施节奏" in content
+    assert result.result_json["rewrite_strategy"]["strategy"] == "llm"
+    assert trace["mode"] == "llm_prompt_pab_strict_v14_global"
+    assert not any(item.startswith("structural:") for item in trace["applied_rules"])
 
 
-def test_dedup_cnki_algorithm_uses_independent_platform_strategy(tmp_path: Path, db_session: Session) -> None:
-    source_path = tmp_path / "dedup_cnki.txt"
-    output_path = tmp_path / "dedup_cnki_out.txt"
-    source_path.write_text(
-        "研究表明，核心素养导向下的可视化学习任务需要依托学情诊断结果进行统筹设计，因此需要进一步优化实施路径。",
-        encoding="utf-8",
-    )
-
-    db_session.add(
-        SystemConfig(
-            category="system",
-            config_key="dedup_strategy",
-            config_value={
-                "cnki": {"dedup": {"enabled": True, "active_strategy": "algorithm"}},
-                "vip": {"dedup": {"enabled": True, "active_strategy": "algorithm"}},
-            },
-            updated_by=1,
-        )
-    )
-    db_session.commit()
-
-    engine = ProcessingEngine(db_session)
-    result = engine.process(TaskType.DEDUP, "cnki", source_path, output_path, task_id=31)
-
-    assert output_path.exists()
-    content = output_path.read_text(encoding="utf-8")
-    strategy = result.result_json["dedup_strategy"]
-    assert strategy["strategy"] == "algorithm"
-    assert strategy["platform"] == "cnki"
-    assert "核心素养" in content
-    assert "可视化" in content
-    assert "学情诊断" in content
-    assert result.result_json["rewrite_strategy"] is None
-    assert any(
-        item.startswith("synonym:") or item.startswith("dedup_sentence_shape:")
-        or item.startswith("dedup_structural:")
-        for item in strategy["rule_trace"]["applied_rules"]
-    )
-
-
-def test_dedup_vip_algorithm_uses_structural_rewrite_rules(tmp_path: Path, db_session: Session) -> None:
+def test_dedup_vip_wp2_runtime_uses_additive_strategy(
+    tmp_path: Path, db_session: Session, monkeypatch
+) -> None:
     source_path = tmp_path / "dedup_vip.txt"
     output_path = tmp_path / "dedup_vip_out.txt"
     source_path.write_text(
-        "将图书管理与阅读活动结合，能够提升校园阅读生态的整体质量，并形成更加稳定的实施机制。",
+        "将图书管理与阅读活动结合，能够提升校园阅读生态的整体质量，并形成更加稳定的实施机制，以增强书香校园建设成效。",
         encoding="utf-8",
     )
+
+    def _fake_generate(*_args, **_kwargs):
+        text = str(_kwargs.get("text") or "")
+        if "输出JSON" in text and "对比原文与改写文" in text:
+            return (
+                '{"semantic_ok": true, "expansion_ratio": "+23%", "expansion_ok": true, '
+                '"additive_style": true, "readability_ok": true, '
+                '"mechanism_distribution": {"M1动词叠加": 2, "M2名词叠加": 2, "M3功能词并置": 1, '
+                '"M4进行化": 1, "M5字符融合": 1}, "issues": [], "verdict": "pass"}'
+            )
+        return (
+            "将把图书管理与阅读活动结合，能够可以提升校园阅读生态的整体质量，并形成更加稳定的实施机制方式，"
+            "以增强书香校园建设成效过程环节。"
+        )
+
+    monkeypatch.setattr("app.services.dedup_strategies.vip_llm.generate_with_llm", _fake_generate)
+    monkeypatch.setattr("app.services.vip_wp2_runtime.generate_with_llm", _fake_generate)
 
     db_session.add(
         SystemConfig(
@@ -604,53 +549,23 @@ def test_dedup_vip_algorithm_uses_structural_rewrite_rules(tmp_path: Path, db_se
     assert output_path.exists()
     content = output_path.read_text(encoding="utf-8")
     strategy = result.result_json["dedup_strategy"]
-    assert strategy["strategy"] == "algorithm"
+    assert strategy["strategy"] == "llm"
     assert strategy["platform"] == "vip"
     assert content
     assert content != "将图书管理与阅读活动结合，能够提升校园阅读生态的整体质量，并形成更加稳定的实施机制。"
-    assert "将把" not in content
-    assert "能够可以" not in content
-    assert "可以进一步" not in content
-    assert any(
-        item.startswith("synonym:")
-        or item.startswith("dedup_structure:")
-        or item.startswith("dedup_structural:")
-        or item.startswith("dedup_sentence_shape:")
-        or item.startswith("postprocess:")
-        for item in strategy["rule_trace"]["applied_rules"]
-    )
+    assert "将把" in content
+    assert "能够可以" in content
+    assert strategy["rule_trace"]["strategy_version"] == "vip_wp2_dedup_llm_ab_strict"
+    assert strategy["rule_trace"]["prompt_b_validation"]["verdict"] == "pass"
+    assert strategy["quality_flags"]["strict_wp2_prompt_b_passed"] is True
 
 
-def test_dedup_vip_algorithm_applies_compact_structural_operator(
-    tmp_path: Path, db_session: Session
-) -> None:
-    source_path = tmp_path / "dedup_vip_structural.txt"
-    output_path = tmp_path / "dedup_vip_structural_out.txt"
-    source_path.write_text(
-        "将图书管理与阅读活动结合，能够提升校园阅读生态的整体质量，并形成更加稳定的实施机制。",
-        encoding="utf-8",
-    )
+def test_dedup_vip_prompt_uses_wp2_template() -> None:
+    prompt = vip_dedup_prompt("示例文本")
 
-    db_session.add(
-        SystemConfig(
-            category="system",
-            config_key="dedup_strategy",
-            config_value={
-                "cnki": {"dedup": {"enabled": True, "active_strategy": "algorithm"}},
-                "vip": {"dedup": {"enabled": True, "active_strategy": "algorithm"}},
-            },
-            updated_by=1,
-        )
-    )
-    db_session.commit()
-
-    engine = ProcessingEngine(db_session)
-    result = engine.process(TaskType.DEDUP, "vip", source_path, output_path, task_id=110)
-
-    content = output_path.read_text(encoding="utf-8")
-    trace = result.result_json["dedup_strategy"]["rule_trace"]
-    assert "既能" in content or "也能" in content
-    assert any(item.startswith("dedup_structural:") for item in trace["applied_rules"])
+    assert "维普风格中文文本改写执行器" in prompt
+    assert "不删原词，在原词旁边叠加语义近邻" in prompt
+    assert "M5｜字符融合" in prompt
 
 
 def test_dedup_cnki_llm_strategy_uses_platform_prompt_and_keeps_dedup_meta(
@@ -663,10 +578,23 @@ def test_dedup_cnki_llm_strategy_uses_platform_prompt_and_keeps_dedup_meta(
         encoding="utf-8",
     )
 
-    monkeypatch.setattr(
-        "app.services.dedup_strategies.cnki_llm.generate_with_llm",
-        lambda *_args, **_kwargs: "核心素养导向下的教学设计需要兼顾活动组织、过程反馈与课堂推进节奏，由此可进一步优化实施路径。",
-    )
+    def _fake_generate(*_args, **_kwargs):
+        text = str(_kwargs.get("text") or "")
+        if "输出JSON" in text:
+            if "对比原文与改写文" in text:
+                return (
+                    '{"semantic_ok": true, "grammar_ok": true, "formality_maintained": true, '
+                    '"avg_changes_per_sentence": 2, "char_change": "+8字(+4%)", "diversity_ok": true, '
+                    '"issues": [], "verdict": "pass"}'
+                )
+            return (
+                '{"ambient_formality": "高度书面", "p1_candidates": ["因此"], "p2_candidates": ["路径"], '
+                '"p3_candidates": ["因此"], "p4_candidates": ["教学设计"], "frozen_terms": ["核心素养"], '
+                '"high_freq_targets": ["路径"], "avg_n_per_sentence": 2, "needs_sentence_ops": true}'
+            )
+        return "核心素养导向下的教学设计需要兼顾活动组织、过程反馈与课堂推进节奏，由此可进一步优化实施路径。"
+
+    monkeypatch.setattr("app.services.dedup_strategies.cnki_llm.generate_with_llm", _fake_generate)
     db_session.add(
         SystemConfig(
             category="system",
@@ -697,95 +625,9 @@ def test_dedup_cnki_llm_strategy_uses_platform_prompt_and_keeps_dedup_meta(
     assert strategy["platform"] == "cnki"
     assert result.result_json["llm_used"] is True
     assert "algo_package_used" not in result.result_json
-    assert strategy["quality_flags"]["protected_content_ok"] is True
-
-
-def test_dedup_vip_llm_strategy_falls_back_to_algorithm_when_llm_fails(
-    tmp_path: Path, db_session: Session, monkeypatch
-) -> None:
-    source_path = tmp_path / "dedup_vip_llm.txt"
-    output_path = tmp_path / "dedup_vip_llm_out.txt"
-    source_path.write_text(
-        "将图书管理与阅读活动结合，能够提升校园阅读生态的整体质量，并形成更加稳定的实施机制。",
-        encoding="utf-8",
-    )
-
-    def _boom(*_args, **_kwargs):
-        raise RuntimeError("llm unavailable")
-
-    monkeypatch.setattr("app.services.dedup_strategies.vip_llm.generate_with_llm", _boom)
-    db_session.add(
-        SystemConfig(
-            category="system",
-            config_key="dedup_strategy",
-            config_value={
-                "cnki": {"dedup": {"enabled": True, "active_strategy": "algorithm"}},
-                "vip": {"dedup": {"enabled": True, "active_strategy": "llm"}},
-            },
-            updated_by=1,
-        )
-    )
-    db_session.add(
-        SystemConfig(
-            category="system",
-            config_key="llm",
-            config_value={"enabled": True, "provider": "local_mock", "model": "local-mock-v1", "api_key": "", "base_url": ""},
-            updated_by=1,
-        )
-    )
-    db_session.commit()
-
-    engine = ProcessingEngine(db_session)
-    result = engine.process(TaskType.DEDUP, "vip", source_path, output_path, task_id=34)
-
-    assert output_path.exists()
-    strategy = result.result_json["dedup_strategy"]
-    assert strategy["strategy"] == "llm"
-    assert strategy["platform"] == "vip"
-    assert result.result_json["llm_used"] is True
-    assert strategy["rule_trace"]["mode"] == "dedup_rule_engine"
-    assert strategy["rule_trace"]["llm_fallback"] is True
-
-
-def test_dedup_algorithm_empty_output_uses_fallback_and_does_not_fail(
-    tmp_path: Path, db_session: Session, monkeypatch
-) -> None:
-    source_path = tmp_path / "dedup_empty.txt"
-    output_path = tmp_path / "dedup_empty_out.txt"
-    source_path.write_text(
-        "因此需要围绕课程实施路径进行优化，同时保持核心素养导向下的教学组织逻辑。",
-        encoding="utf-8",
-    )
-
-    db_session.add(
-        SystemConfig(
-            category="system",
-            config_key="dedup_strategy",
-            config_value={
-                "cnki": {"dedup": {"enabled": True, "active_strategy": "algorithm"}},
-                "vip": {"dedup": {"enabled": True, "active_strategy": "algorithm"}},
-            },
-            updated_by=1,
-        )
-    )
-    db_session.commit()
-
-    monkeypatch.setattr(
-        "app.services.dedup_strategies.cnki_rule_dedup.rewrite",
-        lambda *_args, **_kwargs: {"text": "", "rule_trace": {"mode": "dedup_rule_engine", "applied_rules": []}},
-    )
-
-    engine = ProcessingEngine(db_session)
-    result = engine.process(TaskType.DEDUP, "cnki", source_path, output_path, task_id=35)
-
-    content = output_path.read_text(encoding="utf-8")
-    strategy = result.result_json["dedup_strategy"]
-    assert output_path.exists()
-    assert content
-    assert "由此可见" in content or "本文进一步指出" in content or "有必要" in content
-    assert "降重复率策略空输出，已切换兜底改写" in strategy["warnings"]
-    assert strategy["rule_trace"]["fallback_applied"] is True
-    assert strategy["rule_trace"]["fallback_reason"] == "empty_strategy_output"
+    assert strategy["quality_flags"]["strict_v14_prompt_b_passed"] is True
+    assert strategy["rule_trace"]["mode"] == "dedup_llm_prompt_pab_strict_v14_global"
+    assert strategy["rule_trace"]["strategy_version"] == "cnki_v14_dedup_llm_pab_strict"
 
 
 def test_dedup_validation_rejects_bad_sample_artifacts() -> None:
@@ -837,118 +679,6 @@ def test_dedup_cnki_validation_rejects_mechanical_connective_cascade() -> None:
         )
 
     assert "机械连接词堆叠" in str(exc_info.value)
-
-
-def test_dedup_algorithm_protects_dynamic_cross_domain_terms(tmp_path: Path, db_session: Session) -> None:
-    source_path = tmp_path / "dedup_dynamic_terms.txt"
-    output_path = tmp_path / "dedup_dynamic_terms_out.txt"
-    source_path.write_text(
-        "研究表明，Transformer 模型在 AUC 提升 5.2% 的同时保持 p < 0.05，相关结果见图 2 和文献[12]。",
-        encoding="utf-8",
-    )
-
-    db_session.add(
-        SystemConfig(
-            category="system",
-            config_key="dedup_strategy",
-            config_value={
-                "cnki": {"dedup": {"enabled": True, "active_strategy": "algorithm"}},
-                "vip": {"dedup": {"enabled": True, "active_strategy": "algorithm"}},
-            },
-            updated_by=1,
-        )
-    )
-    db_session.commit()
-
-    engine = ProcessingEngine(db_session)
-    result = engine.process(TaskType.DEDUP, "vip", source_path, output_path, task_id=42)
-
-    content = output_path.read_text(encoding="utf-8")
-    trace = result.result_json["dedup_strategy"]["rule_trace"]
-    assert "Transformer" in content
-    assert "AUC" in content
-    assert "5.2%" in content
-    assert "[12]" in content
-    assert any(token in trace["protected_hits"] for token in ("Transformer", "AUC", "5.2%", "[12]"))
-
-
-def test_dedup_algorithm_protects_dynamic_chinese_cross_domain_terms(tmp_path: Path, db_session: Session) -> None:
-    source_path = tmp_path / "dedup_cross_domain_terms.txt"
-    output_path = tmp_path / "dedup_cross_domain_terms_out.txt"
-    source_path.write_text(
-        "构建现金流风险预警机制能够提升企业财务稳健性，并形成更加稳定的治理结构。",
-        encoding="utf-8",
-    )
-
-    db_session.add(
-        SystemConfig(
-            category="system",
-            config_key="dedup_strategy",
-            config_value={
-                "cnki": {"dedup": {"enabled": True, "active_strategy": "algorithm"}},
-                "vip": {"dedup": {"enabled": True, "active_strategy": "algorithm"}},
-            },
-            updated_by=1,
-        )
-    )
-    db_session.commit()
-
-    engine = ProcessingEngine(db_session)
-    result = engine.process(TaskType.DEDUP, "vip", source_path, output_path, task_id=95)
-
-    content = output_path.read_text(encoding="utf-8")
-    trace = result.result_json["dedup_strategy"]["rule_trace"]
-    assert "现金流风险预警" in content
-    assert "财务稳健性" in content
-    assert "治理结构" in content
-    assert any(token in trace["protected_hits"] for token in ("现金流风险预警", "财务稳健性", "治理结构"))
-
-
-def test_dedup_cnki_algorithm_avoids_sample_like_connective_cascade(
-    tmp_path: Path, db_session: Session
-) -> None:
-    source_path = tmp_path / "dedup_cnki_connectives.txt"
-    output_path = tmp_path / "dedup_cnki_connectives_out.txt"
-    source_path.write_text(
-        (
-            "本文将以创新的视角，运用文献归纳法和案例分析法，从监管方法论、制度演进轨迹、相关法规修订进程等方面，"
-            "围绕派驻监督职能特点和履职现状，剖析存在问题和深层原因，总结相关监督体制研究，提出优化建议。"
-        ),
-        encoding="utf-8",
-    )
-
-    db_session.add(
-        SystemConfig(
-            category="system",
-            config_key="dedup_strategy",
-            config_value={
-                "cnki": {"dedup": {"enabled": True, "active_strategy": "algorithm"}},
-                "vip": {"dedup": {"enabled": True, "active_strategy": "algorithm"}},
-            },
-            updated_by=1,
-        )
-    )
-    db_session.commit()
-
-    engine = ProcessingEngine(db_session)
-    result = engine.process(TaskType.DEDUP, "cnki", source_path, output_path, task_id=87)
-
-    content = output_path.read_text(encoding="utf-8")
-    strategy = result.result_json["dedup_strategy"]
-    connective_hits = sum(content.count(prefix) for prefix in ("同时，", "此外，", "进一步看，", "在此基础上，", "由此可见，"))
-
-    assert content
-    assert connective_hits <= 1
-    assert "这说明其属于" not in content
-    assert "。此外，" not in content
-    assert "。进一步看，" not in content
-    assert "。在此基础上，" not in content
-    assert any(
-        item.startswith("synonym:")
-        or item.startswith("dedup_sentence_shape:")
-        or item.startswith("sentence_opening:")
-        for item in strategy["rule_trace"]["applied_rules"]
-    )
 
 
 def test_rewrite_validation_accepts_borderline_ratio_with_warning() -> None:
@@ -1061,129 +791,49 @@ def test_dedup_validation_marks_style_alignment_gap_for_fragmented_vip_text() ->
         "企业要管理存货。采购要安排。库存要控制。周转要提升。监督也要跟上。"
     )
 
-    result = validate_dedup_output(
-        platform="vip",
-        source_text=source_text,
-        rewritten_text=rewritten_text,
-        rule_trace={"mode": "test"},
-    )
+    with pytest.raises(Exception) as exc_info:
+        validate_dedup_output(
+            platform="vip",
+            source_text=source_text,
+            rewritten_text=rewritten_text,
+            rule_trace={"mode": "test"},
+        )
 
-    assert result.quality_flags["style_profile_available"] is True
-    assert result.quality_flags["style_alignment_ok"] is False
-    assert any("高质量降重样本" in item for item in result.warnings)
+    assert "维普WP2扩写量超出允许范围" in str(exc_info.value)
 
 
-def test_dedup_executor_style_normalizes_fragmented_algorithm_output(db_session: Session, monkeypatch) -> None:
+def test_dedup_vip_wp2_validation_rejects_non_additive_result(db_session: Session, monkeypatch) -> None:
     source_text = (
         "企业存货管理优化需要统筹采购节奏、库存结构、周转效率和监督机制，同时保持论证表达紧凑并与经营情境对应。"
         * 2
     )
 
-    monkeypatch.setattr(
-        "app.services.dedup_strategies.vip_algorithm.rewrite",
-        lambda *_args, **_kwargs: {
-            "text": "企业要管理存货。同时，采购要安排。此外，库存要控制。周转要提升。监督也要跟上。",
-            "rule_trace": {"mode": "dedup_rule_engine", "applied_rules": ["test:fragmented"]},
-        },
-    )
+    def _fake_generate(*_args, **_kwargs):
+        text = str(_kwargs.get("text") or "")
+        if "输出JSON" in text and "对比原文与改写文" in text:
+            return (
+                '{"semantic_ok": true, "expansion_ratio": "+6%", "expansion_ok": false, '
+                '"additive_style": false, "readability_ok": true, '
+                '"mechanism_distribution": {"M1动词叠加": 0, "M2名词叠加": 0, "M3功能词并置": 0, '
+                '"M4进行化": 0, "M5字符融合": 0}, "issues": [{"location":"第1句","type":"叠加方式","detail":"纯替换"}], '
+                '"verdict": "fail"}'
+            )
+        return "企业通过优化采购、库存和周转管理来提升监督效果。"
 
-    result = execute_dedup_strategy(
-        db_session,
-        task=None,
-        platform="vip",
-        text=source_text,
-        report_summary={},
-        strategy="algorithm",
-    )
+    monkeypatch.setattr("app.services.dedup_strategies.vip_llm.generate_with_llm", _fake_generate)
+    monkeypatch.setattr("app.services.vip_wp2_runtime.generate_with_llm", _fake_generate)
 
-    assert result["quality_flags"]["style_profile_available"] is True
-    assert result["quality_flags"]["style_alignment_ok"] is True
-    assert "此外，" not in result["rewritten_text"]
-    assert "采购要安排，库存要控制" in result["rewritten_text"] or "采购要安排。库存要控制" not in result["rewritten_text"]
-    assert any(item.startswith("style_normalize:") for item in result["rule_trace"]["applied_rules"])
-
-
-def test_rewrite_llm_low_quality_output_falls_back_to_rule_engine(
-    tmp_path: Path, db_session: Session, monkeypatch
-) -> None:
-    source_path = tmp_path / "rewrite_llm_low_quality.txt"
-    output_path = tmp_path / "rewrite_llm_low_quality_out.txt"
-    source_path.write_text(
-        "数字化转型背景下的课程治理研究需要兼顾制度逻辑、组织协同、流程优化与评价反馈，并保持段落论证自然展开。"
-        * 2,
-        encoding="utf-8",
-    )
-
-    db_session.add(
-        SystemConfig(
-            category="system",
-            config_key="rewrite_strategy",
-            config_value={
-                "cnki": {"rewrite": {"enabled": True, "active_strategy": "llm"}},
-                "vip": {"rewrite": {"enabled": True, "active_strategy": "algorithm"}},
-            },
-            updated_by=1,
+    with pytest.raises(Exception) as exc_info:
+        execute_dedup_strategy(
+            db_session,
+            task=None,
+            platform="vip",
+            text=source_text,
+            report_summary={},
+            strategy="llm",
         )
-    )
-    db_session.commit()
 
-    monkeypatch.setattr(
-        "app.services.rewrite_strategies.cnki_llm.generate_with_llm",
-        lambda *_args, **_kwargs: "课程治理需要研究。课程治理需要分析。课程治理需要优化。课程治理需要总结。",
-    )
-
-    engine = ProcessingEngine(db_session)
-    result = engine.process(TaskType.REWRITE, "cnki", source_path, output_path, task_id=108)
-
-    strategy = result.result_json["rewrite_strategy"]
-    content = output_path.read_text(encoding="utf-8")
-    assert output_path.exists()
-    assert content
-    assert strategy["strategy"] == "llm"
-    assert strategy["rule_trace"]["mode"] == "rewrite_rule_engine"
-    assert strategy["rule_trace"]["llm_fallback"] is True
-    assert content != "课程治理需要研究。课程治理需要分析。课程治理需要优化。课程治理需要总结。"
-    assert strategy["quality_flags"]["discourse_diversity_ok"] is True
-    assert strategy["quality_score"] >= 0.7
-
-
-def test_dedup_rule_engine_cnki_applies_style_shaping_rules() -> None:
-    text = (
-        "研究表明，课堂治理路径具有重要价值。"
-        "同时，需要进一步优化实施机制。"
-        "此外，需要持续优化反馈环节。"
-        "进一步看，需要梳理协同条件。"
-    )
-
-    output, trace = apply_dedup_rules(None, text=text, assets=CNKI_DEDUP_ASSETS, report_summary={})
-
-    assert "此外，" not in output
-    assert "进一步看，" not in output
-    assert "优化" in output or "改进" in output
-    assert any(item.startswith("dedup_style:cnki_") for item in trace["applied_rules"])
-    assert any(
-        item.startswith("cnki_dedup_reframe:")
-        or item.startswith("template:")
-        or item.startswith("synonym:")
-        or item.startswith("dedup_structural:")
-        for item in trace["applied_rules"]
-    )
-
-
-def test_dedup_rule_engine_vip_applies_style_shaping_rules() -> None:
-    text = (
-        "企业要管理存货。"
-        "同时，采购要安排。"
-        "此外，库存要控制。"
-        "周转要提升。"
-        "监督也要跟上。"
-    )
-
-    output, trace = apply_dedup_rules(None, text=text, assets=VIP_DEDUP_ASSETS, report_summary={})
-
-    assert "此外，" not in output
-    assert "采购要安排，库存要控制" in output or "库存要控制，周转要提升" in output
-    assert any(item.startswith("dedup_style:vip_") for item in trace["applied_rules"])
+    assert "WP2校验未通过" in str(exc_info.value)
 
 
 def test_rewrite_validation_still_rejects_extreme_length_ratio() -> None:
@@ -1267,171 +917,8 @@ def test_rewrite_cnki_validation_rejects_mechanical_connective_cascade() -> None
     assert "机械连接词堆叠" in str(exc_info.value)
 
 
-def test_rewrite_cnki_algorithm_avoids_sample_like_connective_cascade(
-    tmp_path: Path, db_session: Session
-) -> None:
-    source_path = tmp_path / "rewrite_cnki_connectives.txt"
-    output_path = tmp_path / "rewrite_cnki_connectives_out.txt"
-    source_path.write_text(
-        (
-            "本文将以创新的视角，运用文献归纳法、实证研究法等研究方法，从监管方法论、监管体制发展轨迹、"
-            "监管相关法律法规修订进程等方面，围绕纪检监察派驻机构职能特点和履职现状，剖析存在问题和深层次原因，"
-            "总结国内外有关监督体制的经典论述，提出可行性、可发展性的研究对策，构建优化监督体系。"
-        ),
-        encoding="utf-8",
-    )
-
-    db_session.add(
-        SystemConfig(
-            category="system",
-            config_key="rewrite_strategy",
-            config_value={
-                "cnki": {"rewrite": {"enabled": True, "active_strategy": "algorithm"}},
-                "vip": {"rewrite": {"enabled": True, "active_strategy": "algorithm"}},
-            },
-            updated_by=1,
-        )
-    )
-    db_session.commit()
-
-    engine = ProcessingEngine(db_session)
-    result = engine.process(TaskType.REWRITE, "cnki", source_path, output_path, task_id=86)
-
-    content = output_path.read_text(encoding="utf-8")
-    trace = result.result_json["rewrite_strategy"]["rule_trace"]
-    connective_hits = sum(content.count(prefix) for prefix in ("同时，", "此外，", "进一步看，", "在此基础上，"))
-
-    assert content
-    assert connective_hits <= 1
-    assert "。此外，" not in content
-    assert "。进一步看，" not in content
-    assert "。在此基础上，" not in content
-    assert trace["chunk_count"] >= 1
-    assert any(
-        item.startswith("sentence_opening:") or item.startswith("sentence_shape:")
-        for item in trace["applied_rules"]
-    )
-
-
-def test_rewrite_algorithm_protects_dynamic_cross_domain_terms(tmp_path: Path, db_session: Session) -> None:
-    source_path = tmp_path / "rewrite_dynamic_terms.txt"
-    output_path = tmp_path / "rewrite_dynamic_terms_out.txt"
-    source_path.write_text(
-        "研究表明，Transformer 模型在 AUC 提升 5.2% 的同时保持 p < 0.05，相关结果见图 2 和文献[12]。",
-        encoding="utf-8",
-    )
-
-    db_session.add(
-        SystemConfig(
-            category="system",
-            config_key="rewrite_strategy",
-            config_value={
-                "cnki": {"rewrite": {"enabled": True, "active_strategy": "algorithm"}},
-                "vip": {"rewrite": {"enabled": True, "active_strategy": "algorithm"}},
-            },
-            updated_by=1,
-        )
-    )
-    db_session.commit()
-
-    engine = ProcessingEngine(db_session)
-    result = engine.process(TaskType.REWRITE, "cnki", source_path, output_path, task_id=41)
-
-    content = output_path.read_text(encoding="utf-8")
-    trace = result.result_json["rewrite_strategy"]["rule_trace"]
-    assert "Transformer" in content
-    assert "AUC" in content
-    assert "5.2%" in content
-    assert "[12]" in content
-    assert any(token in trace["protected_hits"] for token in ("Transformer", "AUC", "5.2%", "[12]"))
-
-
-def test_rewrite_algorithm_protects_dynamic_chinese_cross_domain_terms(tmp_path: Path, db_session: Session) -> None:
-    source_path = tmp_path / "rewrite_cross_domain_terms.txt"
-    output_path = tmp_path / "rewrite_cross_domain_terms_out.txt"
-    source_path.write_text(
-        "研究表明，临床路径优化需要统筹诊疗规范、资源配置与患者体验，同时兼顾长期随访与用药依从性。",
-        encoding="utf-8",
-    )
-
-    db_session.add(
-        SystemConfig(
-            category="system",
-            config_key="rewrite_strategy",
-            config_value={
-                "cnki": {"rewrite": {"enabled": True, "active_strategy": "algorithm"}},
-                "vip": {"rewrite": {"enabled": True, "active_strategy": "algorithm"}},
-            },
-            updated_by=1,
-        )
-    )
-    db_session.commit()
-
-    engine = ProcessingEngine(db_session)
-    result = engine.process(TaskType.REWRITE, "cnki", source_path, output_path, task_id=96)
-
-    content = output_path.read_text(encoding="utf-8")
-    trace = result.result_json["rewrite_strategy"]["rule_trace"]
-    assert "临床路径" in content
-    assert "诊疗规范" in content
-    assert "长期随访" in content
-    assert "用药依从性" in content
-    assert any(token in trace["protected_hits"] for token in ("临床路径", "诊疗规范", "长期随访", "用药依从性"))
-
-
-def test_rewrite_rule_engine_cnki_applies_style_shaping_rules() -> None:
-    text = (
-        "本研究认为，该路径具有重要价值。"
-        "同时，这意味着需要进一步优化实施机制。"
-        "此外，在课堂治理过程中需要持续完善反馈链条。"
-        "进一步看，这意味着需要协调资源支持。"
-    )
-
-    output, trace = apply_platform_rules(None, text=text, assets=CNKI_ASSETS, report_summary={})
-
-    assert "此外，" not in output
-    assert "进一步看，" not in output
-    assert any(item.startswith("rewrite_style:cnki_") for item in trace["applied_rules"])
-    assert any(item.startswith("cnki_reframe:") for item in trace["applied_rules"])
-
-
-def test_rewrite_rule_engine_cnki_reframes_theory_and_practice_openings() -> None:
-    text = "本研究的理论贡献在于：构建了客户体验评价体系。实践价值在于：提出营销优化方案。"
-
-    output, trace = apply_platform_rules(None, text=text, assets=CNKI_ASSETS, report_summary={})
-
-    assert "从理论层面看" in output
-    assert "就实践层面而言" in output
-    assert any(item.startswith("cnki_reframe:") for item in trace["applied_rules"])
-
-
-def test_rewrite_rule_engine_vip_applies_style_shaping_rules() -> None:
-    text = (
-        "图书管理要统筹资源。"
-        "同时，阅读活动要组织。"
-        "此外，家校协同要跟进。"
-        "平台支持也要到位。"
-        "反馈机制也要完善。"
-    )
-
-    output, trace = apply_platform_rules(None, text=text, assets=VIP_ASSETS, report_summary={})
-
-    assert "此外，" not in output
-    assert "阅读活动要组织，家校" in output or "家校" in output and "平台支持也要到位" in output
-    assert any(item.startswith("rewrite_style:vip_") for item in trace["applied_rules"])
-
-
-def test_rewrite_rule_engine_vip_reframes_overall_assessment_opening() -> None:
-    text = "总体来看，派驻监督职能履行仍存在一定问题，需要继续优化整改路径。"
-
-    output, trace = apply_platform_rules(None, text=text, assets=VIP_ASSETS, report_summary={})
-
-    assert "就整体情况而言" in output
-    assert any(item.startswith("vip_flow:") for item in trace["applied_rules"])
-
-
-def test_rewrite_vip_algorithm_does_not_expand_with_mechanical_connectors(
-    tmp_path: Path, db_session: Session
+def test_rewrite_vip_wp2_allows_additive_expression_without_bad_pattern_rejection(
+    tmp_path: Path, db_session: Session, monkeypatch
 ) -> None:
     source_path = tmp_path / "rewrite_vip_no_soft_expand.txt"
     output_path = tmp_path / "rewrite_vip_no_soft_expand_out.txt"
@@ -1443,6 +930,24 @@ def test_rewrite_vip_algorithm_does_not_expand_with_mechanical_connectors(
         ),
         encoding="utf-8",
     )
+
+    def _fake_generate(*_args, **_kwargs):
+        text = str(_kwargs.get("text") or "")
+        if "输出JSON" in text and "对比原文与改写文" in text:
+            return (
+                '{"semantic_ok": true, "expansion_ratio": "+22%", "expansion_ok": true, '
+                '"additive_style": true, "readability_ok": true, '
+                '"mechanism_distribution": {"M1动词叠加": 3, "M2名词叠加": 2, "M3功能词并置": 2, '
+                '"M4进行化": 1, "M5字符融合": 0}, "issues": [], "verdict": "pass"}'
+            )
+        return (
+            "摘要：小学图书馆作为校园文化的重要载体，其功能定位经历着深刻变革过程环节。传统图书管理以藏书保管为核心，"
+            "重视馆藏数量与完整性，却疏于发挥图书的教育价值意义。随着基础教育改革深入推进，图书馆管理理念亟需要从静态保管"
+            "转向动态服务，从被动等待转向主动引导，并形成更加稳定的实施机制方式。"
+        )
+
+    monkeypatch.setattr("app.services.rewrite_strategies.vip_llm.generate_with_llm", _fake_generate)
+    monkeypatch.setattr("app.services.vip_wp2_runtime.generate_with_llm", _fake_generate)
 
     db_session.add(
         SystemConfig(
@@ -1462,12 +967,11 @@ def test_rewrite_vip_algorithm_does_not_expand_with_mechanical_connectors(
 
     content = output_path.read_text(encoding="utf-8")
     strategy = result.result_json["rewrite_strategy"]
-    prefix_hits = sum(content.count(prefix) for prefix in ("同时，", "此外，", "进一步看，", "在此基础上，"))
 
-    assert strategy["strategy"] == "algorithm"
-    assert prefix_hits <= 1
-    assert strategy["quality_flags"]["structure_natural_ok"] is True
-    assert strategy["quality_flags"]["style_alignment_ok"] is True
+    assert strategy["strategy"] == "llm"
+    assert "亟需要" in content or "机制方式" in content
+    assert strategy["quality_flags"]["strict_wp2_prompt_b_passed"] is True
+    assert strategy["rule_trace"]["prompt_b_validation"]["verdict"] == "pass"
 
 
 def test_dedup_validation_rejects_cross_domain_term_weakening() -> None:
@@ -1505,26 +1009,28 @@ def test_llm_prompts_include_cross_discipline_constraints() -> None:
     source = "测试文本"
     cnki_prompt = cnki_rewrite_prompt(source)
     cnki_dedup = cnki_dedup_prompt(source)
+    vip_rewrite = vip_rewrite_prompt(source)
+    vip_dedup = vip_dedup_prompt(source)
 
-    assert "你是中文改写执行器。严格按步骤改写，直接输出结果，不加说明。" in cnki_prompt
-    assert "【规则执行顺序：L1→L5，L4仅在改动不足时补充】" in cnki_prompt
-    assert "规则执行顺序：L1→L5" in cnki_prompt
-    assert "【质量红线】" in cnki_prompt
-    assert "【反机械化检查（输出前）】" in cnki_prompt
-    assert "【禁改内容】" in cnki_prompt
-    assert "任务类型：知网降AIGC率改写。" in cnki_prompt
-    assert "临床路径" in vip_rewrite_prompt(source)
-    assert "高质量样本风格基线" in vip_rewrite_prompt(source)
-    assert "不要只做局部替词或只把“本文/本研究”替换成“该研究”" in vip_rewrite_prompt(source)
-    assert "任务目标：知网降重复率。" in cnki_dedup
-    assert "任务类型：知网降重复率改写。" in cnki_dedup
-    assert "【规则执行顺序：L1→L5，L4仅在改动不足时补充】" in cnki_dedup
-    assert "【反机械化检查（输出前）】" in cnki_dedup
-    assert "社区记忆" in vip_dedup_prompt(source)
-    assert "高质量降重样本风格基线" in vip_dedup_prompt(source)
-    assert "不要只替换个别动词或把句首连接词换一种说法" in vip_dedup_prompt(source)
-    assert "禁止模仿以下坏写法示例" in vip_dedup_prompt(source)
-    assert "优先参考以下正向改写风格示例" in vip_dedup_prompt(source)
+    assert "你是中文文本改写执行器。按以下四个阶段完整执行，直接输出结果。" in cnki_prompt
+    assert "阶段一：文本校准" in cnki_prompt
+    assert "四问检测法" in cnki_prompt
+    assert "P1｜正式度下调" in cnki_prompt
+    assert "P5｜量级与表达扩展" in cnki_prompt
+    assert "C4｜多样性控制" in cnki_prompt
+    assert "输入文本：测试文本" in cnki_prompt
+    assert "输入文本：测试文本" in vip_rewrite
+    assert "维普风格中文文本改写执行器" in vip_rewrite
+    assert "不删原词，在原词旁边叠加语义近邻" in vip_rewrite
+    assert "M5｜字符融合" in vip_rewrite
+    assert "输入文本：测试文本" in cnki_dedup
+    assert "阶段一：文本校准" in cnki_dedup
+    assert "P2｜复合词字符互换" in cnki_dedup
+    assert "C5｜语体守恒" in cnki_dedup
+    assert "输入文本：测试文本" in vip_dedup
+    assert "维普风格中文文本改写执行器" in vip_dedup
+    assert "每段字数比原文增加 20%–30%" in vip_dedup
+    assert "M4｜进行化插入" in vip_dedup
 
 
 def test_transform_docx_skips_blank_runs_for_dedup(tmp_path: Path, db_session: Session) -> None:

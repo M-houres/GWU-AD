@@ -55,6 +55,7 @@
       </view>
 
       <view class="billing-note">{{ paymentMessage || (paymentTestMode ? "联调时可切换测试支付。" : "正式环境仅保留微信支付。") }}</view>
+      <view class="billing-note" wx:if="{{ partnerTrackingLabel }}">{{ partnerTrackingLabel }}</view>
 
       <view class="segment-row billing-provider-row" wx:if="{{ providers.length > 1 }}">
         <view

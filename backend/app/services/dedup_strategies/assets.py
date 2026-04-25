@@ -10,6 +10,7 @@ from app.services.rewrite_strategies.assets import (
     CNKI_ASSETS,
     COMMON_BAD_PATTERNS,
     COMMON_PROTECTED_TERMS,
+    VIP_COMMON_BAD_PATTERNS,
 )
 
 
@@ -83,7 +84,7 @@ VIP_DEDUP_ASSETS = PlatformAssets(
     templates=VIP_DEDUP_TEMPLATES,
     protected_terms=VIP_DEDUP_PROTECTED_TERMS,
     cohesion_rules=VIP_DEDUP_COHESION_RULES,
-    bad_patterns=COMMON_BAD_PATTERNS,
+    bad_patterns=VIP_COMMON_BAD_PATTERNS,
 )
 
 

@@ -3,6 +3,7 @@
     "pages/home/index",
     "pages/records/index",
     "pages/profile/index",
+    "pages/partner/index",
     "pages/login/index",
     "pages/legal/terms/index",
     "pages/legal/privacy/index"

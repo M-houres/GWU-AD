@@ -5,7 +5,13 @@ from types import SimpleNamespace
 from fastapi import UploadFile
 
 from app.services import task_artifacts
-from app.services.task_artifacts import build_storage_name, safe_remove_task_artifact, save_upload_to
+from app.services.task_artifacts import (
+    build_storage_name,
+    resolve_task_artifact_path,
+    safe_remove_task_artifact,
+    save_upload_to,
+    serialize_task_artifact_path,
+)
 
 
 def test_build_storage_name_keeps_original_and_adds_unique_prefix() -> None:
@@ -52,3 +58,28 @@ def test_safe_remove_task_artifact_only_deletes_inside_allowed_roots(tmp_path: P
 
     assert not inside_file.exists()
     assert outside_file.exists()
+
+
+def test_serialize_and_resolve_task_artifact_path_supports_relative_storage(tmp_path: Path, monkeypatch) -> None:
+    upload_root = tmp_path / "uploads"
+    output_root = tmp_path / "output"
+    monkeypatch.setattr(
+        task_artifacts,
+        "settings",
+        SimpleNamespace(upload_dir=upload_root, output_dir=output_root, app_env="prod"),
+    )
+
+    source_file = upload_root / "2" / "sample.docx"
+    output_file = output_root / "2" / "task_9_result.docx"
+    source_file.parent.mkdir(parents=True, exist_ok=True)
+    output_file.parent.mkdir(parents=True, exist_ok=True)
+    source_file.write_text("source", encoding="utf-8")
+    output_file.write_text("output", encoding="utf-8")
+
+    serialized_source = serialize_task_artifact_path(source_file)
+    serialized_output = serialize_task_artifact_path(output_file)
+
+    assert serialized_source == "uploads/2/sample.docx"
+    assert serialized_output == "output/2/task_9_result.docx"
+    assert resolve_task_artifact_path(serialized_source) == source_file
+    assert resolve_task_artifact_path(serialized_output) == output_file

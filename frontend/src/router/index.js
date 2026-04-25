@@ -1,8 +1,8 @@
 import { createRouter, createWebHistory } from 'vue-router'
 
-import { resolveAdminRedirect, resolveUserRedirect } from '../lib/redirect'
+import { resolveAdminRedirect, resolvePartnerRedirect, resolveUserRedirect } from '../lib/redirect'
 import { capturePartnerTrackingFromQuery } from '../lib/partnerTracking'
-import { adminHasPermission, getAdminInfo, getAdminToken, getUserToken } from '../lib/session'
+import { adminHasPermission, getAdminInfo, getAdminToken, getPartnerToken, getUserToken } from '../lib/session'
 
 const AdminLoginPage = () => import('../views/admin/AdminLoginPage.vue')
 const AdminOrderPage = () => import('../views/admin/AdminOrderPage.vue')
@@ -22,6 +22,7 @@ const UserRewriteRecordsPage = () => import('../views/user/UserRewriteRecordsPag
 const UserDedupPage = () => import('../views/user/UserDedupPage.vue')
 const UserDedupRecordsPage = () => import('../views/user/UserDedupRecordsPage.vue')
 const UserPromoCenterPage = () => import('../views/user/UserPromoCenterPage.vue')
+const PartnerLoginPage = () => import('../views/partner/PartnerLoginPage.vue')
 const PartnerPortalPage = () => import('../views/partner/PartnerPortalPage.vue')
 const TermsPage = () => import('../views/user/TermsPage.vue')
 const PrivacyPage = () => import('../views/user/PrivacyPage.vue')
@@ -81,7 +82,8 @@ const router = createRouter({
     { path: '/app/rewrite/records', component: UserRewriteRecordsPage, meta: { auth: 'user', title: '降AIGC率记录' } },
     { path: '/app/buy', component: UserBuyPage, meta: { auth: 'user', title: '充值通用点数' } },
     { path: '/app/promo-center', component: UserPromoCenterPage, meta: { title: '推广中心' } },
-    { path: '/app/partner', component: PartnerPortalPage, meta: { title: '渠道返佣门户' } },
+    { path: '/app/partner/login', component: PartnerLoginPage, meta: { title: '渠道门户入口' } },
+    { path: '/app/partner', component: PartnerPortalPage, meta: { auth: 'partner', title: '渠道返佣门户' } },
     { path: '/app/profile', component: UserProfilePage, meta: { auth: 'user', title: '账户中心' } },
     { path: '/admin', redirect: '/admin/dashboard' },
     { path: '/admin/login', component: AdminLoginPage },
@@ -112,6 +114,9 @@ router.beforeEach((to) => {
     const fallback = firstAccessibleAdminRoute()
     return resolveAdminRedirect(to.query.redirect, fallback)
   }
+  if (to.path === '/app/partner/login' && getPartnerToken()) {
+    return resolvePartnerRedirect(to.query.redirect, '/app/partner')
+  }
   if (to.meta.auth === 'admin' && !getAdminToken()) {
     const redirect = encodeURIComponent(to.fullPath || '/admin/dashboard')
     return `/admin/login?redirect=${redirect}`
@@ -126,6 +131,14 @@ router.beforeEach((to) => {
       const fallback = firstAccessibleAdminRoute()
       return fallback === '/admin/login' ? '/admin/login' : fallback
     }
+  }
+  if (to.meta.auth === 'partner' && !getPartnerToken()) {
+    const hasLegacyCredential = Boolean(String(to.query.ch || '').trim() && String(to.query.pk || '').trim())
+    if (hasLegacyCredential) {
+      return true
+    }
+    const redirect = encodeURIComponent(to.fullPath || '/app/partner')
+    return `/app/partner/login?redirect=${redirect}`
   }
   return true
 })

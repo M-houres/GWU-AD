@@ -9,6 +9,7 @@ from app.services.aigc_quota_service import get_aigc_daily_quota
 from app.services.billing_rules_service import calc_task_cost_fen, resolve_task_points_per_char
 from app.services.credit_service import change_credits
 from app.services.partner_rebate_service import record_task_consume_rebate
+from app.services.task_artifacts import resolve_task_artifact_path
 from app.services.task_report_validation import validate_full_report_content
 from app.utils import count_billable_chars, extract_text_from_file
 
@@ -23,10 +24,16 @@ def validate_report_content(task_type: TaskType, path: Path) -> None:
 
 
 def prepare_task_for_processing(db: Session, *, task: Task) -> dict:
+    source_path = resolve_task_artifact_path(task.source_path)
+    if source_path is None:
+        raise BizError(code=4109, message="原始文件不存在")
     if task.report_path:
-        validate_report_content(task.task_type, Path(task.report_path))
+        report_path = resolve_task_artifact_path(task.report_path)
+        if report_path is None:
+            raise BizError(code=4109, message="报告文件不存在")
+        validate_report_content(task.task_type, report_path)
 
-    text = extract_text_from_file(Path(task.source_path))
+    text = extract_text_from_file(source_path)
     char_count = count_billable_chars(text)
     if char_count <= 0:
         raise BizError(code=4102, message="上传文件为空")
