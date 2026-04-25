@@ -28,12 +28,15 @@ backend/wuhongai.db
 backend/*.db-shm
 backend/*.db-wal
 backend/run_backend_*.log
+backend/uvicorn*.log
+backend/tmp_*
 backend/custom_algo_packages/dist/
 backend/custom_algo_packages/**/__pycache__/
 output/
 /frontend/*.png
 frontend/run_frontend_*.log
 frontend/runtime_*local.log
+frontend/vite-dev*.log
 logs/
 .playwright-cli/
 .codex/

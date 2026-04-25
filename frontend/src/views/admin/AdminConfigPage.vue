@@ -150,7 +150,7 @@
                   <div class="grid gap-3 md:grid-cols-6">
                     <label class="space-y-1 text-sm md:col-span-2">
                       <span>套餐名称</span>
-                      <input v-model.trim="pkg.name" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" placeholder="例如：标准包" />
+                      <input v-model.trim="pkg.name" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" placeholder="例如：进阶包" />
                     </label>
                     <label class="space-y-1 text-sm">
                       <span>价格（元）</span>

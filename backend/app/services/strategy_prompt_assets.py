@@ -6,19 +6,16 @@ from pathlib import Path
 
 from docx import Document
 
+from app.services.strategy_asset_paths import resolve_strategy_asset_path
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
-SYNTHETIC_NEGATIVE_PATH = REPO_ROOT / "data" / "strategy_assets" / "synthetic_negative_samples_v1.jsonl"
-STRICT_BENCHMARK_PATH = REPO_ROOT / "data" / "strategy_assets" / "strict_benchmark_samples_v1.jsonl"
-WEAK_SUPERVISED_PATH = REPO_ROOT / "data" / "strategy_assets" / "weak_supervised_pairs_v1.jsonl"
-POSITIVE_PAIR_PATH = REPO_ROOT / "data" / "strategy_assets" / "positive_few_shot_pairs_v1.jsonl"
-SUPPLEMENTAL_POSITIVE_PAIR_PATH = (
-    REPO_ROOT / "data" / "strategy_assets" / "supplemental_positive_few_shot_pairs_v1.jsonl"
-)
-DEDUP_POSITIVE_REFERENCE_PATH = REPO_ROOT / "data" / "strategy_assets" / "dedup_positive_references_v1.jsonl"
-SUPPLEMENTAL_DEDUP_REFERENCE_PATH = (
-    REPO_ROOT / "data" / "strategy_assets" / "supplemental_dedup_positive_references_v1.jsonl"
-)
+
+SYNTHETIC_NEGATIVE_PATH = resolve_strategy_asset_path("synthetic_negative_samples_v1.jsonl")
+STRICT_BENCHMARK_PATH = resolve_strategy_asset_path("strict_benchmark_samples_v1.jsonl")
+WEAK_SUPERVISED_PATH = resolve_strategy_asset_path("weak_supervised_pairs_v1.jsonl")
+POSITIVE_PAIR_PATH = resolve_strategy_asset_path("positive_few_shot_pairs_v1.jsonl")
+SUPPLEMENTAL_POSITIVE_PAIR_PATH = resolve_strategy_asset_path("supplemental_positive_few_shot_pairs_v1.jsonl")
+DEDUP_POSITIVE_REFERENCE_PATH = resolve_strategy_asset_path("dedup_positive_references_v1.jsonl")
+SUPPLEMENTAL_DEDUP_REFERENCE_PATH = resolve_strategy_asset_path("supplemental_dedup_positive_references_v1.jsonl")
 
 DISCIPLINE_LABELS = {
     "education": "教育",

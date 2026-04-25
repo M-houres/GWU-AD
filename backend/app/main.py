@@ -1,5 +1,6 @@
 ﻿from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
+from copy import deepcopy
 import json
 import logging
 from pathlib import Path
@@ -244,6 +245,12 @@ def init_super_admin() -> None:
 def normalize_runtime_configs() -> None:
     from sqlalchemy.orm import Session
 
+    from app.constants import (
+        DEFAULT_BILLING_PACKAGES,
+        DEFAULT_BILLING_PACKAGE_PROFILE_VERSION,
+        DEFAULT_BILLING_SCHEMA_VERSION,
+        LEGACY_BUILTIN_BILLING_PACKAGE_NAMES,
+    )
     from app.models import SystemConfig
 
     desired_initial_credits = int(settings.initial_credits)
@@ -253,32 +260,86 @@ def normalize_runtime_configs() -> None:
             .filter(SystemConfig.category == "system", SystemConfig.config_key == "login")
             .first()
         )
-        if login_row is None or not isinstance(login_row.config_value, dict):
-            return
+        if login_row is not None and isinstance(login_row.config_value, dict):
+            login_cfg = dict(login_row.config_value)
+            raw_initial = login_cfg.get("new_user_initial_credits", desired_initial_credits)
+            try:
+                current_initial_credits = int(raw_initial)
+            except Exception:
+                current_initial_credits = desired_initial_credits
 
-        login_cfg = dict(login_row.config_value)
-        raw_initial = login_cfg.get("new_user_initial_credits", desired_initial_credits)
-        try:
-            current_initial_credits = int(raw_initial)
-        except Exception:
-            current_initial_credits = desired_initial_credits
+            should_upgrade_legacy_default = current_initial_credits == 1000 and desired_initial_credits == 5000
+            missing_value = "new_user_initial_credits" not in login_cfg
+            if missing_value or should_upgrade_legacy_default:
+                login_cfg["new_user_initial_credits"] = desired_initial_credits
+                login_row.config_value = login_cfg
+                db.commit()
+                logger.warning(
+                    "runtime_login_config_normalized",
+                    extra={
+                        "field": "new_user_initial_credits",
+                        "from_value": current_initial_credits,
+                        "to_value": desired_initial_credits,
+                    },
+                )
 
-        should_upgrade_legacy_default = current_initial_credits == 1000 and desired_initial_credits == 5000
-        missing_value = "new_user_initial_credits" not in login_cfg
-        if not (missing_value or should_upgrade_legacy_default):
-            return
-
-        login_cfg["new_user_initial_credits"] = desired_initial_credits
-        login_row.config_value = login_cfg
-        db.commit()
-        logger.warning(
-            "runtime_login_config_normalized",
-            extra={
-                "field": "new_user_initial_credits",
-                "from_value": current_initial_credits,
-                "to_value": desired_initial_credits,
-            },
+        billing_row = (
+            db.query(SystemConfig)
+            .filter(SystemConfig.category == "system", SystemConfig.config_key == "billing")
+            .first()
         )
+        if billing_row is None or not isinstance(billing_row.config_value, dict):
+            return
+
+        billing_cfg = dict(billing_row.config_value)
+        packages = billing_cfg.get("packages")
+        package_names = {
+            str(item.get("name") or "").strip()
+            for item in packages
+            if isinstance(item, dict) and str(item.get("name") or "").strip()
+        } if isinstance(packages, list) else set()
+        try:
+            schema_version = int(billing_cfg.get("schema_version", 1))
+        except Exception:
+            schema_version = 1
+        try:
+            package_profile_version = int(
+                billing_cfg.get("package_profile_version", billing_cfg.get("packages_version", 1))
+            )
+        except Exception:
+            package_profile_version = 1
+
+        should_upgrade_legacy_packages = (
+            bool(package_names)
+            and package_profile_version < DEFAULT_BILLING_PACKAGE_PROFILE_VERSION
+            and package_names.issubset(LEGACY_BUILTIN_BILLING_PACKAGE_NAMES)
+        )
+        changed = False
+        if should_upgrade_legacy_packages:
+            billing_cfg["packages"] = deepcopy(DEFAULT_BILLING_PACKAGES)
+            package_profile_version = DEFAULT_BILLING_PACKAGE_PROFILE_VERSION
+            changed = True
+        if schema_version < DEFAULT_BILLING_SCHEMA_VERSION:
+            billing_cfg["schema_version"] = DEFAULT_BILLING_SCHEMA_VERSION
+            changed = True
+        if package_profile_version < DEFAULT_BILLING_PACKAGE_PROFILE_VERSION:
+            billing_cfg["package_profile_version"] = DEFAULT_BILLING_PACKAGE_PROFILE_VERSION
+            changed = True
+        if "packages_version" in billing_cfg:
+            billing_cfg.pop("packages_version", None)
+            changed = True
+
+        if changed:
+            billing_row.config_value = billing_cfg
+            db.commit()
+            logger.warning(
+                "runtime_billing_config_normalized",
+                extra={
+                    "schema_version": billing_cfg.get("schema_version"),
+                    "package_profile_version": billing_cfg.get("package_profile_version"),
+                    "packages_upgraded": should_upgrade_legacy_packages,
+                },
+            )
 
 
 def run_migrations() -> None:

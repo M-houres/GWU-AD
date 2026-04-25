@@ -6,12 +6,13 @@ from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 
+from app.services.strategy_asset_paths import resolve_strategy_asset_path
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
-POSITIVE_PAIR_PATH = REPO_ROOT / "data" / "strategy_assets" / "positive_few_shot_pairs_v1.jsonl"
-SUPPLEMENTAL_POSITIVE_PAIR_PATH = REPO_ROOT / "data" / "strategy_assets" / "supplemental_positive_few_shot_pairs_v1.jsonl"
-DEDUP_REFERENCE_PATH = REPO_ROOT / "data" / "strategy_assets" / "dedup_positive_references_v1.jsonl"
-SUPPLEMENTAL_DEDUP_REFERENCE_PATH = REPO_ROOT / "data" / "strategy_assets" / "supplemental_dedup_positive_references_v1.jsonl"
+
+POSITIVE_PAIR_PATH = resolve_strategy_asset_path("positive_few_shot_pairs_v1.jsonl")
+SUPPLEMENTAL_POSITIVE_PAIR_PATH = resolve_strategy_asset_path("supplemental_positive_few_shot_pairs_v1.jsonl")
+DEDUP_REFERENCE_PATH = resolve_strategy_asset_path("dedup_positive_references_v1.jsonl")
+SUPPLEMENTAL_DEDUP_REFERENCE_PATH = resolve_strategy_asset_path("supplemental_dedup_positive_references_v1.jsonl")
 CONNECTOR_PREFIXES = ("同时，", "此外，", "进一步看，", "在此基础上，", "由此可见，")
 
 

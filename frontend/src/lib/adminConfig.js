@@ -96,7 +96,7 @@ export const ADMIN_CONFIG_GUIDES = {
     ],
   },
   aigc_detect_strategy: {
-    code: "Detect Runtime",
+    code: "Detect Config",
     lead: "把 AIGC 检测收敛成纯内部算法策略链，只保留平台启停。",
     title: "先保证检测链路稳定",
     desc: "知网和维普的 AIGC 检测任务都会经过后端统一内部检测执行器。这里只控制平台启停，不提供版本切换或大模型增强。",
@@ -108,7 +108,7 @@ export const ADMIN_CONFIG_GUIDES = {
     docs: [],
   },
   dedup_strategy: {
-    code: "Dedup Runtime",
+    code: "Dedup Config",
     lead: "把降重复率执行收敛成最少配置项，只保留平台启用和固定的大模型主策略。",
     title: "先保证降重链稳定",
     desc: "知网和维普的降重复率任务都会经过后端统一执行器。当前两端均已冻结为大模型主策略，不再提供算法切换。",
@@ -120,7 +120,7 @@ export const ADMIN_CONFIG_GUIDES = {
     docs: [],
   },
   rewrite_strategy: {
-    code: "Rewrite Runtime",
+    code: "Rewrite Config",
     lead: "把降AIGC率执行收敛成最少配置项，只保留平台启用和固定的大模型主策略。",
     title: "先保证后端稳定处理",
     desc: "知网和维普的降AIGC率任务都会经过后端统一执行器。当前两端均已冻结为大模型主策略，不再提供算法切换。",
@@ -238,6 +238,9 @@ export const DEFAULT_BILLING_PACKAGES = [
     enabled: true,
   },
 ]
+
+export const DEFAULT_BILLING_SCHEMA_VERSION = 2
+export const DEFAULT_BILLING_PACKAGE_PROFILE_VERSION = 2
 
 export const DEFAULT_MINIAPP_CONFIG = {
   enabled: false,
@@ -545,6 +548,17 @@ export function cloneBillingPackages(packages = DEFAULT_BILLING_PACKAGES) {
 export function normalizeBillingForm(raw) {
   const source = raw && typeof raw === "object" ? raw : {}
   return {
+    schema_version: Math.max(
+      DEFAULT_BILLING_SCHEMA_VERSION,
+      Math.round(Number(source.schema_version ?? DEFAULT_BILLING_SCHEMA_VERSION) || DEFAULT_BILLING_SCHEMA_VERSION),
+    ),
+    package_profile_version: Math.max(
+      DEFAULT_BILLING_PACKAGE_PROFILE_VERSION,
+      Math.round(
+        Number(source.package_profile_version ?? source.packages_version ?? DEFAULT_BILLING_PACKAGE_PROFILE_VERSION)
+          || DEFAULT_BILLING_PACKAGE_PROFILE_VERSION,
+      ),
+    ),
     aigc_points_per_char: Math.max(1, Math.round(Number(source.aigc_points_per_char ?? source.aigc_rate) || 1)),
     dedup_points_per_char: Math.max(1, Math.round(Number(source.dedup_points_per_char ?? source.dedup_rate) || 1)),
     rewrite_points_per_char: Math.max(1, Math.round(Number(source.rewrite_points_per_char ?? source.rewrite_rate) || 1)),
@@ -1177,6 +1191,8 @@ export function buildAdminConfigPayload(category, forms, { normalizeUserNavigati
   const payload = { ...(forms[category] || {}) }
   if (category === "billing") {
     const normalized = normalizeBillingForm(payload)
+    payload.schema_version = normalized.schema_version
+    payload.package_profile_version = normalized.package_profile_version
     payload.aigc_points_per_char = normalized.aigc_points_per_char
     payload.dedup_points_per_char = normalized.dedup_points_per_char
     payload.rewrite_points_per_char = normalized.rewrite_points_per_char
@@ -1194,6 +1210,7 @@ export function buildAdminConfigPayload(category, forms, { normalizeUserNavigati
     delete payload.aigc_rate
     delete payload.dedup_rate
     delete payload.rewrite_rate
+    delete payload.packages_version
   }
   if (category === "payment" && payload.provider === "alipay" && payload.app_private_key_pem) {
     payload.api_key = payload.app_private_key_pem

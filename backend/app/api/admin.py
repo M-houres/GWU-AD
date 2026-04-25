@@ -12,7 +12,12 @@ from sqlalchemy import desc, func
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
-from app.constants import DEFAULT_BILLING_PACKAGES
+from app.constants import (
+    DEFAULT_BILLING_PACKAGES,
+    DEFAULT_BILLING_PACKAGE_PROFILE_VERSION,
+    DEFAULT_BILLING_SCHEMA_VERSION,
+    LEGACY_BUILTIN_BILLING_PACKAGE_NAMES,
+)
 from app.deps import (
     admin_has_permission,
     current_admin,
@@ -265,6 +270,8 @@ CONFIG_DEFAULTS = {
     },
     "payment": dict(DEFAULT_PAYMENT_CONFIG),
     "billing": {
+        "schema_version": DEFAULT_BILLING_SCHEMA_VERSION,
+        "package_profile_version": DEFAULT_BILLING_PACKAGE_PROFILE_VERSION,
         "aigc_points_per_char": 1,
         "dedup_points_per_char": 1,
         "rewrite_points_per_char": 1,
@@ -1271,6 +1278,23 @@ def _is_public_https_url(value: str) -> bool:
     return bool(parsed.hostname) and (not _is_private_or_loopback_host(parsed.hostname))
 
 
+def _billing_package_names(value) -> set[str]:
+    if not isinstance(value, list):
+        return set()
+    return {
+        _as_text(item.get("name"), default="", max_len=32)
+        for item in value
+        if isinstance(item, dict) and _as_text(item.get("name"), default="", max_len=32)
+    }
+
+
+def _should_upgrade_legacy_billing_packages(raw_packages, *, package_profile_version: int) -> bool:
+    package_names = _billing_package_names(raw_packages)
+    return bool(package_names) and package_profile_version < DEFAULT_BILLING_PACKAGE_PROFILE_VERSION and package_names.issubset(
+        LEGACY_BUILTIN_BILLING_PACKAGE_NAMES
+    )
+
+
 def _normalize_billing_packages(value) -> list[dict]:
     packages = value if isinstance(value, list) else []
     normalized: list[dict] = []
@@ -1343,6 +1367,27 @@ def _normalize_category_payload(category: str, payload: dict) -> dict:
     raw = payload if isinstance(payload, dict) else {}
 
     if category == "billing":
+        schema_version = _as_int(
+            raw.get("schema_version", base.get("schema_version", DEFAULT_BILLING_SCHEMA_VERSION)),
+            default=DEFAULT_BILLING_SCHEMA_VERSION,
+            min_value=1,
+            max_value=99,
+            field="schema_version",
+        )
+        package_profile_version = _as_int(
+            raw.get(
+                "package_profile_version",
+                raw.get("packages_version", base.get("package_profile_version", DEFAULT_BILLING_PACKAGE_PROFILE_VERSION)),
+            ),
+            default=DEFAULT_BILLING_PACKAGE_PROFILE_VERSION,
+            min_value=1,
+            max_value=99,
+            field="package_profile_version",
+        )
+        raw_packages = raw.get("packages", base.get("packages", []))
+        if _should_upgrade_legacy_billing_packages(raw_packages, package_profile_version=package_profile_version):
+            raw_packages = deepcopy(DEFAULT_BILLING_PACKAGES)
+            package_profile_version = DEFAULT_BILLING_PACKAGE_PROFILE_VERSION
         base["aigc_points_per_char"] = _as_int(
             raw.get("aigc_points_per_char", raw.get("aigc_rate", base["aigc_points_per_char"])),
             default=1,
@@ -1364,7 +1409,9 @@ def _normalize_category_payload(category: str, payload: dict) -> dict:
             max_value=9999,
             field="rewrite_points_per_char",
         )
-        base["packages"] = _normalize_billing_packages(raw.get("packages", base.get("packages", [])))
+        base["schema_version"] = max(schema_version, DEFAULT_BILLING_SCHEMA_VERSION)
+        base["package_profile_version"] = max(package_profile_version, DEFAULT_BILLING_PACKAGE_PROFILE_VERSION)
+        base["packages"] = _normalize_billing_packages(raw_packages)
         return base
 
     if category == "user_navigation":
@@ -2252,6 +2299,20 @@ def _get_category_config(db: Session, category: str, *, redact: bool = False) ->
         )
         merged["api_key"] = _as_text(merged.get("api_key") or merged.get("app_private_key_pem"), default="", max_len=8192)
     if category == "billing":
+        merged["schema_version"] = _as_int(
+            merged.get("schema_version", DEFAULT_BILLING_SCHEMA_VERSION),
+            default=DEFAULT_BILLING_SCHEMA_VERSION,
+            min_value=1,
+            max_value=99,
+            field="schema_version",
+        )
+        merged["package_profile_version"] = _as_int(
+            merged.get("package_profile_version", merged.get("packages_version", DEFAULT_BILLING_PACKAGE_PROFILE_VERSION)),
+            default=DEFAULT_BILLING_PACKAGE_PROFILE_VERSION,
+            min_value=1,
+            max_value=99,
+            field="package_profile_version",
+        )
         merged["aigc_points_per_char"] = _as_int(
             merged.get("aigc_points_per_char", merged.get("aigc_rate", 1)),
             default=1,
@@ -2276,10 +2337,23 @@ def _get_category_config(db: Session, category: str, *, redact: bool = False) ->
         merged.pop("aigc_rate", None)
         merged.pop("dedup_rate", None)
         merged.pop("rewrite_rate", None)
+        merged.pop("packages_version", None)
+        if _should_upgrade_legacy_billing_packages(
+            merged.get("packages"),
+            package_profile_version=int(merged.get("package_profile_version") or DEFAULT_BILLING_PACKAGE_PROFILE_VERSION),
+        ):
+            merged["packages"] = deepcopy(DEFAULT_BILLING_PACKAGES)
+            merged["package_profile_version"] = DEFAULT_BILLING_PACKAGE_PROFILE_VERSION
         try:
             merged["packages"] = _normalize_billing_packages(merged.get("packages"))
         except BizError:
             merged["packages"] = deepcopy(DEFAULT_BILLING_PACKAGES)
+            merged["package_profile_version"] = DEFAULT_BILLING_PACKAGE_PROFILE_VERSION
+        merged["schema_version"] = max(int(merged.get("schema_version") or 1), DEFAULT_BILLING_SCHEMA_VERSION)
+        merged["package_profile_version"] = max(
+            int(merged.get("package_profile_version") or 1),
+            DEFAULT_BILLING_PACKAGE_PROFILE_VERSION,
+        )
     if category == "notice":
         return _notice_to_notice_fields(_extract_notice_payload(merged))
     if category == "miniapp":

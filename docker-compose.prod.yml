@@ -39,8 +39,8 @@ services:
 
   backend:
     build:
-      context: ./backend
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: backend/Dockerfile
     container_name: wuhongai-backend
     restart: unless-stopped
     logging: *default-logging
@@ -68,8 +68,8 @@ services:
 
   worker-submission:
     build:
-      context: ./backend
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: backend/Dockerfile
     container_name: wuhongai-worker-submission
     restart: unless-stopped
     logging: *default-logging
@@ -97,8 +97,8 @@ services:
 
   worker-processing:
     build:
-      context: ./backend
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: backend/Dockerfile
     container_name: wuhongai-worker-processing
     restart: unless-stopped
     logging: *default-logging
@@ -126,8 +126,8 @@ services:
 
   worker-maintenance:
     build:
-      context: ./backend
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: backend/Dockerfile
     container_name: wuhongai-worker-maintenance
     restart: unless-stopped
     logging: *default-logging
@@ -155,8 +155,8 @@ services:
 
   worker-beat:
     build:
-      context: ./backend
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: backend/Dockerfile
     container_name: wuhongai-worker-beat
     restart: unless-stopped
     logging: *default-logging

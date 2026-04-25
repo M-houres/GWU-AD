@@ -4,9 +4,9 @@ import json
 from dataclasses import dataclass
 from pathlib import Path
 
+from app.services.strategy_asset_paths import resolve_strategy_asset_dir
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
-STRATEGY_ASSET_DIR = REPO_ROOT / "data" / "strategy_assets"
+STRATEGY_ASSET_DIR = resolve_strategy_asset_dir()
 SUPPLEMENTAL_POSITIVE_PAIR_PATH = STRATEGY_ASSET_DIR / "supplemental_positive_few_shot_pairs_v1.jsonl"
 SUPPLEMENTAL_DEDUP_REFERENCE_PATH = STRATEGY_ASSET_DIR / "supplemental_dedup_positive_references_v1.jsonl"
 

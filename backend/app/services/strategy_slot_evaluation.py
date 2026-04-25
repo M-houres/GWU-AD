@@ -7,16 +7,16 @@ from pathlib import Path
 
 from docx import Document
 
+from app.services.strategy_asset_paths import resolve_project_path, resolve_strategy_asset_dir
 from app.services.strategy_prompt_assets import slot_negative_examples, slot_positive_examples
 from app.services.strategy_style_profiles import build_dedup_style_guidance, build_rewrite_style_guidance
 
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
-STRATEGY_ASSET_DIR = REPO_ROOT / "data" / "strategy_assets"
+STRATEGY_ASSET_DIR = resolve_strategy_asset_dir()
 STRICT_BENCHMARK_PATH = STRATEGY_ASSET_DIR / "strict_benchmark_samples_v1.jsonl"
 WEAK_SUPERVISED_PATH = STRATEGY_ASSET_DIR / "weak_supervised_pairs_v1.jsonl"
 DEDUP_REFERENCE_PATH = STRATEGY_ASSET_DIR / "dedup_positive_references_v1.jsonl"
-REPORT_OUTPUT_DIR = REPO_ROOT / "docs"
+REPORT_OUTPUT_DIR = resolve_project_path("docs")
 
 SLOT_ORDER = (
     "cnki.rewrite.llm",

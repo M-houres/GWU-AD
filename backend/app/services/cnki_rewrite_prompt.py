@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 from functools import lru_cache
-from pathlib import Path
+
+from app.services.strategy_asset_paths import resolve_strategy_asset_path
 
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
-CNKI_REWRITE_PROMPT_PATH = REPO_ROOT / "data" / "strategy_assets" / "rewrite_system_V14.md"
+CNKI_REWRITE_PROMPT_PATH = resolve_strategy_asset_path("rewrite_system_V14.md")
 _PROMPT_A_HEADING = "## Prompt A"
 _PROMPT_P_HEADING = "## Prompt P"
 _PROMPT_B_HEADING = "## Prompt B"

@@ -7482,6 +7482,52 @@
       - `python -m py_compile backend\\app\\api\\partners.py backend\\app\\services\\partner_rebate_service.py`
       - 结果：通过
 
+## 2026-04-25 22:25
+
+- 渠道 / 策略 / 计费收口修复
+  - 本轮目标
+    - 不动线上，先把下一次部署前必须收口的问题在代码层补齐
+    - 重点处理：策略资产线上缺失、套餐配置仍被旧版本数据库覆盖、提交前垃圾文件清理
+  - 已完成
+    - 策略资产定位统一改成共享解析器：
+      - 新增 `backend/app/services/strategy_asset_paths.py`
+      - 知网 V14、维普 WP2、样本库、风格画像、策略校验统一走共享路径解析，不再硬编码 `parents[3]`
+    - 修正生产镜像构建链路：
+      - `backend/Dockerfile` 改为从仓库根构建时复制 `backend/` 与 `data/`
+      - `docker-compose.prod.yml` 的后端 / worker 构建上下文改为仓库根，确保 `data/strategy_assets` 进入镜像
+      - `docker-compose.yml` 同步改造，并为本地容器挂载 `./data:/app/data:ro`
+    - 计费配置补版本与自动迁移：
+      - `backend/app/constants.py` 新增 `DEFAULT_BILLING_SCHEMA_VERSION`、`DEFAULT_BILLING_PACKAGE_PROFILE_VERSION`、旧套餐名集合
+      - `backend/app/api/admin.py` 的 `billing` 配置新增 schema / profile 版本字段
+      - 当配置仍是历史内置套餐（如 `基础包/标准包/大额包/年费包`）时，自动升级到当前套餐体系
+      - `backend/app/main.py` 启动期增加 `billing` 配置自动归一化，部署后无需手工改库
+      - `frontend/src/lib/adminConfig.js` 同步带上 `schema_version` 与 `package_profile_version`
+    - 运营端细节清理：
+      - `frontend/src/views/admin/AdminConfigPage.vue` 套餐占位示例从旧的“标准包”改为当前体系示例
+      - `frontend/src/lib/adminConfig.js` 中策略说明里的 `Runtime` 改为更轻的 `Config`
+    - 验证通过：
+      - `python -m py_compile backend\\app\\main.py`
+      - `python -m py_compile backend\\app\\api\\admin.py backend\\app\\services\\strategy_prompt_assets.py backend\\app\\services\\strategy_asset_validation.py backend\\app\\services\\strategy_style_profiles.py backend\\app\\services\\strategy_slot_evaluation.py`
+      - `python -m py_compile backend\\app\\services\\cnki_rewrite_prompt.py backend\\app\\services\\vip_wp2_prompt.py backend\\app\\services\\strategy_asset_paths.py`
+      - `cd frontend && npm run build`
+  - 发现与说明
+    - 线上“处理异常”的直接原因已经确认：
+      - worker 执行时报 `知网 V14 策略文件缺失: /data/strategy_assets/rewrite_system_V14.md`
+      - 根因不是任务提交本身，而是：
+        1. 代码路径推导在容器内退到了 `/data/...`
+        2. 生产镜像原本也没有把仓库根的 `data/strategy_assets` 打进去
+    - “部署了新套餐但前台还是旧版本”的根因已经确认：
+      - 不是代码未生效，而是数据库里已有旧 `billing` 配置会优先覆盖新默认值
+      - 本轮已补自动迁移，后续部署启动时会纠偏
+  - 垃圾清理
+    - 已删除大部分临时探测文件
+    - 仍有本地运行中的日志文件被占用，未强删：
+      - `backend/uvicorn-8001.err.log`
+      - `backend/uvicorn-8001.out.log`
+      - `frontend/vite-dev.err.log`
+      - `frontend/vite-dev.log`
+    - 这些不会纳入提交；若后续关闭本地 dev 进程，再删即可
+
 - 2026-04-25 渠道免密链路旧命名收口
   - 后端
     - `backend/app/api/partners.py`
