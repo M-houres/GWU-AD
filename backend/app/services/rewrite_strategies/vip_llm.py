@@ -1,70 +1,36 @@
 from __future__ import annotations
 
-from app.exceptions import BizError
-from app.models import Task, TaskType
-from app.services.llm_service import load_llm_config
-from app.services.vip_wp2_prompt import build_vip_rewrite_prompt, build_vip_rewrite_validation_prompt
-from app.services.vip_wp2_runtime import (
-    generate_json_payload,
-    validate_wp2_prompt_b_payload,
-    wp2_prompt_b_passed,
-)
-from app.services.llm_service import generate_with_llm
-
-
-def _prompt(text: str, *, chunk_index: int = 1, chunk_total: int = 1) -> str:
-    return build_vip_rewrite_prompt(text, chunk_index=chunk_index, chunk_total=chunk_total)
-
-
-def _run_prompt_b_validation(db, *, source_text: str, rewritten_text: str) -> dict:
-    payload = generate_json_payload(
-        db,
-        task_type=TaskType.REWRITE,
-        prompt=build_vip_rewrite_validation_prompt(source_text, rewritten_text),
-        error_code=4631,
-        error_message="维普降AIGC校验阶段未返回有效JSON",
-    )
-    return validate_wp2_prompt_b_payload(payload, error_code=4631, stage_label="维普降AIGC校验阶段")
+from app.models import TaskType
+from app.models import Task
+from app.services.vip_w4_runtime import execute_vip_w4_text
 
 
 def rewrite(db, *, task: Task | None, text: str, report_summary: dict | None = None) -> dict:
-    llm_cfg = load_llm_config(db)
-    content = str(text or "")
-
-    try:
-        output = str(
-            generate_with_llm(
-                db,
-                task_type=TaskType.REWRITE,
-                text=_prompt(content, chunk_index=1, chunk_total=1),
-            )
-            or ""
-        ).strip()
-        if not output:
-            raise BizError(code=4623, message="维普降AIGC大模型改写失败: Prompt A 输出为空")
-        prompt_b = _run_prompt_b_validation(db, source_text=text, rewritten_text=output)
-        if not wp2_prompt_b_passed(prompt_b):
-            issues = prompt_b.get("issues") if isinstance(prompt_b.get("issues"), list) else []
-            issue_text = "；".join(str(item.get("detail") or "").strip() for item in issues[:3] if isinstance(item, dict))
-            raise BizError(code=4632, message=f"维普降AIGC A/B 校验未通过{f'：{issue_text}' if issue_text else ''}")
-        rule_trace = {
-            "mode": "llm_prompt_ab_strict_wp2_global",
-            "applied_rules": [
-                "llm:vip_wp2_prompt_a:strict_wp2_global",
-                "llm:vip_wp2_prompt_b:validation",
-            ],
+    result = execute_vip_w4_text(
+        db,
+        task_type=task.task_type if task is not None else TaskType.REWRITE,
+        source_text=text,
+    )
+    return {
+        "text": result.text,
+        "rule_trace": {
+            "mode": "vip_w4_strict_runtime",
+            "applied_rules": ["llm:vip_w4:full_text_runtime"],
             "protected_hits": [],
-            "strategy_version": "vip_wp2_rewrite_llm_ab_strict",
+            "strategy_version": "vip_w4",
             "chunk_count": 1,
             "technical_chunking": False,
-            "prompt_b_validation": prompt_b,
-            "llm_provider": str(llm_cfg.get("provider") or ""),
-            "llm_model": str(llm_cfg.get("model") or ""),
-        }
-    except Exception as exc:
-        raise BizError(code=4623, message=f"维普降AIGC大模型改写失败: {exc}") from exc
-
-    if output.strip():
-        return {"text": output, "rule_trace": rule_trace}
-
-    raise BizError(code=4633, message="维普降AIGC大模型结果为空")
+            "reported_total_rewrites": result.run.reported_total_rewrites,
+            "plan": {
+                "total_chars": result.run.plan.total_chars,
+                "total_quota": result.run.plan.total_quota,
+                "paragraph_count": result.run.plan.paragraph_count,
+                "paragraph_quotas": [
+                    {"index": item.index, "char_count": item.char_count, "quota": item.quota}
+                    for item in result.run.plan.paragraphs
+                ],
+            },
+            "llm_provider": result.run.llm_provider,
+            "llm_model": result.run.llm_model,
+        },
+    }

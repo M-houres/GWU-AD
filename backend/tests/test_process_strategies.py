@@ -4,13 +4,15 @@ from pathlib import Path
 
 from docx import Document
 from fastapi.testclient import TestClient
+import pytest
 from sqlalchemy.orm import Session
 
 from app import worker_tasks
 from app.deps import current_user
+from app.exceptions import BizError
 from app.main import app
 from app.models import SystemConfig, Task, TaskStatus, TaskType, User
-from app.services.process_strategy_service import get_process_strategy
+from app.services.process_strategy_service import get_process_strategy, resolve_task_processing_mode
 
 
 def _make_docx_bytes(text: str) -> BytesIO:
@@ -37,7 +39,7 @@ def test_admin_strategies_list_default_six_cells(
     assert set(data["task_types"]) == {"aigc_detect", "dedup", "rewrite"}
 
     for row in items:
-        if row["platform"] == "cnki" and row["task_type"] in {"rewrite", "dedup"}:
+        if row["platform"] in {"cnki", "vip"} and row["task_type"] in {"rewrite", "dedup"}:
             assert row["process_mode"] == "algo_llm"
         else:
             assert row["process_mode"] == "algo_only"
@@ -402,3 +404,22 @@ def test_admin_can_create_platform_and_generate_default_execution_rows(
     wanfang_rows = [item for item in data["items"] if item["platform"] == "wanfang"]
     assert len(wanfang_rows) == 3
     assert {item["task_type"] for item in wanfang_rows} == {"aigc_detect", "dedup", "rewrite"}
+
+
+def test_cnki_rewrite_strategy_is_reset_pending(db_session: Session) -> None:
+    strategy = get_process_strategy(db_session, task_type=TaskType.REWRITE, platform="cnki")
+
+    assert strategy["is_enabled"] is True
+    assert strategy["process_mode"] == "algo_llm"
+    assert not strategy.get("blocked_reason")
+
+
+def test_vip_dedup_strategy_is_enabled_with_w4_runtime(db_session: Session) -> None:
+    strategy = get_process_strategy(db_session, task_type=TaskType.DEDUP, platform="vip")
+    mode, resolved = resolve_task_processing_mode(db_session, task_type=TaskType.DEDUP, platform="vip")
+
+    assert strategy["is_enabled"] is True
+    assert strategy["process_mode"] == "algo_llm"
+    assert not strategy.get("blocked_reason")
+    assert mode == "LLM_PLUS_ALGO"
+    assert resolved["process_mode"] == "algo_llm"

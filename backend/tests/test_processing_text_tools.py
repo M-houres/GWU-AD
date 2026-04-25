@@ -1,4 +1,5 @@
 from app.services.processing_text_tools import (
+    clean_llm_user_facing_text,
     reorder_comma_clauses,
     rewrite_academic_frames,
     rewrite_causal_chains,
@@ -65,3 +66,30 @@ def test_reorder_comma_clauses_swaps_front_clauses() -> None:
 
     assert result != text
     assert result.startswith("围绕课程治理路径展开分析，研究立足课堂观察")
+
+
+def test_clean_llm_user_facing_text_removes_internal_control_blocks() -> None:
+    text = """文章标题
+摘要
+--- 改写文 ---
+这是改写后的摘要内容。
+--- 操作摘要 ---
+总操作数: 8次
+密度: 8%
+QC扫描: 发现0处异常，已还原
+关键词：教学治理
+1 引言
+{"semantic_ok": true, "grammar_ok": true, "style_ok": true, "compound_ok": true, "density_ok": true, "verdict": "pass"}
+这是改写后的正文内容。"""
+
+    result = clean_llm_user_facing_text(text)
+
+    assert "文章标题" in result
+    assert "这是改写后的摘要内容。" in result
+    assert "关键词：教学治理" in result
+    assert "这是改写后的正文内容。" in result
+    assert "改写文" not in result
+    assert "操作摘要" not in result
+    assert "总操作数" not in result
+    assert "QC扫描" not in result
+    assert '"semantic_ok"' not in result

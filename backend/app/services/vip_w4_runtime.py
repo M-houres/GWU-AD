@@ -1,0 +1,309 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+import math
+import re
+
+from app.exceptions import BizError
+from app.models import TaskType
+from app.services.llm_service import generate_with_llm, load_llm_config
+from app.services.processing_text_tools import clean_llm_user_facing_text
+from app.services.vip_w4_prompt import build_vip_w4_prompt
+from app.utils import count_billable_chars
+
+_FINAL_HEADER_RE = re.compile(r"===\s*改写完成\s*总改写次数[：:]\s*(\d+)\s*次\s*===", flags=re.IGNORECASE)
+_REFERENCE_HEADINGS = {"参考文献", "参考文献:", "参考文献：", "references", "REFERENCES"}
+_KEYWORD_PREFIXES = ("关键词：", "关键词:", "关键字：", "关键字:")
+_STYLE_FLOOR_FORBIDDEN = ("拿", "搞", "弄", "蛮好", "挺好", "非常棒", "很厉害")
+_PROTECTED_TITLE_HEADINGS = {"摘要", "引言", "结论", "结语", "致谢", "参考文献", "Abstract", "ABSTRACT"}
+
+
+@dataclass
+class VipW4ParagraphQuota:
+    index: int
+    text: str
+    char_count: int
+    quota: int
+
+
+@dataclass
+class VipW4Plan:
+    paragraphs: list[VipW4ParagraphQuota]
+    total_chars: int
+    total_quota: int
+
+    @property
+    def paragraph_count(self) -> int:
+        return len(self.paragraphs)
+
+    @property
+    def init_line(self) -> str:
+        quota_text = ", ".join(f"P{item.index}={item.quota}" for item in self.paragraphs) or "无正文段"
+        return f"【初始化】正文约{self.total_chars}字，全文配额{self.total_quota}次，共{self.paragraph_count}段，各段配额：{quota_text}"
+
+
+@dataclass
+class VipW4RunResult:
+    text: str
+    reported_total_rewrites: int
+    plan: VipW4Plan
+    raw_output: str
+    llm_provider: str
+    llm_model: str
+
+
+@dataclass
+class VipW4TextRunResult:
+    text: str
+    run: VipW4RunResult
+
+
+@dataclass
+class VipW4TextBlock:
+    kind: str
+    text: str
+
+
+@dataclass
+class VipW4TextLayout:
+    blocks: list[VipW4TextBlock]
+
+    @property
+    def body_paragraphs(self) -> list[str]:
+        return [block.text for block in self.blocks if block.kind == "body"]
+
+    def rebuild(self, rewritten_paragraphs: list[str]) -> str:
+        rewritten_iter = iter(rewritten_paragraphs)
+        output_blocks: list[str] = []
+        for block in self.blocks:
+            if block.kind == "body":
+                output_blocks.append(next(rewritten_iter, block.text))
+            else:
+                output_blocks.append(block.text)
+        return "\n\n".join(item for item in output_blocks if str(item or "").strip()).strip()
+
+
+def execute_vip_w4(db, *, task_type: TaskType, paragraphs: list[str]) -> VipW4RunResult:
+    cleaned_paragraphs = [str(item or "").strip() for item in paragraphs if str(item or "").strip()]
+    if not cleaned_paragraphs:
+        raise BizError(code=4631, message="维普 W4 无可改写正文")
+    plan = build_vip_w4_plan(cleaned_paragraphs)
+    llm_cfg = load_llm_config(db)
+    prompt = build_vip_w4_prompt("\n\n".join(cleaned_paragraphs), runtime_context=_build_runtime_context(plan))
+    issues: list[str] = []
+    raw_output = ""
+    for attempt in range(1, 3):
+        current_prompt = prompt if attempt == 1 else _build_retry_prompt(plan=plan, previous_output=raw_output, issues=issues)
+        raw_output = str(generate_with_llm(db, task_type=task_type, text=current_prompt) or "").strip()
+        try:
+            final_text, reported_total = _extract_final_text(raw_output)
+            rewritten_paragraphs = _split_rewritten_paragraphs(final_text)
+            if len(rewritten_paragraphs) != plan.paragraph_count:
+                raise BizError(
+                    code=4636,
+                    message=f"维普 W4 输出段落数不匹配，期望 {plan.paragraph_count} 段，实际 {len(rewritten_paragraphs)} 段",
+                )
+            rewritten_paragraphs = [_repair_vip_w4_paragraph(text) for text in rewritten_paragraphs]
+            _validate_vip_w4_output(
+                plan=plan,
+                original_paragraphs=cleaned_paragraphs,
+                rewritten_paragraphs=rewritten_paragraphs,
+                reported_total=reported_total,
+            )
+            return VipW4RunResult(
+                text="\n\n".join(rewritten_paragraphs).strip(),
+                reported_total_rewrites=reported_total,
+                plan=plan,
+                raw_output=raw_output,
+                llm_provider=str(llm_cfg.get("provider") or ""),
+                llm_model=str(llm_cfg.get("model") or ""),
+            )
+        except BizError as exc:
+            issues = [str(exc)]
+            if attempt >= 2:
+                raise
+    raise BizError(code=4631, message="维普 W4 执行失败")
+
+
+def execute_vip_w4_text(db, *, task_type: TaskType, source_text: str) -> VipW4TextRunResult:
+    layout = build_vip_w4_text_layout(source_text)
+    if not layout.body_paragraphs:
+        raise BizError(code=4631, message="维普 W4 无可改写正文")
+    run = execute_vip_w4(db, task_type=task_type, paragraphs=layout.body_paragraphs)
+    rebuilt = layout.rebuild(_split_rewritten_paragraphs(run.text))
+    return VipW4TextRunResult(text=rebuilt, run=run)
+
+
+def build_vip_w4_plan(paragraphs: list[str]) -> VipW4Plan:
+    normalized = [str(item or "").strip() for item in paragraphs if str(item or "").strip()]
+    quotas: list[VipW4ParagraphQuota] = []
+    total_chars = 0
+    for index, paragraph in enumerate(normalized, start=1):
+        char_count = count_billable_chars(paragraph)
+        total_chars += char_count
+        quota = max(3, math.ceil(max(char_count, 1) / 100) * 5)
+        quotas.append(VipW4ParagraphQuota(index=index, text=paragraph, char_count=char_count, quota=quota))
+    total_quota = math.ceil(max(total_chars, 1) / 100) * 5
+    return VipW4Plan(paragraphs=quotas, total_chars=total_chars, total_quota=total_quota)
+
+
+def build_vip_w4_text_layout(source_text: str) -> VipW4TextLayout:
+    normalized = str(source_text or "").replace("\r\n", "\n").replace("\r", "\n").strip()
+    if not normalized:
+        return VipW4TextLayout(blocks=[])
+    raw_blocks = re.split(r"\n\s*\n", normalized)
+    blocks = [item.strip() for item in raw_blocks if item and item.strip()]
+    if len(blocks) == 1:
+        blocks = [line.strip() for line in normalized.splitlines() if line.strip()]
+    layout_blocks: list[VipW4TextBlock] = []
+    in_reference_section = False
+    for index, block in enumerate(blocks):
+        if in_reference_section:
+            layout_blocks.append(VipW4TextBlock(kind="preserved", text=block))
+            continue
+        if _is_reference_heading(block):
+            in_reference_section = True
+            layout_blocks.append(VipW4TextBlock(kind="preserved", text=block))
+            continue
+        if _is_preserved_text_block(block, index=index):
+            layout_blocks.append(VipW4TextBlock(kind="preserved", text=block))
+            continue
+        layout_blocks.append(VipW4TextBlock(kind="body", text=block))
+    return VipW4TextLayout(blocks=layout_blocks)
+
+
+def _build_runtime_context(plan: VipW4Plan) -> str:
+    return (
+        "系统预计算校验值如下，你在步骤一和步骤四中必须与这些值保持一致：\n"
+        f"{plan.init_line}\n"
+        "额外硬约束：\n"
+        f"1. 本次输入仅包含允许改写的正文段，共 {plan.paragraph_count} 段。\n"
+        "2. 段落顺序不得调整，不得合并，不得拆分。\n"
+        "3. 每段最终字数变化必须控制在原段字数的 ±5% 内。\n"
+        "4. 最终 `=== 改写完成 总改写次数：R_total 次 ===` 后面只允许输出改写后的正文段落，不得夹带计划、验证或说明。\n"
+        "5. 段落之间保留一个空行。"
+    )
+
+
+def _build_retry_prompt(*, plan: VipW4Plan, previous_output: str, issues: list[str]) -> str:
+    issue_text = "；".join(item for item in issues if item) or "最终输出未通过系统校验"
+    return (
+        "你上一轮的维普 W4 输出未通过系统校验，必须完整重新执行四个步骤并修正错误。\n"
+        f"错误原因：{issue_text}\n"
+        f"必须继续满足：{plan.init_line}\n"
+        "最终段落数必须与原文正文段数完全一致，且每段字数变化不超过 ±5%。最终正文不得混入计划、验证或说明。\n"
+        "以下是你上一轮的原始输出，仅供修正参考：\n"
+        f"{previous_output}"
+    )
+
+
+def _extract_final_text(raw_output: str) -> tuple[str, int]:
+    text = str(raw_output or "").strip()
+    matches = list(_FINAL_HEADER_RE.finditer(text))
+    if not matches:
+        raise BizError(code=4636, message="维普 W4 未输出最终完成头")
+    match = matches[-1]
+    reported_total = int(match.group(1))
+    final_text = clean_llm_user_facing_text(text[match.end() :].strip())
+    if not final_text:
+        raise BizError(code=4636, message="维普 W4 最终改写文为空")
+    return final_text, reported_total
+
+
+def _split_rewritten_paragraphs(text: str) -> list[str]:
+    normalized = str(text or "").replace("\r\n", "\n").replace("\r", "\n").strip()
+    blocks = [item.strip() for item in re.split(r"\n\s*\n", normalized) if item and item.strip()]
+    if len(blocks) <= 1:
+        blocks = [line.strip() for line in normalized.splitlines() if line.strip()]
+    return blocks
+
+
+def _repair_vip_w4_paragraph(text: str) -> str:
+    output = str(text or "").strip()
+    output = output.replace("重要的", "主要的")
+    output = output.replace("重要作用", "主要作用")
+    output = output.replace("重要意义", "主要意义")
+    output = re.sub(r"(进行|实施|开展)(理念|观念|本质)", r"强调\2", output)
+    output = re.sub(r"\b当前\b", "目前", output)
+    output = re.sub(r"\b机制\b", "方式", output)
+    output = re.sub(r"\b路径\b", "途径", output)
+    return output.strip()
+
+
+def _validate_vip_w4_output(
+    *,
+    plan: VipW4Plan,
+    original_paragraphs: list[str],
+    rewritten_paragraphs: list[str],
+    reported_total: int,
+) -> None:
+    if reported_total < plan.total_quota:
+        raise BizError(
+            code=4636,
+            message=f"维普 W4 总改写次数未达标，要求至少 {plan.total_quota} 次，模型仅报告 {reported_total} 次",
+        )
+    if len(rewritten_paragraphs) != plan.paragraph_count:
+        raise BizError(code=4636, message="维普 W4 段落数未保持一致")
+    for original, rewritten, quota in zip(original_paragraphs, rewritten_paragraphs, plan.paragraphs):
+        if count_billable_chars(rewritten) <= 0:
+            raise BizError(code=4636, message=f"维普 W4 P{quota.index} 输出为空")
+        if original == rewritten:
+            raise BizError(code=4636, message=f"维普 W4 P{quota.index} 未发生改写")
+        if _contains_forbidden_style_floor(rewritten):
+            raise BizError(code=4636, message=f"维普 W4 P{quota.index} 命中语体底线")
+        if not _within_length_delta(quota.char_count, count_billable_chars(rewritten)):
+            raise BizError(code=4636, message=f"维普 W4 P{quota.index} 字数变化超过 ±5%")
+        _ensure_protected_fragments(original, rewritten, paragraph_index=quota.index)
+
+
+def _contains_forbidden_style_floor(text: str) -> bool:
+    content = str(text or "")
+    for token in _STYLE_FLOOR_FORBIDDEN:
+        if token in {"拿", "搞", "弄"}:
+            if re.search(rf"(?<![A-Za-z]){token}(?![A-Za-z])", content):
+                return True
+            continue
+        if token in content:
+            return True
+    return False
+
+
+def _within_length_delta(source_length: int, rewritten_length: int) -> bool:
+    if source_length <= 0:
+        return rewritten_length <= 0
+    delta_ratio = abs(rewritten_length - source_length) / max(source_length, 1)
+    return delta_ratio <= 0.05
+
+
+def _ensure_protected_fragments(source_text: str, rewritten_text: str, *, paragraph_index: int) -> None:
+    protected_tokens = set(re.findall(r"\d+(?:\.\d+)?%?|\b[A-Za-z][A-Za-z0-9_-]*\b|“[^”]+”|\"[^\"]+\"|'[^']+'", str(source_text or "")))
+    for token in protected_tokens:
+        if token and token not in rewritten_text:
+            raise BizError(code=4636, message=f"维普 W4 P{paragraph_index} 丢失受保护片段：{token}")
+
+
+def _is_reference_heading(text: str) -> bool:
+    normalized = re.sub(r"\s+", "", str(text or ""))
+    return normalized in _REFERENCE_HEADINGS
+
+
+def _is_preserved_text_block(text: str, *, index: int) -> bool:
+    lines = [line.strip() for line in str(text or "").splitlines() if line.strip()]
+    if not lines:
+        return True
+    if any(line.startswith(_KEYWORD_PREFIXES) for line in lines):
+        return True
+    if any(("｜" in line or "|" in line) for line in lines):
+        return True
+    if len(lines) == 1:
+        content = lines[0]
+        if index == 0 and len(content) <= 40 and not re.search(r"[。！？；;:：]", content):
+            return True
+        if re.match(r"^(图|表)\s*[0-9一二三四五六七八九十]+", content):
+            return True
+        if content in _PROTECTED_TITLE_HEADINGS:
+            return True
+        if len(content) <= 28 and not re.search(r"[。！？；;:：]", content):
+            if re.match(r"^([一二三四五六七八九十]+[、.．]|第[一二三四五六七八九十百零0-9]+[章节部分篇]|[（(][一二三四五六七八九十百零0-9]+[)）])", content):
+                return True
+    return False

@@ -38,6 +38,63 @@ def split_long_sentences(
     return "".join(rebuilt).strip()
 
 
+def clean_llm_user_facing_text(text: str) -> str:
+    content = str(text or "").replace("\r\n", "\n").replace("\r", "\n").strip()
+    if not content:
+        return ""
+
+    cleaned_lines: list[str] = []
+    for raw_line in content.split("\n"):
+        line = raw_line.strip()
+        if not line:
+            cleaned_lines.append("")
+            continue
+        if _is_internal_control_heading(line):
+            continue
+        if _is_internal_control_line(line):
+            continue
+        if _is_internal_validation_json(line):
+            continue
+        cleaned_lines.append(raw_line.rstrip())
+
+    cleaned = "\n".join(cleaned_lines)
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned).strip()
+    return cleaned or content
+
+
+def _is_internal_control_heading(line: str) -> bool:
+    normalized = re.sub(r"\s+", "", str(line or ""))
+    return bool(
+        re.match(
+            r"^(?:[-=—_]{2,})?(?:改写文|改写结果|重写文|输出正文|操作摘要|操作说明|操作记录|质检摘要|自检结果|QC扫描)(?:[:：])?(?:[-=—_]{2,})?$",
+            normalized,
+            flags=re.IGNORECASE,
+        )
+    )
+
+
+def _is_internal_control_line(line: str) -> bool:
+    normalized = str(line or "").strip()
+    if not normalized:
+        return False
+    return bool(
+        re.match(
+            r"^(总操作数|密度|QC扫描|校验结论|校验结果|命中规则|规则命中|问题清单|问题列表|issues|verdict|semantic_ok|grammar_ok|style_ok|compound_ok|density_ok|operation_counts)\s*[:：]",
+            normalized,
+            flags=re.IGNORECASE,
+        )
+    )
+
+
+def _is_internal_validation_json(line: str) -> bool:
+    normalized = str(line or "").strip()
+    if not (normalized.startswith("{") and normalized.endswith("}")):
+        return False
+    lowered = normalized.lower()
+    required_tokens = ("semantic_ok", "grammar_ok", "style_ok", "compound_ok", "density_ok", "verdict")
+    return all(token in lowered for token in required_tokens)
+
+
 def split_sentences(text: str) -> list[tuple[str, str]]:
     chunks = re.split(r"([。！？!?；;])", str(text or ""))
     sentences: list[tuple[str, str]] = []

@@ -7648,3 +7648,47 @@
       - 结果：`4 passed`
       - `PYTHONPATH=backend pytest tests/test_task_artifacts.py tests/test_task_response_builder.py tests/test_worker_process_handler.py -k "storage_name or result_filename or filename_pair"`
       - 结果：`2 passed`
+
+- 2026-04-26 15:32:00
+  - 知网 V20 全量切换与旧策略收口
+    - 知网改写 / 降重
+      - 新增 `backend/app/services/cnki_v20_prompt.py`
+      - 新增 `backend/app/services/cnki_v20_runtime.py`
+      - 将知网 `rewrite / dedup` 统一切到 `cnki_v20` 全文运行时
+      - 运行时按正文段落预计算 `W / Q_total / Q_i`，并把配额约束注入提示词
+      - 模型输出必须带 `=== 改写完成 总改写次数：R_total 次 ===` 头，否则自动重试一次
+      - 新增最终输出校验：段落数一致、总改写次数达标、硬保护片段不丢失、语体底线禁词拦截
+      - DOCX 知网任务不再走旧分段链路，统一改为全文执行后再按段回填
+    - 旧策略清理
+      - 删除旧知网提示词文件 `backend/app/services/cnki_rewrite_prompt.py`
+      - 删除旧维普提示词与运行时 `backend/app/services/vip_wp2_prompt.py`、`backend/app/services/vip_wp2_runtime.py`
+      - `process_strategy_service` 现状调整为：知网 `rewrite / dedup` 启用 `algo_llm` 且强制走 V20；维普 `rewrite / dedup` 保持“等待新策略配置”
+      - 活跃校验文案中的 `维普WP2扩写量...` 已改为通用 `维普扩写量...`，避免旧策略命名继续外露
+    - 测试与验证
+      - 已同步修正 `backend/tests/test_processing_engine_results.py` 中与旧知网 V16 / 维普 WP2 冲突的断言
+      - 当前目标是保证知网本地链路只认 V20，维普旧入口全部封住，避免误触旧实现
+
+- 2026-04-26 16:18:00
+  - 维普 W4 正式接入
+    - 新增 `backend/app/services/vip_w4_prompt.py`
+      - 完整落入用户提供的维普 W4 四步提示词，不再使用旧 WP2 提示体系
+    - 新增 `backend/app/services/vip_w4_runtime.py`
+      - 运行时预计算 `W / Q_total / Q_i`
+      - 强制校验：最终完成头、段落数一致、每段字数变化不超过 `±5%`、总改写次数达标、保护片段不丢失、禁用口语底线词
+      - 加入维普高频修复：`重要的 -> 主要的`、`当前 -> 目前`、`机制 -> 方式`、`路径 -> 途径`
+    - `rewrite / dedup` 入口
+      - `backend/app/services/rewrite_strategies/vip_llm.py`
+      - `backend/app/services/dedup_strategies/vip_llm.py`
+      - 两条链路现统一改为调用 `vip_w4_runtime`
+    - 策略中心
+      - `backend/app/services/process_strategy_service.py`
+      - 维普 `rewrite / dedup` 已从 reset pending 改为默认 `algo_llm`
+      - 当前知网与维普的改写 / 降重均走严格 LLM 运行时
+    - DOCX 全文链路
+      - `backend/app/services/processing_engine.py`
+      - 新增 `_transform_docx_vip_w4`
+      - 维普 DOCX 改写 / 降重改为整篇执行 W4 后再按段回填
+    - 测试收口
+      - `backend/tests/test_process_strategies.py`
+      - `backend/tests/test_processing_engine_results.py`
+      - 把维普原 blocked 用例改为 W4 已启用断言，并新增维普文本 / DOCX 运行覆盖

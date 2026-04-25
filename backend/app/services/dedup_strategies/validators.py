@@ -48,9 +48,9 @@ def validate_dedup_output(
         if normalized_platform == "vip":
             length_ok = 0.20 <= length_delta_ratio <= 0.30
             if not length_ok:
-                warnings.append("维普WP2扩写量未达到建议 20%~30%")
+                warnings.append("维普扩写量未达到建议 20%~30%")
             if not (0.10 <= length_delta_ratio <= 0.40):
-                raise BizError(code=4622, message=f"维普WP2扩写量超出允许范围: {length_delta_ratio:.2%}")
+                raise BizError(code=4622, message=f"维普扩写量超出允许范围: {length_delta_ratio:.2%}")
         elif not (-0.1 <= length_delta_ratio <= 0.2):
             length_ok = False
             warnings.append("降重结果字数浮动超出建议范围")

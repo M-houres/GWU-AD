@@ -22,7 +22,12 @@ ENGINE_MODE_MAP = {
 SUPPORTED_TASK_TYPES = tuple(item.value for item in TaskType)
 PACKAGELESS_STRATEGY_TASKS = {TaskType.AIGC_DETECT, TaskType.REWRITE, TaskType.DEDUP}
 PACKAGELESS_STRATEGY_PLATFORMS = {"cnki", "vip"}
-CNKI_LLM_FROZEN_TASKS = {TaskType.REWRITE, TaskType.DEDUP}
+STRICT_LLM_TASKS_BY_PLATFORM = {
+    "cnki": {TaskType.REWRITE, TaskType.DEDUP},
+    "vip": {TaskType.REWRITE, TaskType.DEDUP},
+}
+STRATEGY_RESET_TASKS = {TaskType.REWRITE, TaskType.DEDUP}
+STRATEGY_RESET_PLATFORMS: set[str] = set()
 
 
 def normalize_task_type(raw: str | TaskType) -> TaskType:
@@ -45,6 +50,20 @@ def normalize_process_mode(raw: str | None) -> str:
     raise BizError(code=4342, message="process_mode 必须是 algo_only 或 algo_llm")
 
 
+def is_strategy_reset_pending(task_type: TaskType | str, platform: str) -> bool:
+    normalized_task_type = normalize_task_type(task_type)
+    normalized_platform = str(platform or "").strip().lower()
+    return normalized_task_type in STRATEGY_RESET_TASKS and normalized_platform in STRATEGY_RESET_PLATFORMS
+
+
+def build_strategy_reset_message(*, task_type: TaskType | str, platform: str) -> str:
+    normalized_task_type = normalize_task_type(task_type)
+    normalized_platform = str(platform or "").strip().lower()
+    platform_name = {"cnki": "知网", "vip": "维普"}.get(normalized_platform, normalized_platform or "当前平台")
+    task_name = "降AIGC率" if normalized_task_type == TaskType.REWRITE else "降重复率"
+    return f"{platform_name}{task_name}旧策略已清理，等待新策略配置"
+
+
 def is_independent_strategy_config(task_type: TaskType | str, platform: str) -> bool:
     normalized_task_type = normalize_task_type(task_type)
     normalized_platform = str(platform or "").strip().lower()
@@ -63,20 +82,24 @@ def _strategy_key(task_type: TaskType | str, platform: str) -> str:
 
 
 def _default_strategy(task_type: TaskType, platform: str) -> dict[str, Any]:
+    reset_pending = is_strategy_reset_pending(task_type, platform)
     default_mode = (
         PROCESS_MODE_ALGO_LLM
-        if platform == "cnki" and task_type in CNKI_LLM_FROZEN_TASKS
+        if task_type in STRICT_LLM_TASKS_BY_PLATFORM.get(platform, set()) and not reset_pending
         else PROCESS_MODE_ALGO_ONLY
     )
-    return {
+    data = {
         "task_type": task_type.value,
         "platform": platform,
         "process_mode": default_mode,
-        "is_enabled": True,
+        "is_enabled": not reset_pending,
         "timeout_sec": 300,
         "updated_at": None,
         "updated_by": None,
     }
+    if reset_pending:
+        data["blocked_reason"] = build_strategy_reset_message(task_type=task_type, platform=platform)
+    return data
 
 
 def _safe_timeout(value: Any, default: int = 300) -> int:
@@ -107,22 +130,40 @@ def _safe_bool(value: Any, default: bool = True) -> bool:
 
 def _merge_with_row(base: dict[str, Any], row: SystemConfig | None) -> dict[str, Any]:
     data = dict(base)
-    frozen_cnki_llm = data.get("platform") == "cnki" and normalize_task_type(data.get("task_type")) in CNKI_LLM_FROZEN_TASKS
+    strict_llm_task = normalize_task_type(data.get("task_type")) in STRICT_LLM_TASKS_BY_PLATFORM.get(
+        str(data.get("platform") or ""),
+        set(),
+    )
+    reset_pending = is_strategy_reset_pending(data.get("task_type"), str(data.get("platform") or ""))
     if row is None or not isinstance(row.config_value, dict):
-        if frozen_cnki_llm:
+        if strict_llm_task and not reset_pending:
             data["process_mode"] = PROCESS_MODE_ALGO_LLM
+        if reset_pending:
+            data["process_mode"] = PROCESS_MODE_ALGO_ONLY
+            data["is_enabled"] = False
+            data["blocked_reason"] = build_strategy_reset_message(
+                task_type=data.get("task_type"),
+                platform=str(data.get("platform") or ""),
+            )
         return data
     cfg = row.config_value
     try:
         data["process_mode"] = normalize_process_mode(cfg.get("process_mode"))
     except BizError:
-        data["process_mode"] = PROCESS_MODE_ALGO_LLM if frozen_cnki_llm else PROCESS_MODE_ALGO_ONLY
-    if frozen_cnki_llm:
+        data["process_mode"] = PROCESS_MODE_ALGO_LLM if strict_llm_task else PROCESS_MODE_ALGO_ONLY
+    if strict_llm_task and not reset_pending:
         data["process_mode"] = PROCESS_MODE_ALGO_LLM
     data["is_enabled"] = _safe_bool(cfg.get("is_enabled"), default=True)
     data["timeout_sec"] = _safe_timeout(cfg.get("timeout_sec"), default=300)
     data["updated_by"] = row.updated_by
     data["updated_at"] = row.updated_at.isoformat() if row.updated_at else None
+    if reset_pending:
+        data["process_mode"] = PROCESS_MODE_ALGO_ONLY
+        data["is_enabled"] = False
+        data["blocked_reason"] = build_strategy_reset_message(
+            task_type=data.get("task_type"),
+            platform=str(data.get("platform") or ""),
+        )
     return data
 
 
@@ -185,16 +226,21 @@ def update_process_strategy(
         .first()
     )
     current = _merge_with_row(_default_strategy(t, p), row)
-    frozen_cnki_llm = p == "cnki" and t in CNKI_LLM_FROZEN_TASKS
+    strict_llm_task = t in STRICT_LLM_TASKS_BY_PLATFORM.get(p, set())
+    reset_pending = is_strategy_reset_pending(t, p)
     if process_mode is not None:
         requested_mode = normalize_process_mode(process_mode)
-        current["process_mode"] = PROCESS_MODE_ALGO_LLM if frozen_cnki_llm else requested_mode
+        current["process_mode"] = PROCESS_MODE_ALGO_LLM if strict_llm_task and not reset_pending else requested_mode
     if is_enabled is not None:
         current["is_enabled"] = bool(is_enabled)
     if timeout_sec is not None:
         current["timeout_sec"] = _safe_timeout(timeout_sec, default=current["timeout_sec"])
-    if frozen_cnki_llm:
+    if strict_llm_task and not reset_pending:
         current["process_mode"] = PROCESS_MODE_ALGO_LLM
+    if reset_pending:
+        current["process_mode"] = PROCESS_MODE_ALGO_ONLY
+        current["is_enabled"] = False
+        current["blocked_reason"] = build_strategy_reset_message(task_type=t, platform=p)
 
     payload = {
         "process_mode": current["process_mode"],
@@ -230,12 +276,17 @@ def resolve_task_processing_mode(
         task_type=normalized_task_type,
         platform=normalized_platform,
     )
+    if is_strategy_reset_pending(normalized_task_type, normalized_platform):
+        raise BizError(
+            code=4117,
+            message=build_strategy_reset_message(task_type=normalized_task_type, platform=normalized_platform),
+        )
     if not bool(strategy.get("is_enabled", True)):
         raise BizError(code=4117, message="当前平台暂不支持该功能")
 
     if normalized_task_type == TaskType.AIGC_DETECT and is_independent_strategy_config(normalized_task_type, normalized_platform):
         mode = PROCESS_MODE_ALGO_ONLY
-    elif normalized_platform == "cnki" and normalized_task_type in CNKI_LLM_FROZEN_TASKS:
+    elif normalized_task_type in STRICT_LLM_TASKS_BY_PLATFORM.get(normalized_platform, set()):
         mode = PROCESS_MODE_ALGO_LLM
     else:
         mode = str(strategy.get("process_mode", PROCESS_MODE_ALGO_ONLY))

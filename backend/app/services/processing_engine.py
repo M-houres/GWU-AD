@@ -2,6 +2,7 @@ import json
 import math
 import re
 import statistics
+from difflib import SequenceMatcher
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -306,6 +307,14 @@ class ProcessingEngine:
         report_summary: dict | None = None,
     ) -> None:
         doc = Document(str(input_path))
+        if platform == "cnki" and task_type in {TaskType.REWRITE, TaskType.DEDUP}:
+            self._transform_docx_cnki_v20(doc, task_type)
+            doc.save(str(output_path))
+            return
+        if platform == "vip" and task_type in {TaskType.REWRITE, TaskType.DEDUP}:
+            self._transform_docx_vip_w4(doc, task_type)
+            doc.save(str(output_path))
+            return
         summary = report_summary or {}
         in_reference_section = False
         abstract_first_sentence_pending = False
@@ -341,6 +350,138 @@ class ProcessingEngine:
             if rewritten_text and rewritten_text != source_text:
                 self._redistribute_paragraph_text(paragraph, rewritten_text)
         doc.save(str(output_path))
+
+    def _transform_docx_cnki_v20(self, doc: Document, task_type: TaskType) -> None:
+        from app.services.cnki_v20_runtime import execute_cnki_v20
+
+        target_paragraphs: list = []
+        source_paragraphs: list[str] = []
+        in_reference_section = False
+        for paragraph in self._iter_body_paragraphs(doc):
+            source_text = paragraph.text or ""
+            stripped = source_text.strip()
+            if not stripped:
+                continue
+            if self._is_docx_reference_heading(stripped):
+                in_reference_section = True
+                continue
+            if not self._should_transform_docx_paragraph(paragraph, source_text, in_reference_section=in_reference_section):
+                continue
+            target_paragraphs.append(paragraph)
+            source_paragraphs.append(source_text)
+        if not source_paragraphs:
+            return
+        run = execute_cnki_v20(self.db, task_type=task_type, paragraphs=source_paragraphs)
+        rewritten_paragraphs = [item.strip() for item in re.split(r"\n\s*\n", str(run.text or "").strip()) if item.strip()]
+        if len(rewritten_paragraphs) != len(target_paragraphs):
+            rewritten_paragraphs = [line.strip() for line in str(run.text or "").splitlines() if line.strip()]
+        if len(rewritten_paragraphs) != len(target_paragraphs):
+            raise BizError(code=4626, message="知网 V20 DOCX 输出段落数不匹配")
+        for paragraph, rewritten_text, source_text in zip(target_paragraphs, rewritten_paragraphs, source_paragraphs):
+            if rewritten_text and rewritten_text != source_text:
+                self._redistribute_paragraph_text(paragraph, rewritten_text)
+        meta = {
+            "strategy": "llm",
+            "platform": "cnki",
+            "task_type": task_type.value,
+            "length_before": run.plan.total_chars,
+            "length_after": count_billable_chars(run.text),
+            "quality_score": 1.0,
+            "quality_flags": {"strict_cnki_v20_passed": True},
+            "warnings": [],
+            "rule_trace": {
+                "mode": "cnki_v20_strict_runtime",
+                "strategy_version": "cnki_v20",
+                "reported_total_rewrites": run.reported_total_rewrites,
+                "plan": {
+                    "total_chars": run.plan.total_chars,
+                    "total_quota": run.plan.total_quota,
+                    "paragraph_count": run.plan.paragraph_count,
+                    "paragraph_quotas": [
+                        {"index": item.index, "char_count": item.char_count, "quota": item.quota}
+                        for item in run.plan.paragraphs
+                    ],
+                },
+                "llm_provider": run.llm_provider,
+                "llm_model": run.llm_model,
+            },
+        }
+        if task_type == TaskType.REWRITE:
+            meta["change_ratio"] = round(((meta["length_after"] - meta["length_before"]) / max(meta["length_before"], 1)), 4)
+            self._rewrite_strategy_meta = meta
+        else:
+            similarity = SequenceMatcher(None, "\n\n".join(source_paragraphs)[:4000], run.text[:4000]).ratio()
+            meta["length_delta_ratio"] = round(((meta["length_after"] - meta["length_before"]) / max(meta["length_before"], 1)), 4)
+            meta["similarity_ratio"] = round(similarity, 4)
+            meta["change_ratio"] = round((1 - similarity) * 100, 2)
+            self._dedup_strategy_meta = meta
+        self._pipeline_usage["llm_used"] = True
+
+    def _transform_docx_vip_w4(self, doc: Document, task_type: TaskType) -> None:
+        from app.services.vip_w4_runtime import execute_vip_w4
+
+        target_paragraphs: list = []
+        source_paragraphs: list[str] = []
+        in_reference_section = False
+        for paragraph in self._iter_body_paragraphs(doc):
+            source_text = paragraph.text or ""
+            stripped = source_text.strip()
+            if not stripped:
+                continue
+            if self._is_docx_reference_heading(stripped):
+                in_reference_section = True
+                continue
+            if not self._should_transform_docx_paragraph(paragraph, source_text, in_reference_section=in_reference_section):
+                continue
+            target_paragraphs.append(paragraph)
+            source_paragraphs.append(source_text)
+        if not source_paragraphs:
+            return
+        run = execute_vip_w4(self.db, task_type=task_type, paragraphs=source_paragraphs)
+        rewritten_paragraphs = [item.strip() for item in re.split(r"\n\s*\n", str(run.text or "").strip()) if item.strip()]
+        if len(rewritten_paragraphs) != len(target_paragraphs):
+            rewritten_paragraphs = [line.strip() for line in str(run.text or "").splitlines() if line.strip()]
+        if len(rewritten_paragraphs) != len(target_paragraphs):
+            raise BizError(code=4636, message="维普 W4 DOCX 输出段落数不匹配")
+        for paragraph, rewritten_text, source_text in zip(target_paragraphs, rewritten_paragraphs, source_paragraphs):
+            if rewritten_text and rewritten_text != source_text:
+                self._redistribute_paragraph_text(paragraph, rewritten_text)
+        meta = {
+            "strategy": "llm",
+            "platform": "vip",
+            "task_type": task_type.value,
+            "length_before": run.plan.total_chars,
+            "length_after": count_billable_chars(run.text),
+            "quality_score": 1.0,
+            "quality_flags": {"strict_vip_w4_passed": True},
+            "warnings": [],
+            "rule_trace": {
+                "mode": "vip_w4_strict_runtime",
+                "strategy_version": "vip_w4",
+                "reported_total_rewrites": run.reported_total_rewrites,
+                "plan": {
+                    "total_chars": run.plan.total_chars,
+                    "total_quota": run.plan.total_quota,
+                    "paragraph_count": run.plan.paragraph_count,
+                    "paragraph_quotas": [
+                        {"index": item.index, "char_count": item.char_count, "quota": item.quota}
+                        for item in run.plan.paragraphs
+                    ],
+                },
+                "llm_provider": run.llm_provider,
+                "llm_model": run.llm_model,
+            },
+        }
+        if task_type == TaskType.REWRITE:
+            meta["change_ratio"] = round(((meta["length_after"] - meta["length_before"]) / max(meta["length_before"], 1)), 4)
+            self._rewrite_strategy_meta = meta
+        else:
+            similarity = SequenceMatcher(None, "\n\n".join(source_paragraphs)[:4000], run.text[:4000]).ratio()
+            meta["length_delta_ratio"] = round(((meta["length_after"] - meta["length_before"]) / max(meta["length_before"], 1)), 4)
+            meta["similarity_ratio"] = round(similarity, 4)
+            meta["change_ratio"] = round((1 - similarity) * 100, 2)
+            self._dedup_strategy_meta = meta
+        self._pipeline_usage["llm_used"] = True
 
     def _run_llm(self, task_type: TaskType, text: str) -> str | None:
         switch = self._current_switch or self._get_or_init_switch()

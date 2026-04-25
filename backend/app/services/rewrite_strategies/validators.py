@@ -133,9 +133,9 @@ def validate_rewrite_output(
         if normalized_platform == "vip":
             length_ok = 0.20 <= ratio <= 0.30
             if not length_ok:
-                warnings.append(f"维普WP2扩写量未达到建议 20%~30%: {ratio:.2%}")
+                warnings.append(f"维普扩写量未达到建议 20%~30%: {ratio:.2%}")
             if not (0.10 <= ratio <= 0.40):
-                raise BizError(code=4612, message=f"维普WP2扩写量超出允许范围: {ratio:.2%}")
+                raise BizError(code=4612, message=f"维普扩写量超出允许范围: {ratio:.2%}")
         else:
             length_ok = 0.03 <= ratio <= 0.10
             if not length_ok:
@@ -146,7 +146,7 @@ def validate_rewrite_output(
         if normalized_platform == "vip":
             length_ok = 0.20 <= ratio <= 0.30
             if not length_ok:
-                warnings.append(f"维普WP2扩写量未达到建议 20%~30%: {ratio:.2%}")
+                warnings.append(f"维普扩写量未达到建议 20%~30%: {ratio:.2%}")
         else:
             length_ok = 0.03 <= ratio <= 0.10
             if not length_ok:
