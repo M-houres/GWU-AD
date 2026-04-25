@@ -50,6 +50,24 @@ def _extract_json_payload(raw: str) -> dict | None:
     return None
 
 
+def _build_json_retry_prompt(raw: str) -> str:
+    preview = str(raw or "").strip()
+    return (
+        "你上一次没有按要求返回 JSON。\n"
+        "现在禁止输出正文、解释、分析、markdown、代码块。\n"
+        "只输出一个 JSON 对象，字段必须严格为："
+        '"semantic_ok", "grammar_ok", "style_ok", "compound_ok", "density", "density_ok", '
+        '"operation_counts", "issues", "verdict"。\n'
+        "输出格式模板如下："
+        '{"semantic_ok": true, "grammar_ok": true, "style_ok": true, "compound_ok": true, '
+        '"density": "8%", "density_ok": true, "operation_counts": {"A功能词": 0, "B整词同义": 0, '
+        '"C连接词": 0, "D句法框架": 0, "E副词": 0, "F元话语": 0}, "issues": [], "verdict": "pass"}\n'
+        "不要添加任何额外字段。\n"
+        "以下是你上一次的原始输出，请基于它整理为合法 JSON：\n"
+        f"{preview}"
+    )
+
+
 def _validate_prompt_b_payload(payload: dict) -> dict:
     required_keys = {
         "semantic_ok",
@@ -97,6 +115,16 @@ def _generate_json_payload(db, *, prompt: str, task_type: TaskType, error_code: 
     payload = _extract_json_payload(last_raw)
     if isinstance(payload, dict):
         return payload
+    retry_raw = generate_with_llm(
+        db,
+        task_type=task_type,
+        text=_build_json_retry_prompt(last_raw),
+    )
+    retry_text = str(retry_raw or "").strip()
+    payload = _extract_json_payload(retry_text)
+    if isinstance(payload, dict):
+        return payload
+    last_raw = retry_text or last_raw
     preview = re.sub(r"\s+", " ", last_raw)[:160]
     raise BizError(
         code=error_code,

@@ -22,6 +22,14 @@ def test_build_storage_name_keeps_original_and_adds_unique_prefix() -> None:
     assert unique_name != original_name
 
 
+def test_build_storage_name_preserves_chinese_display_name() -> None:
+    original_name, unique_name = build_storage_name("知网测试终稿1.docx", "fallback.docx")
+
+    assert original_name == "知网测试终稿1.docx"
+    assert unique_name.endswith(".docx")
+    assert "知网测试终稿1.docx" not in unique_name
+
+
 def test_save_upload_to_rejects_empty_upload(tmp_path: Path) -> None:
     path = tmp_path / "empty.docx"
     upload = UploadFile(file=BytesIO(b""), filename="empty.docx")

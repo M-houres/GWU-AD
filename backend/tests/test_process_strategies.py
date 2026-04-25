@@ -37,7 +37,10 @@ def test_admin_strategies_list_default_six_cells(
     assert set(data["task_types"]) == {"aigc_detect", "dedup", "rewrite"}
 
     for row in items:
-        assert row["process_mode"] == "algo_only"
+        if row["platform"] == "cnki" and row["task_type"] in {"rewrite", "dedup"}:
+            assert row["process_mode"] == "algo_llm"
+        else:
+            assert row["process_mode"] == "algo_only"
         assert row["is_enabled"] is True
         assert row["timeout_sec"] == 300
 
@@ -250,7 +253,7 @@ def test_task_submit_auto_bootstraps_builtin_package_when_slot_missing(
         assert body["code"] == 0
         task = db_session.get(Task, body["data"]["id"])
         assert task is not None
-        assert task.processing_mode == "ALGO_ONLY"
+        assert task.processing_mode == "LLM_PLUS_ALGO"
     finally:
         app.dependency_overrides.pop(current_user, None)
 
@@ -327,6 +330,35 @@ def test_strategy_string_false_is_parsed_as_disabled(db_session: Session) -> Non
 
     strategy = get_process_strategy(db_session, task_type=TaskType.REWRITE, platform="cnki")
     assert strategy["is_enabled"] is False
+    assert strategy["process_mode"] == "algo_llm"
+
+
+def test_admin_cnki_rewrite_strategy_cannot_be_set_back_to_algo_only(
+    client: TestClient,
+    admin_override,
+) -> None:
+    resp = client.put(
+        "/api/v1/admin/strategies/rewrite/cnki",
+        json={"is_enabled": True, "process_mode": "algo_only", "timeout_sec": 600},
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["code"] == 0
+    assert body["data"]["process_mode"] == "algo_llm"
+
+
+def test_admin_cnki_dedup_strategy_cannot_be_set_back_to_algo_only(
+    client: TestClient,
+    admin_override,
+) -> None:
+    resp = client.put(
+        "/api/v1/admin/strategies/dedup/cnki",
+        json={"is_enabled": True, "process_mode": "algo_only", "timeout_sec": 600},
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["code"] == 0
+    assert body["data"]["process_mode"] == "algo_llm"
 
 
 def test_admin_algo_config_table_returns_platforms_and_execution_rows(

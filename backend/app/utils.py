@@ -26,6 +26,15 @@ def safe_filename(name: str) -> str:
     return "".join(ch if ch in allow else "_" for ch in name)
 
 
+def safe_display_filename(name: str) -> str:
+    value = str(name or "").strip().replace("\\", "/").split("/")[-1]
+    value = re.sub(r"[\x00-\x1f\x7f]", "", value)
+    value = value.replace(":", "_").replace("*", "_").replace("?", "_")
+    value = value.replace("\"", "_").replace("<", "_").replace(">", "_").replace("|", "_")
+    value = value.strip().strip(".")
+    return value or "unnamed"
+
+
 _DOCX_REQUIRED_MEMBERS = {"[Content_Types].xml", "word/document.xml"}
 
 

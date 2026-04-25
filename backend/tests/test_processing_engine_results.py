@@ -505,6 +505,38 @@ def test_rewrite_cnki_freezes_algorithm_config_to_strict_v16_llm(
     assert not any(item.startswith("structural:") for item in trace["applied_rules"])
 
 
+def test_rewrite_cnki_prompt_b_retries_json_format_once(
+    tmp_path: Path, db_session: Session, monkeypatch
+) -> None:
+    source_path = tmp_path / "rewrite_cnki_retry.txt"
+    output_path = tmp_path / "rewrite_cnki_retry_out.txt"
+    source_path.write_text("课堂治理优化需要兼顾实施节奏与反馈衔接。", encoding="utf-8")
+
+    calls = {"count": 0}
+
+    def _fake_generate(*_args, **kwargs):
+        prompt = str(kwargs.get("text") or "")
+        if '"semantic_ok"' in prompt:
+            calls["count"] += 1
+            if calls["count"] == 1:
+                return "这不是JSON，而是一段说明文字。"
+            return (
+                '{"semantic_ok": true, "grammar_ok": true, "style_ok": true, '
+                '"compound_ok": true, "density": "9%", "density_ok": true, '
+                '"operation_counts": {"A功能词": 1, "B整词同义": 2, "C连接词": 1, "D句法框架": 1, "E副词": 0, "F元话语": 0}, '
+                '"issues": [], "verdict": "pass"}'
+            )
+        return "课堂治理优化需要兼顾实施节奏，并保持反馈衔接的整体稳定。"
+
+    monkeypatch.setattr("app.services.rewrite_strategies.cnki_llm.generate_with_llm", _fake_generate)
+
+    engine = ProcessingEngine(db_session)
+    result = engine.process(TaskType.REWRITE, "cnki", source_path, output_path, task_id=110)
+
+    assert result.result_json["rewrite_strategy"]["rule_trace"]["prompt_b_validation"]["verdict"] == "pass"
+    assert calls["count"] == 2
+
+
 def test_dedup_vip_wp2_runtime_uses_additive_strategy(
     tmp_path: Path, db_session: Session, monkeypatch
 ) -> None:
@@ -626,6 +658,38 @@ def test_dedup_cnki_llm_strategy_uses_platform_prompt_and_keeps_dedup_meta(
     assert strategy["quality_flags"]["strict_v16_prompt_b_passed"] is True
     assert strategy["rule_trace"]["mode"] == "dedup_llm_prompt_ab_strict_v16_global"
     assert strategy["rule_trace"]["strategy_version"] == "cnki_v16_dedup_llm_ab_strict"
+
+
+def test_dedup_cnki_prompt_b_retries_json_format_once(
+    tmp_path: Path, db_session: Session, monkeypatch
+) -> None:
+    source_path = tmp_path / "dedup_cnki_retry.txt"
+    output_path = tmp_path / "dedup_cnki_retry_out.txt"
+    source_path.write_text("教学设计需要兼顾活动组织、过程反馈与实施节奏。", encoding="utf-8")
+
+    calls = {"count": 0}
+
+    def _fake_generate(*_args, **kwargs):
+        prompt = str(kwargs.get("text") or "")
+        if '"semantic_ok"' in prompt:
+            calls["count"] += 1
+            if calls["count"] == 1:
+                return "先给你结论：这版文本基本合格。"
+            return (
+                '{"semantic_ok": true, "grammar_ok": true, "style_ok": true, '
+                '"compound_ok": true, "density": "8%", "density_ok": true, '
+                '"operation_counts": {"A功能词": 1, "B整词同义": 2, "C连接词": 1, "D句法框架": 1, "E副词": 1, "F元话语": 0}, '
+                '"issues": [], "verdict": "pass"}'
+            )
+        return "教学设计需要兼顾活动组织、过程反馈与课堂推进节奏，并进一步优化实施路径。"
+
+    monkeypatch.setattr("app.services.dedup_strategies.cnki_llm.generate_with_llm", _fake_generate)
+
+    engine = ProcessingEngine(db_session)
+    result = engine.process(TaskType.DEDUP, "cnki", source_path, output_path, task_id=111)
+
+    assert result.result_json["dedup_strategy"]["rule_trace"]["prompt_b_validation"]["verdict"] == "pass"
+    assert calls["count"] == 2
 
 
 def test_dedup_validation_rejects_bad_sample_artifacts() -> None:

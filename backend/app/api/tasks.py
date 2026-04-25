@@ -53,7 +53,7 @@ from app.services.task_submission_guards import (
     request_client_ip,
     submit_backlog_keys,
 )
-from app.utils import detect_file_magic, safe_filename
+from app.utils import detect_file_magic, safe_display_filename, safe_filename
 
 router = APIRouter()
 settings = get_settings()
@@ -365,7 +365,7 @@ def submit_task(
             raise BizError(code=4104, message="当前任务仅支持上传文件")
         if len(normalized_pasted_text) < 10:
             raise BizError(code=4104, message="粘贴文本过短，请至少输入10个字符")
-        raw_name = safe_filename(source_filename) if source_filename else ""
+        raw_name = safe_display_filename(source_filename) if source_filename else ""
         normalized_name = raw_name or "pasted_text.txt"
         if not normalized_name.lower().endswith(".txt"):
             normalized_name = f"{normalized_name}.txt"
@@ -569,7 +569,7 @@ def recover_submitted_task(
     db: Session = Depends(db_dep),
 ) -> APIResp:
     task_type = _parse_task_type(str(payload.get("task_type", "")).strip())
-    source_filename = safe_filename(str(payload.get("source_filename", "")).strip())
+    source_filename = safe_display_filename(str(payload.get("source_filename", "")).strip())
     if not source_filename:
         raise BizError(code=4119, message="缺少源文件名", http_status=422)
     normalized_platform = normalize_platform(str(payload.get("platform", "cnki")))

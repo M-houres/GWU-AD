@@ -7618,3 +7618,33 @@
     - 验证
       - `bash -n scripts/update_prod_server.sh`
       - 结果：通过
+
+- 2026-04-26 04:41:16
+  - 知网提交异常与文件名链路修复
+    - 线上排查
+      - `backend` 日志显示知网提交接口本身返回 `200`，但任务入库时 `strategy_mode=algo_only / engine_mode=ALGO_ONLY`
+      - `worker-processing` 日志显示知网 V16 A 阶段已调用大模型，但 B 阶段偶发直接返回正文，未按 JSON 输出，导致报错：`知网降AIGC校验阶段未返回有效JSON`
+      - 用户上传的中文文件名在线上被清洗成大量下划线，说明展示文件名与存储文件名未分离
+    - 代码修复
+      - `backend/app/services/process_strategy_service.py`
+        - 将知网 `rewrite / dedup` 冻结为 `algo_llm`
+        - 即使后台旧配置仍是 `algo_only`，运行时也强制映射到 `LLM_PLUS_ALGO`
+      - `backend/app/services/rewrite_strategies/cnki_llm.py`
+        - 知网 V16 的 B 阶段若首次未返回合法 JSON，则追加一次“仅输出 JSON”的强制重试
+      - `backend/app/services/dedup_strategies/cnki_llm.py`
+        - 知网降重复率 V16 的 B 阶段同步补同样的 JSON 强制重试
+      - `backend/app/utils.py`
+        - 新增 `safe_display_filename()`，保留中文展示文件名，只清理路径与非法控制字符
+      - `backend/app/services/task_artifacts.py`
+        - `build_storage_name()` 改为“展示名保中文、存储名单独安全化”
+      - `backend/app/api/tasks.py`
+        - 粘贴文本与任务恢复链路改为走 `safe_display_filename()`，避免源文件名被下划线污染
+    - 验证
+      - `python -m py_compile backend\app\services\process_strategy_service.py backend\app\services\rewrite_strategies\cnki_llm.py backend\app\services\dedup_strategies\cnki_llm.py backend\app\utils.py backend\app\api\tasks.py backend\app\services\task_artifacts.py backend\tests\test_process_strategies.py backend\tests\test_processing_engine_results.py backend\tests\test_task_artifacts.py`
+      - 结果：通过
+      - `PYTHONPATH=backend pytest tests/test_process_strategies.py -k "cnki or algo_llm or strategy_string_false"`
+      - 结果：`5 passed`
+      - `PYTHONPATH=backend pytest tests/test_processing_engine_results.py -k "rewrite_cnki_prompt_b_retries_json_format_once or dedup_cnki_prompt_b_retries_json_format_once or rewrite_cnki_freezes_algorithm_config_to_strict_v16_llm or dedup_cnki_llm_strategy_uses_platform_prompt_and_keeps_dedup_meta"`
+      - 结果：`4 passed`
+      - `PYTHONPATH=backend pytest tests/test_task_artifacts.py tests/test_task_response_builder.py tests/test_worker_process_handler.py -k "storage_name or result_filename or filename_pair"`
+      - 结果：`2 passed`

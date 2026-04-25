@@ -7,7 +7,7 @@ from fastapi import UploadFile
 from app.config import get_settings
 from app.constants import MAX_FILE_SIZE_MB
 from app.exceptions import BizError
-from app.utils import safe_filename
+from app.utils import safe_display_filename, safe_filename
 
 logger = logging.getLogger("app.services.task_artifacts")
 settings = get_settings()
@@ -33,8 +33,9 @@ def save_upload_to(path: Path, upload: UploadFile, max_bytes: int) -> None:
 
 
 def build_storage_name(name: str, fallback_name: str) -> tuple[str, str]:
-    original_name = safe_filename(name or fallback_name)
-    unique_name = f"{uuid.uuid4().hex[:12]}_{original_name}"
+    original_name = safe_display_filename(name or fallback_name)
+    storage_name = safe_filename(original_name or fallback_name)
+    unique_name = f"{uuid.uuid4().hex[:12]}_{storage_name}"
     return original_name, unique_name
 
 
