@@ -121,7 +121,10 @@ def generate_json_payload(
     if isinstance(payload, dict):
         return payload
     preview = re.sub(r"\s+", " ", last_raw)[:160]
-    raise BizError(code=error_code, message=f"{error_message}，响应片段：{preview or 'empty'}")
+    raise BizError(
+        code=error_code,
+        message=f"{error_message}，模型返回未解析成JSON，请检查 B 阶段输出格式。响应片段：{preview or 'empty'}",
+    )
 
 
 def parse_ratio_percent(value: str) -> float | None:

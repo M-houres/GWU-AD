@@ -6,7 +6,6 @@ import re
 from app.exceptions import BizError
 from app.models import Task, TaskType
 from app.services.cnki_rewrite_prompt import (
-    build_cnki_rewrite_precheck_prompt,
     build_cnki_rewrite_prompt,
     build_cnki_rewrite_validation_prompt,
 )
@@ -18,13 +17,16 @@ def _prompt(
     *,
     chunk_index: int = 1,
     chunk_total: int = 1,
-    analysis: dict | None = None,
 ) -> str:
     return build_cnki_rewrite_prompt(
         text,
         chunk_index=chunk_index,
         chunk_total=chunk_total,
     )
+
+
+def _is_json_number(value) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
 
 
 def _extract_json_payload(raw: str) -> dict | None:
@@ -48,96 +50,44 @@ def _extract_json_payload(raw: str) -> dict | None:
     return None
 
 
-def _is_string_list(value) -> bool:
-    return isinstance(value, list) and all(isinstance(item, str) for item in value)
-
-
-def _is_json_number(value) -> bool:
-    return isinstance(value, (int, float)) and not isinstance(value, bool)
-
-
-def _infer_ambient_formality(text: str) -> str:
-    content = str(text or "")
-    if any(marker in content for marker in ("我觉得", "你知道", "其实", "真的", "特别", "挺")):
-        return "偏口语"
-    if any(marker in content for marker in ("本文", "研究", "机制", "路径", "体系", "实践")):
-        return "高度书面"
-    return "中等书面"
-
-
-def _fallback_preanalysis_payload(text: str) -> dict:
-    content = re.sub(r"\s+", " ", str(text or "")).strip()
-    sentences = [item.strip() for item in re.split(r"[。！？；\n]+", content) if item.strip()]
-    avg_chars = round(sum(len(item) for item in sentences) / max(len(sentences), 1), 2)
-    return {
-        "ambient_formality": _infer_ambient_formality(content),
-        "p1_candidates": [],
-        "p2_candidates": [],
-        "p3_candidates": [],
-        "p4_candidates": [],
-        "frozen_terms": [],
-        "high_freq_targets": [],
-        "avg_n_per_sentence": avg_chars,
-        "needs_sentence_ops": bool(avg_chars >= 32 or any(len(item) >= 48 for item in sentences)),
-    }
-
-
-def _validate_preanalysis_payload(payload: dict) -> dict:
-    required_keys = {
-        "ambient_formality",
-        "p1_candidates",
-        "p2_candidates",
-        "p3_candidates",
-        "p4_candidates",
-        "frozen_terms",
-        "high_freq_targets",
-        "avg_n_per_sentence",
-        "needs_sentence_ops",
-    }
-    if set(payload.keys()) != required_keys:
-        raise BizError(code=4625, message="知网降AIGC预分析阶段JSON字段不符合V14")
-    if str(payload.get("ambient_formality") or "").strip() not in {"高度书面", "中等书面", "偏口语"}:
-        raise BizError(code=4625, message="知网降AIGC预分析阶段环境正式度不符合V14")
-    for key in ("p1_candidates", "p2_candidates", "p3_candidates", "p4_candidates", "frozen_terms", "high_freq_targets"):
-        if not _is_string_list(payload.get(key)):
-            raise BizError(code=4625, message=f"知网降AIGC预分析阶段字段 {key} 不符合V14")
-    if not _is_json_number(payload.get("avg_n_per_sentence")):
-        raise BizError(code=4625, message="知网降AIGC预分析阶段 avg_n_per_sentence 不符合V14")
-    if not isinstance(payload.get("needs_sentence_ops"), bool):
-        raise BizError(code=4625, message="知网降AIGC预分析阶段 needs_sentence_ops 不符合V14")
-    return payload
-
-
 def _validate_prompt_b_payload(payload: dict) -> dict:
     required_keys = {
         "semantic_ok",
         "grammar_ok",
-        "formality_maintained",
-        "avg_changes_per_sentence",
-        "char_change",
-        "diversity_ok",
+        "style_ok",
+        "compound_ok",
+        "density",
+        "density_ok",
+        "operation_counts",
         "issues",
         "verdict",
     }
     if set(payload.keys()) != required_keys:
-        raise BizError(code=4626, message="知网降AIGC校验阶段JSON字段不符合V14")
-    for key in ("semantic_ok", "grammar_ok", "formality_maintained", "diversity_ok"):
+        raise BizError(code=4626, message="知网降AIGC校验阶段JSON字段不符合V16")
+    for key in ("semantic_ok", "grammar_ok", "style_ok", "compound_ok", "density_ok"):
         if not isinstance(payload.get(key), bool):
-            raise BizError(code=4626, message=f"知网降AIGC校验阶段字段 {key} 不符合V14")
-    if not _is_json_number(payload.get("avg_changes_per_sentence")):
-        raise BizError(code=4626, message="知网降AIGC校验阶段 avg_changes_per_sentence 不符合V14")
-    if not isinstance(payload.get("char_change"), str):
-        raise BizError(code=4626, message="知网降AIGC校验阶段 char_change 不符合V14")
+            raise BizError(code=4626, message=f"知网降AIGC校验阶段字段 {key} 不符合V16")
+    if not isinstance(payload.get("density"), str):
+        raise BizError(code=4626, message="知网降AIGC校验阶段 density 不符合V16")
+    operation_counts = payload.get("operation_counts")
+    if not isinstance(operation_counts, dict):
+        raise BizError(code=4626, message="知网降AIGC校验阶段 operation_counts 不符合V16")
+    expected_operation_keys = {"A功能词", "B整词同义", "C连接词", "D句法框架", "E副词", "F元话语"}
+    if set(operation_counts.keys()) != expected_operation_keys:
+        raise BizError(code=4626, message="知网降AIGC校验阶段 operation_counts 字段不符合V16")
+    for key, value in operation_counts.items():
+        if not _is_json_number(value):
+            raise BizError(code=4626, message=f"知网降AIGC校验阶段 operation_counts.{key} 不符合V16")
     issues = payload.get("issues")
     if not isinstance(issues, list):
-        raise BizError(code=4626, message="知网降AIGC校验阶段 issues 不符合V14")
+        raise BizError(code=4626, message="知网降AIGC校验阶段 issues 不符合V16")
     for item in issues:
         if not isinstance(item, dict):
-            raise BizError(code=4626, message="知网降AIGC校验阶段 issues 项不符合V14")
+            raise BizError(code=4626, message="知网降AIGC校验阶段 issues 项不符合V16")
         if set(item.keys()) != {"location", "type", "detail"}:
-            raise BizError(code=4626, message="知网降AIGC校验阶段 issues 字段不符合V14")
+            raise BizError(code=4626, message="知网降AIGC校验阶段 issues 字段不符合V16")
     if str(payload.get("verdict") or "").strip().lower() not in {"pass", "fail"}:
-        raise BizError(code=4626, message="知网降AIGC校验阶段 verdict 不符合V14")
+        raise BizError(code=4626, message="知网降AIGC校验阶段 verdict 不符合V16")
     return payload
 
 
@@ -150,23 +100,8 @@ def _generate_json_payload(db, *, prompt: str, task_type: TaskType, error_code: 
     preview = re.sub(r"\s+", " ", last_raw)[:160]
     raise BizError(
         code=error_code,
-        message=f"{error_message}，响应片段：{preview or 'empty'}",
+        message=f"{error_message}，模型返回未解析成JSON，请检查 B 阶段输出格式。响应片段：{preview or 'empty'}",
     )
-
-
-def _run_preanalysis(db, *, text: str) -> dict:
-    raw = generate_with_llm(
-        db,
-        task_type=TaskType.REWRITE,
-        text=build_cnki_rewrite_precheck_prompt(text),
-    )
-    payload = _extract_json_payload(raw)
-    if isinstance(payload, dict):
-        try:
-            return _validate_preanalysis_payload(payload)
-        except BizError:
-            pass
-    return _fallback_preanalysis_payload(text)
 
 
 def _run_prompt_b_validation(db, *, source_text: str, rewritten_text: str) -> dict:
@@ -184,15 +119,10 @@ def _prompt_b_passed(payload: dict) -> bool:
     verdict = str(payload.get("verdict") or "").strip().lower()
     semantic_ok = bool(payload.get("semantic_ok", False))
     grammar_ok = bool(payload.get("grammar_ok", False))
-    formality_maintained = bool(payload.get("formality_maintained", False))
-    diversity_ok = bool(payload.get("diversity_ok", False))
-    return (
-        verdict == "pass"
-        and semantic_ok
-        and grammar_ok
-        and formality_maintained
-        and diversity_ok
-    )
+    style_ok = bool(payload.get("style_ok", False))
+    compound_ok = bool(payload.get("compound_ok", False))
+    density_ok = bool(payload.get("density_ok", False))
+    return verdict == "pass" and semantic_ok and grammar_ok and style_ok and compound_ok and density_ok
 
 
 def rewrite(db, *, task: Task | None, text: str, report_summary: dict | None = None) -> dict:
@@ -200,7 +130,6 @@ def rewrite(db, *, task: Task | None, text: str, report_summary: dict | None = N
     content = str(text or "")
 
     try:
-        preanalysis = _run_preanalysis(db, text=content)
         output = str(
             generate_with_llm(
                 db,
@@ -209,7 +138,6 @@ def rewrite(db, *, task: Task | None, text: str, report_summary: dict | None = N
                     content,
                     chunk_index=1,
                     chunk_total=1,
-                    analysis=preanalysis,
                 ),
             )
             or ""
@@ -220,19 +148,17 @@ def rewrite(db, *, task: Task | None, text: str, report_summary: dict | None = N
         if not _prompt_b_passed(prompt_b):
             issues = prompt_b.get("issues") if isinstance(prompt_b.get("issues"), list) else []
             issue_text = "；".join(str(item.get("detail") or "").strip() for item in issues[:3] if isinstance(item, dict))
-            raise BizError(code=4627, message=f"知网降AIGC三段式校验未通过{f'：{issue_text}' if issue_text else ''}")
+            raise BizError(code=4627, message=f"知网降AIGC A/B 校验未通过{f'：{issue_text}' if issue_text else ''}")
         rule_trace = {
-            "mode": "llm_prompt_pab_strict_v14_global",
+            "mode": "llm_prompt_ab_strict_v16_global",
             "applied_rules": [
-                "llm:cnki_prompt_p:preanalysis",
-                "llm:cnki_prompt_a:strict_v14_global",
+                "llm:cnki_prompt_a:strict_v16_global",
                 "llm:cnki_prompt_b:validation",
             ],
             "protected_hits": [],
-            "strategy_version": "cnki_v14_llm_pab_strict",
+            "strategy_version": "cnki_v16_llm_ab_strict",
             "chunk_count": 1,
             "technical_chunking": False,
-            "preanalysis": preanalysis,
             "prompt_b_validation": prompt_b,
             "llm_provider": str(llm_cfg.get("provider") or ""),
             "llm_model": str(llm_cfg.get("model") or ""),

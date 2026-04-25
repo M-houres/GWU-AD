@@ -1,5 +1,5 @@
 <template>
-  <UserShell title="个人中心" subtitle="统一管理账户信息、任务记录、通用点数流水与免费额度。" :credits="userBalanceFen">
+  <UserShell title="个人中心" subtitle="账户、任务和点数都在这里统一查看。" :credits="userBalanceFen">
     <section v-if="isGuest" class="scholar-panel scholar-panel--soft">
       <div class="scholar-panel__body">
         <h3 class="scholar-subtitle">登录后查看个人数据</h3>
@@ -10,6 +10,29 @@
 
     <template v-else>
       <section class="profile-page">
+        <section class="profile-hero">
+          <article class="profile-hero__main">
+            <div class="profile-hero__eyebrow">账户中心</div>
+            <h2>{{ displayName }}</h2>
+            <p>常用信息集中到一个页面，充值、查看任务和核对点数都更直接。</p>
+          </article>
+          <article class="profile-hero__stat">
+            <span>当前点数</span>
+            <strong>{{ formatCredits(userBalanceFen || 0) }}</strong>
+            <em>可直接用于提交任务</em>
+          </article>
+          <article class="profile-hero__stat">
+            <span>今日免费</span>
+            <strong>{{ aigcQuota.free_remaining_today }} / {{ aigcQuota.daily_free_limit }}</strong>
+            <em>AIGC 检测剩余额度</em>
+          </article>
+          <article class="profile-hero__stat">
+            <span>累计任务</span>
+            <strong>{{ summaryState.task_counts?.total || 0 }}</strong>
+            <em>最近动态实时更新</em>
+          </article>
+        </section>
+
         <div class="profile-layout">
           <aside class="profile-sidebar">
             <ul class="profile-nav">
@@ -26,7 +49,7 @@
               <div class="scholar-panel__header">
                 <div>
                   <h3 class="scholar-subtitle">充值入口</h3>
-                  <p class="scholar-lead">先充值通用点数再使用服务，任务提交后自动从账户通用点数中扣减。</p>
+                  <p class="scholar-lead">先补充点数，再按需要提交检测、降重或改写任务。</p>
                 </div>
               </div>
               <div class="scholar-panel__body">
@@ -41,7 +64,7 @@
                     <div class="profile-head">
                       <div>
                         <h3 class="scholar-subtitle">{{ displayName }}</h3>
-                        <p class="scholar-lead">账户资料、任务活跃度和最近记录都在这里统一查看。</p>
+                        <p class="scholar-lead">账户情况、任务活跃度和近期数据在这里快速查看。</p>
                       </div>
                       <div class="profile-head__chips">
                         <span class="profile-chip">已登录</span>
@@ -66,7 +89,7 @@
                 <div class="flex flex-wrap items-start justify-between gap-3">
                   <div>
                     <h3 class="scholar-subtitle">任务记录</h3>
-                    <p class="scholar-lead">这里会连续拉取你的历史任务，刷新和重新登录后不会只剩一页数据。</p>
+                    <p class="scholar-lead">按时间查看全部任务，处理状态和下载入口都集中在这里。</p>
                   </div>
                   <button class="scholar-button scholar-button--secondary" type="button" @click="loadTasks">刷新</button>
                 </div>
@@ -151,7 +174,7 @@
                 <div class="flex flex-wrap items-start justify-between gap-3">
                   <div>
                     <h3 class="scholar-subtitle">通用点数流水</h3>
-                    <p class="scholar-lead">全部流水按时间连续展示，初始点数、消费、退款、充值和系统调整都能在这里看到。</p>
+                    <p class="scholar-lead">点数收入和支出按时间排列，方便核对每一次变动。</p>
                   </div>
                   <button class="scholar-button scholar-button--secondary" type="button" @click="loadTransactions">刷新</button>
                 </div>
@@ -253,7 +276,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref, watch } from "vue"
+import { computed, onMounted, ref, watch } from "vue"
 import { useRoute, useRouter } from "vue-router"
 import BuyCreditsPanel from "../../components/BuyCreditsPanel.vue"
 import UserShell from "../../components/UserShell.vue"
@@ -484,58 +507,454 @@ function goLogin() {
 </script>
 
 <style scoped>
-.profile-page{display:grid}
-.profile-layout{display:grid;grid-template-columns:220px minmax(0,1fr);gap:18px;align-items:start}
-.profile-sidebar{position:sticky;top:88px}
-.profile-nav{list-style:none;display:grid;grid-template-columns:1fr;gap:8px;margin:0;padding:12px;border-radius:20px;border:1px solid rgba(17,17,17,.08);background:linear-gradient(180deg,#fbfcfe 0%,#f4f7fb 100%)}
-.profile-nav li{min-width:0}
-.profile-nav button{width:100%;display:flex;align-items:center;justify-content:flex-start;min-height:46px;padding:12px 15px;border-radius:14px;font-size:14px;font-weight:600;letter-spacing:.02em;color:#52627d;text-decoration:none;transition:all .18s ease;cursor:pointer;border:1px solid transparent;background:transparent;text-align:left}
-.profile-nav button:hover{background:#fff;color:#10294b;border-color:rgba(17,17,17,.08)}
-.profile-nav button.is-active{background:#fff;color:#1d4ed8;font-weight:700;border-color:#dbeafe;box-shadow:0 10px 24px rgba(30,91,223,.08)}
-.profile-main{min-width:0;display:grid;gap:18px}
-.profile-stack,.profile-top-grid,.profile-two-col{display:grid;gap:18px}
-.profile-top-grid{grid-template-columns:minmax(0,1.3fr) minmax(320px,.7fr)}
-.profile-top-grid--single{grid-template-columns:minmax(0,1fr)}
-.profile-two-col{grid-template-columns:repeat(2,minmax(0,1fr))}
-.profile-head{display:flex;justify-content:space-between;gap:16px}
-.profile-head__chips{display:flex;flex-wrap:wrap;gap:10px;align-items:flex-start}
-.profile-chip{display:inline-flex;align-items:center;min-height:32px;padding:0 12px;border-radius:999px;background:#111;color:#fff;font-size:12px;font-weight:600}
-.profile-chip--soft{background:#f5f7f9;color:#33414d;border:1px solid rgba(17,17,17,.12)}
-.profile-metric-grid,.profile-card-grid{display:grid;gap:12px;grid-template-columns:repeat(2,minmax(0,1fr));margin-top:18px}
-.profile-metric,.profile-card{padding:16px;border:1px solid rgba(17,17,17,.08);border-radius:16px;background:linear-gradient(180deg,#fff 0%,#f7f8fa 100%)}
-.profile-metric__label,.profile-card__label{font-size:12px;font-weight:600;color:#5a6773}
-.profile-metric__value,.profile-card__value{margin-top:8px;font-size:24px;line-height:1.25;color:#111;word-break:break-word}
-.profile-metric__hint,.profile-card__hint,.profile-tip{margin-top:8px;font-size:13px;line-height:1.7;color:#5a6773}
-.profile-editor{display:flex;gap:12px;align-items:center}
-.profile-feedback{margin:10px 0 0;font-size:13px}
-.profile-feedback.is-success{color:#106c4f}
-.profile-feedback.is-error{color:#b24439}
-.profile-file-pair{margin-top:4px;font-size:12px;line-height:1.5;color:#5a6773;word-break:break-all}
-.profile-list{display:grid;gap:12px}
-.profile-list__item{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:12px 0;border-bottom:1px solid rgba(17,17,17,.06)}
-.profile-list__item:last-child{border-bottom:0;padding-bottom:0}
-.profile-list__main{min-width:0;flex:1}
-.profile-link{padding:0;border:0;background:transparent;color:#111;font-size:15px;font-weight:600;text-align:left;cursor:pointer}
-.profile-link--static{cursor:default}
-.profile-list__meta{margin-top:6px;font-size:12px;color:#5a6773}
-.profile-list__side{display:flex;align-items:center;gap:10px;flex-shrink:0}
-.profile-delta.is-plus{color:#106c4f}
-.profile-delta.is-minus{color:#b24439}
-.profile-pagination{margin-top:18px;display:flex;justify-content:center;align-items:center;gap:12px}
-.profile-mobile-list{display:none}
-.profile-mobile-card{display:grid;gap:14px;padding:16px;border:1px solid rgba(17,17,17,.08);border-radius:18px;background:linear-gradient(180deg,#fff 0%,#f7f8fa 100%)}
-.profile-mobile-card + .profile-mobile-card{margin-top:12px}
-.profile-mobile-card__head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
-.profile-mobile-card__eyebrow{font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:#6b7782}
-.profile-mobile-card__title{display:block;margin-top:6px;font-size:16px;line-height:1.5;color:#111}
-.profile-mobile-grid{display:grid;gap:10px;grid-template-columns:repeat(2,minmax(0,1fr))}
-.profile-mobile-grid div{display:grid;gap:4px;padding:10px 12px;border-radius:14px;background:#fff;border:1px solid rgba(17,17,17,.06)}
-.profile-mobile-grid span{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#6b7782}
-.profile-mobile-grid strong{font-size:13px;line-height:1.6;color:#111;word-break:break-word}
-.profile-mobile-actions{display:flex;gap:10px;flex-wrap:wrap}
-.profile-mobile-delta{font-size:15px;line-height:1.4}
-.profile-mobile-delta.is-plus{color:#106c4f}
-.profile-mobile-delta.is-minus{color:#b24439}
-@media (max-width:1100px){.profile-layout,.profile-top-grid,.profile-two-col{grid-template-columns:1fr}.profile-sidebar{position:static;top:auto}.profile-nav{grid-template-columns:repeat(4,minmax(0,1fr))}}
-@media (max-width:720px){.profile-head,.profile-editor,.profile-list__item,.profile-list__side,.profile-pagination{flex-direction:column;align-items:stretch}.profile-nav,.profile-metric-grid,.profile-card-grid,.profile-mobile-grid{grid-template-columns:1fr}.profile-table-shell{display:none}.profile-mobile-list{display:block}}
+.profile-page {
+  display: grid;
+  gap: 18px;
+}
+
+.profile-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) repeat(3, minmax(0, 0.62fr));
+  gap: 14px;
+}
+
+.profile-hero__main,
+.profile-hero__stat,
+.profile-nav,
+.profile-mobile-card {
+  border: 1px solid rgba(30, 91, 223, 0.12);
+  border-radius: 22px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(245, 249, 255, 0.94));
+  box-shadow: 0 16px 30px rgba(30, 91, 223, 0.08);
+}
+
+.profile-hero__main {
+  padding: 22px 24px;
+  display: grid;
+  gap: 8px;
+}
+
+.profile-hero__eyebrow {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #6c87ac;
+}
+
+.profile-hero__main h2 {
+  margin: 0;
+  font-size: 30px;
+  line-height: 1.1;
+  color: #1f3555;
+}
+
+.profile-hero__main p {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.8;
+  color: #617894;
+}
+
+.profile-hero__stat {
+  padding: 18px 18px 16px;
+  display: grid;
+  gap: 6px;
+}
+
+.profile-hero__stat span {
+  font-size: 12px;
+  color: #6f86a5;
+}
+
+.profile-hero__stat strong {
+  font-size: 24px;
+  line-height: 1.08;
+  color: #1e5bdf;
+}
+
+.profile-hero__stat em {
+  font-style: normal;
+  font-size: 12px;
+  line-height: 1.6;
+  color: #68809d;
+}
+
+.profile-layout {
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr);
+  gap: 18px;
+  align-items: start;
+}
+
+.profile-sidebar {
+  position: sticky;
+  top: 88px;
+}
+
+.profile-nav {
+  list-style: none;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+  margin: 0;
+  padding: 12px;
+}
+
+.profile-nav li {
+  min-width: 0;
+}
+
+.profile-nav button {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  min-height: 46px;
+  padding: 12px 15px;
+  border-radius: 14px;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: #536d90;
+  transition: all 0.18s ease;
+  cursor: pointer;
+  border: 1px solid transparent;
+  background: transparent;
+  text-align: left;
+}
+
+.profile-nav button:hover {
+  background: rgba(30, 91, 223, 0.06);
+  color: #163f76;
+  border-color: rgba(30, 91, 223, 0.08);
+}
+
+.profile-nav button.is-active {
+  background: linear-gradient(135deg, #5d92ff, #1e5bdf);
+  color: #fff;
+  border-color: rgba(30, 91, 223, 0.14);
+  box-shadow: 0 14px 24px rgba(30, 91, 223, 0.18);
+}
+
+.profile-main {
+  min-width: 0;
+  display: grid;
+  gap: 18px;
+}
+
+.profile-stack,
+.profile-top-grid,
+.profile-two-col {
+  display: grid;
+  gap: 18px;
+}
+
+.profile-top-grid {
+  grid-template-columns: minmax(0, 1.3fr) minmax(320px, 0.7fr);
+}
+
+.profile-top-grid--single {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.profile-two-col {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.profile-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.profile-head__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.profile-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  padding: 0 12px;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #5d92ff, #1e5bdf);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.profile-chip--soft {
+  background: rgba(30, 91, 223, 0.08);
+  color: #35527d;
+  border: 1px solid rgba(30, 91, 223, 0.12);
+}
+
+.profile-metric-grid,
+.profile-card-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-top: 18px;
+}
+
+.profile-metric,
+.profile-card {
+  padding: 16px;
+  border: 1px solid rgba(30, 91, 223, 0.12);
+  border-radius: 18px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(242, 247, 255, 0.94));
+}
+
+.profile-metric__label,
+.profile-card__label {
+  font-size: 12px;
+  font-weight: 700;
+  color: #67809f;
+}
+
+.profile-metric__value,
+.profile-card__value {
+  margin-top: 8px;
+  font-size: 24px;
+  line-height: 1.25;
+  color: #1f3555;
+  word-break: break-word;
+}
+
+.profile-metric__hint,
+.profile-card__hint,
+.profile-tip {
+  margin-top: 8px;
+  font-size: 13px;
+  line-height: 1.7;
+  color: #5f7896;
+}
+
+.profile-editor {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+.profile-feedback {
+  margin: 10px 0 0;
+  font-size: 13px;
+}
+
+.profile-feedback.is-success,
+.profile-delta.is-plus,
+.profile-mobile-delta.is-plus {
+  color: #106c4f;
+}
+
+.profile-feedback.is-error,
+.profile-delta.is-minus,
+.profile-mobile-delta.is-minus {
+  color: #b24439;
+}
+
+.profile-file-pair {
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #65809f;
+  word-break: break-all;
+}
+
+.profile-list {
+  display: grid;
+  gap: 12px;
+}
+
+.profile-list__item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 12px 0;
+  border-bottom: 1px solid rgba(30, 91, 223, 0.08);
+}
+
+.profile-list__item:last-child {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+
+.profile-list__main {
+  min-width: 0;
+  flex: 1;
+}
+
+.profile-link {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #1f3555;
+  font-size: 15px;
+  font-weight: 700;
+  text-align: left;
+  cursor: pointer;
+}
+
+.profile-link--static {
+  cursor: default;
+}
+
+.profile-list__meta {
+  margin-top: 6px;
+  font-size: 12px;
+  color: #5f7896;
+}
+
+.profile-list__side {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.profile-pagination {
+  margin-top: 18px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 12px;
+}
+
+.profile-mobile-list {
+  display: none;
+}
+
+.profile-mobile-card {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+}
+
+.profile-mobile-card + .profile-mobile-card {
+  margin-top: 12px;
+}
+
+.profile-mobile-card__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.profile-mobile-card__eyebrow {
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #6b85a8;
+}
+
+.profile-mobile-card__title {
+  display: block;
+  margin-top: 6px;
+  font-size: 16px;
+  line-height: 1.5;
+  color: #1f3555;
+}
+
+.profile-mobile-grid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.profile-mobile-grid div {
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: #fff;
+  border: 1px solid rgba(30, 91, 223, 0.1);
+}
+
+.profile-mobile-grid span {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #6b85a8;
+}
+
+.profile-mobile-grid strong {
+  font-size: 13px;
+  line-height: 1.6;
+  color: #1f3555;
+  word-break: break-word;
+}
+
+.profile-mobile-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.profile-mobile-delta {
+  font-size: 15px;
+  line-height: 1.4;
+}
+
+@media (max-width: 1200px) {
+  .profile-hero {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .profile-hero__main {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 1100px) {
+  .profile-layout,
+  .profile-top-grid,
+  .profile-two-col {
+    grid-template-columns: 1fr;
+  }
+
+  .profile-sidebar {
+    position: static;
+    top: auto;
+  }
+
+  .profile-nav {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 720px) {
+  .profile-hero {
+    grid-template-columns: 1fr;
+  }
+
+  .profile-head,
+  .profile-editor,
+  .profile-list__item,
+  .profile-list__side,
+  .profile-pagination {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .profile-nav,
+  .profile-metric-grid,
+  .profile-card-grid,
+  .profile-mobile-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .profile-table-shell {
+    display: none;
+  }
+
+  .profile-mobile-list {
+    display: block;
+  }
+}
 </style>

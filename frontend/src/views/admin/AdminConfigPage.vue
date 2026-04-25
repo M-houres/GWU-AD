@@ -1,14 +1,37 @@
 <template>
   <AdminShell title="配置中心" subtitle="运营填写后即可生效，支持审计与就绪检查">
+    <section class="admin-config-overview">
+      <article class="admin-config-overview__hero">
+        <div class="admin-config-overview__eyebrow">运营工作台</div>
+        <h2>{{ currentTab.label }}</h2>
+        <p>{{ currentGuide.lead }}</p>
+      </article>
+      <article class="admin-config-overview__stat">
+        <span>当前状态</span>
+        <strong>{{ readinessLabel(readinessMap[activeTab]?.status) }}</strong>
+        <em>{{ readinessMap[activeTab]?.message || "当前板块可继续编辑" }}</em>
+      </article>
+      <article class="admin-config-overview__stat">
+        <span>已就绪板块</span>
+        <strong>{{ readyCount }}/{{ tabs.length }}</strong>
+        <em>核心配置状态一眼可见</em>
+      </article>
+      <article class="admin-config-overview__stat">
+        <span>参考文档</span>
+        <strong>{{ currentGuide.docs?.length || 0 }}</strong>
+        <em>只保留当前板块需要的资料</em>
+      </article>
+    </section>
+
     <div class="admin-config-layout">
-      <section class="admin-config-sidebar rounded-2xl border border-[#d9dee4] bg-white p-4">
+      <section class="admin-config-sidebar admin-config-card">
         <div class="text-[11px] uppercase tracking-[0.18em] text-[#73808b]">配置导航</div>
         <div class="admin-config-tabs mt-3 space-y-2">
           <button
             v-for="tab in tabs"
             :key="tab.key"
             class="admin-config-tab-btn w-full rounded-2xl border px-3 py-3 text-left transition"
-            :class="[activeTab === tab.key ? 'border-[#0f7a5f] bg-[linear-gradient(150deg,#edf7f3,#f8fcfb)]' : 'border-[#d6dee6] bg-white hover:border-[#9ab8ac]', { 'is-active': activeTab === tab.key }]"
+            :class="[activeTab === tab.key ? 'border-[#1e5bdf] bg-[linear-gradient(150deg,#eef4ff,#f8fbff)]' : 'border-[#d6dee6] bg-white hover:border-[#90b3f7]', { 'is-active': activeTab === tab.key }]"
             @click="activeTab = tab.key"
           >
             <div class="flex items-start justify-between gap-2">
@@ -24,8 +47,8 @@
         </div>
       </section>
 
-      <section class="admin-config-main rounded-2xl border border-[#d9dee4] bg-white p-5">
-        <div class="border-b border-[#e6ebef] pb-4">
+      <section class="admin-config-main admin-config-card">
+        <div class="admin-config-main__head">
           <div class="text-[11px] uppercase tracking-[0.18em] text-[#73808b]">{{ currentGuide.code }}</div>
           <h3 class="mt-2 text-xl font-semibold text-[#18242b]">{{ currentTab.label }}</h3>
           <p class="mt-2 text-sm leading-6 text-[#5b6771]">{{ currentGuide.lead }}</p>
@@ -236,112 +259,6 @@
                 <div class="mt-4 rounded-xl border border-[#dce4eb] bg-[#fbfcfd] px-3 py-3 text-sm leading-6 text-[#4f5d69]">
                   固定执行：内部算法策略链。当前平台不提供 LLM 模式，也不读取外部版本配置。
                 </div>
-              </article>
-            </section>
-          </template>
-
-          <template v-else-if="activeTab === 'dedup_strategy'">
-            <section class="rounded-2xl border border-[#dce4eb] bg-[#fbfcfd] p-4">
-              <div class="text-sm font-semibold text-[#1f2c35]">MVP 范围</div>
-              <div class="mt-1 text-xs leading-5 text-[#5f6d79]">这里只决定知网和维普降重复率任务是否启用。当前两端均固定走大模型主策略，不再提供算法切换。</div>
-              <div class="mt-3 grid gap-3 md:grid-cols-2">
-                <div class="rounded-xl border border-[#dce4eb] bg-white px-3 py-3 text-sm leading-6 text-[#4f5d69]">
-                  后端只对 `dedup + cnki/vip` 任务读取这里的配置，用户提交链路、计费链路和下载链路保持不变。
-                </div>
-                <div class="rounded-xl border border-[#dce4eb] bg-white px-3 py-3 text-sm leading-6 text-[#4f5d69]">
-                  知网和维普降重复率算法策略均已冻结。只要平台启用，任务会直接走对应的大模型链路。
-                </div>
-              </div>
-            </section>
-
-            <section class="space-y-3">
-              <article
-                v-for="platform in dedupStrategyPlatforms"
-                :key="platform.key"
-                class="rounded-2xl border border-[#dce4eb] bg-white p-4"
-              >
-                <div class="flex flex-wrap items-start justify-between gap-3">
-                  <div>
-                    <div class="text-sm font-semibold text-[#1f2c35]">{{ platform.label }}</div>
-                    <div class="mt-1 text-xs leading-5 text-[#5f6d79]">{{ platform.desc }}</div>
-                  </div>
-                  <label class="inline-flex items-center gap-2 rounded-xl border border-[#d6dee6] bg-[#fbfcfd] px-3 py-2 text-sm text-[#30404d]">
-                    <input v-model="forms.dedup_strategy[platform.key].dedup.enabled" type="checkbox" />
-                    启用该平台
-                  </label>
-                </div>
-
-                <div class="mt-4 grid gap-3 md:grid-cols-2">
-                  <label class="space-y-1 text-sm">
-                    <span>执行策略</span>
-                    <select
-                      v-model="forms.dedup_strategy[platform.key].dedup.active_strategy"
-                      class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2"
-                      disabled
-                    >
-                      <option v-for="item in dedupStrategyOptions" :key="item.value" :value="item.value">
-                        {{ item.label }}
-                      </option>
-                    </select>
-                  </label>
-                  <div class="rounded-xl border border-[#dce4eb] bg-[#fbfcfd] px-3 py-3 text-sm leading-6 text-[#4f5d69]">
-                    当前说明：{{ strategyDescription(forms.dedup_strategy[platform.key].dedup.active_strategy) }}
-                  </div>
-                </div>
-
-              </article>
-            </section>
-          </template>
-
-          <template v-else-if="activeTab === 'rewrite_strategy'">
-            <section class="rounded-2xl border border-[#dce4eb] bg-[#fbfcfd] p-4">
-              <div class="text-sm font-semibold text-[#1f2c35]">MVP 范围</div>
-              <div class="mt-1 text-xs leading-5 text-[#5f6d79]">这里只决定知网和维普降AIGC率任务是否启用。当前两端均固定走大模型主策略，不再提供算法切换。</div>
-              <div class="mt-3 grid gap-3 md:grid-cols-2">
-                <div class="rounded-xl border border-[#dce4eb] bg-white px-3 py-3 text-sm leading-6 text-[#4f5d69]">
-                  后端只对 `rewrite + cnki/vip` 任务读取这里的配置，用户提交链路、计费链路和下载链路保持不变。
-                </div>
-                <div class="rounded-xl border border-[#dce4eb] bg-white px-3 py-3 text-sm leading-6 text-[#4f5d69]">
-                  知网和维普降AIGC率算法策略均已冻结。知网链路严格执行 Prompt P -> Prompt A -> Prompt B 三段式，大模型配置可用时直接生效。
-                </div>
-              </div>
-            </section>
-
-            <section class="space-y-3">
-              <article
-                v-for="platform in rewriteStrategyPlatforms"
-                :key="platform.key"
-                class="rounded-2xl border border-[#dce4eb] bg-white p-4"
-              >
-                <div class="flex flex-wrap items-start justify-between gap-3">
-                  <div>
-                    <div class="text-sm font-semibold text-[#1f2c35]">{{ platform.label }}</div>
-                    <div class="mt-1 text-xs leading-5 text-[#5f6d79]">{{ platform.desc }}</div>
-                  </div>
-                  <label class="inline-flex items-center gap-2 rounded-xl border border-[#d6dee6] bg-[#fbfcfd] px-3 py-2 text-sm text-[#30404d]">
-                    <input v-model="forms.rewrite_strategy[platform.key].rewrite.enabled" type="checkbox" />
-                    启用该平台
-                  </label>
-                </div>
-
-                <div class="mt-4 grid gap-3 md:grid-cols-2">
-                  <label class="space-y-1 text-sm">
-                    <span>执行策略</span>
-                    <select
-                      v-model="forms.rewrite_strategy[platform.key].rewrite.active_strategy"
-                      class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2"
-                      disabled
-                    >
-                      <option v-for="item in getRewriteStrategyOptions(platform.key)" :key="item.value" :value="item.value">
-                        {{ item.label }}
-                      </option>
-                    </select>
-                  </label>
-                  <div class="rounded-xl border border-[#dce4eb] bg-[#fbfcfd] px-3 py-3 text-sm leading-6 text-[#4f5d69]">
-                    当前说明：{{ strategyDescription(forms.rewrite_strategy[platform.key].rewrite.active_strategy, platform.key) }}
-                  </div>
-                </div>
-
               </article>
             </section>
           </template>
@@ -1021,20 +938,20 @@
 
         <div class="mt-5 flex flex-wrap gap-2 border-t border-[#e6ebef] pt-4">
           <button
-            class="rounded-xl bg-[#0f7a5f] px-4 py-2 text-sm text-white disabled:opacity-60"
+            class="admin-config-primary-btn"
             :disabled="saving || !canManageConfigs"
             @click="saveCurrent"
           >
             {{ canManageConfigs ? (saving ? "保存中..." : `保存${currentTab.label}`) : "仅查看" }}
           </button>
-          <button class="rounded-xl bg-[#edf2f6] px-4 py-2 text-sm text-[#344250]" @click="reloadCurrent">重新加载</button>
+          <button class="admin-config-secondary-btn" @click="reloadCurrent">重新加载</button>
         </div>
         <p v-if="hintText" class="mt-3 text-sm text-[#106c4f]">{{ hintText }}</p>
         <p v-if="errorText" class="mt-3 text-sm text-[#af3f33]">{{ errorText }}</p>
       </section>
 
       <section class="admin-config-guide space-y-4">
-        <article class="rounded-2xl border border-[#d9dee4] bg-white p-4">
+        <article class="admin-config-card">
           <div class="text-[11px] uppercase tracking-[0.18em] text-[#73808b]">使用说明</div>
           <h4 class="mt-2 text-sm font-semibold text-[#1b2730]">{{ currentGuide.title }}</h4>
           <p class="mt-3 text-sm leading-6 text-[#596671]">{{ currentGuide.desc }}</p>
@@ -1042,7 +959,7 @@
             <div v-for="item in currentGuide.checklist" :key="item" class="rounded-xl border border-[#e3e8ed] bg-[#fbfcfd] px-3 py-2 text-sm leading-6 text-[#384853]">{{ item }}</div>
           </div>
         </article>
-        <article class="rounded-2xl border border-[#d9dee4] bg-white p-4">
+        <article class="admin-config-card">
           <div class="text-[11px] uppercase tracking-[0.18em] text-[#73808b]">官方文档</div>
           <div class="mt-3 space-y-2">
             <a v-for="doc in currentGuide.docs" :key="doc.href" :href="doc.href" target="_blank" rel="noreferrer" class="block rounded-xl border border-[#e3e8ed] bg-[#fbfcfd] px-3 py-2 text-sm text-[#125f4b] underline underline-offset-4">{{ doc.label }}</a>
@@ -1062,14 +979,11 @@ import {
   ADMIN_CONFIG_GUIDES,
   buildAdminConfigPayload,
   CONFIG_TABS,
-  DEDUP_STRATEGY_OPTIONS,
-  DEDUP_STRATEGY_PLATFORMS,
   DEFAULT_MINIAPP_CONFIG,
   DEFAULT_PROMO_CENTER_CONFIG,
   LLM_PRESETS,
   LLM_PROVIDERS,
   PAYMENT_PROVIDERS,
-  REWRITE_STRATEGY_PLATFORMS,
   SMS_PROVIDERS,
   adminConfigReadinessChipClass,
   adminConfigReadinessLabel,
@@ -1078,14 +992,10 @@ import {
   createBillingPackage,
   normalizeBillingForm,
   normalizeAigcDetectStrategyConfig,
-  normalizeDedupStrategyConfig,
   normalizeMiniappConfig,
   normalizePromotionCenterConfig,
-  normalizeRewriteStrategyConfig,
   reorderAdminConfigItems,
   resolvePaymentNotifyPreview as resolvePaymentNotifyPreviewText,
-  getRewriteStrategyOptions,
-  strategyDescription,
   validateAdminConfigCategory,
 } from "../../lib/adminConfig"
 import { adminHttp } from "../../lib/http"
@@ -1098,9 +1008,6 @@ const llmPresets = LLM_PRESETS
 const paymentProviders = PAYMENT_PROVIDERS
 const smsProviders = SMS_PROVIDERS
 const aigcDetectStrategyPlatforms = AIGC_DETECT_STRATEGY_PLATFORMS
-const dedupStrategyPlatforms = DEDUP_STRATEGY_PLATFORMS
-const dedupStrategyOptions = DEDUP_STRATEGY_OPTIONS
-const rewriteStrategyPlatforms = REWRITE_STRATEGY_PLATFORMS
 const guideMap = ADMIN_CONFIG_GUIDES
 const activeTab = ref("login")
 const route = useRoute()
@@ -1146,8 +1053,6 @@ const forms = ref({
   promo_center: normalizePromotionCenterConfig(DEFAULT_PROMO_CENTER_CONFIG),
   miniapp: normalizeMiniappConfig(DEFAULT_MINIAPP_CONFIG),
   aigc_detect_strategy: normalizeAigcDetectStrategyConfig(),
-  dedup_strategy: normalizeDedupStrategyConfig(),
-  rewrite_strategy: normalizeRewriteStrategyConfig(),
 })
 
 const readinessMap = ref({})
@@ -1165,6 +1070,9 @@ const paymentProviderUnsupported = computed(() => {
   return Boolean(provider) && !paymentProviders.some((item) => item.value === provider)
 })
 const paymentNotifyPreview = computed(() => resolvePaymentNotifyPreviewText(forms.value.payment))
+const readyCount = computed(() =>
+  tabs.filter((tab) => String(readinessMap.value?.[tab.key]?.status || "").trim().toLowerCase() === "ready").length
+)
 
 onMounted(async () => {
   const tabFromQuery = String(route.query.tab || "").trim()
@@ -1233,12 +1141,6 @@ async function loadTab(category) {
   }
   if (category === "aigc_detect_strategy") {
     forms.value.aigc_detect_strategy = normalizeAigcDetectStrategyConfig(forms.value.aigc_detect_strategy)
-  }
-  if (category === "dedup_strategy") {
-    forms.value.dedup_strategy = normalizeDedupStrategyConfig(forms.value.dedup_strategy)
-  }
-  if (category === "rewrite_strategy") {
-    forms.value.rewrite_strategy = normalizeRewriteStrategyConfig(forms.value.rewrite_strategy)
   }
   if (category === "user_navigation") {
     forms.value.user_navigation = normalizeUserNavigationConfig(forms.value.user_navigation)
@@ -1429,6 +1331,74 @@ async function saveCurrent() {
 </script>
 
 <style scoped>
+.admin-config-overview {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) repeat(3, minmax(0, 0.6fr));
+  gap: 14px;
+  margin-bottom: 16px;
+}
+
+.admin-config-overview__hero,
+.admin-config-overview__stat,
+.admin-config-card {
+  border: 1px solid rgba(30, 91, 223, 0.12);
+  border-radius: 22px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(245, 249, 255, 0.94));
+  box-shadow: 0 16px 30px rgba(30, 91, 223, 0.08);
+}
+
+.admin-config-overview__hero {
+  padding: 20px 22px;
+  display: grid;
+  gap: 8px;
+}
+
+.admin-config-overview__hero h2 {
+  margin: 0;
+  font-size: 28px;
+  line-height: 1.12;
+  color: #1f3555;
+}
+
+.admin-config-overview__hero p {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.8;
+  color: #647a95;
+}
+
+.admin-config-overview__eyebrow {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #6c87ac;
+}
+
+.admin-config-overview__stat {
+  padding: 18px 18px 16px;
+  display: grid;
+  gap: 6px;
+}
+
+.admin-config-overview__stat span {
+  font-size: 12px;
+  color: #6e84a2;
+}
+
+.admin-config-overview__stat strong {
+  font-size: 24px;
+  line-height: 1.1;
+  color: #1e5bdf;
+}
+
+.admin-config-overview__stat em {
+  font-style: normal;
+  font-size: 12px;
+  line-height: 1.6;
+  color: #68809d;
+}
+
 .admin-config-layout {
   display: grid;
   gap: 16px;
@@ -1441,11 +1411,49 @@ async function saveCurrent() {
   min-width: 0;
 }
 
+.admin-config-card {
+  padding: 16px;
+}
+
 .admin-config-tab-btn {
   min-width: 0;
 }
 
+.admin-config-main__head {
+  padding-bottom: 16px;
+  border-bottom: 1px solid #e6ebef;
+}
+
+.admin-config-primary-btn {
+  border: 1px solid rgba(30, 91, 223, 0.14);
+  border-radius: 14px;
+  padding: 10px 16px;
+  background: linear-gradient(135deg, #5d92ff, #1e5bdf);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 700;
+  box-shadow: 0 14px 26px rgba(30, 91, 223, 0.18);
+}
+
+.admin-config-secondary-btn {
+  border: 1px solid rgba(30, 91, 223, 0.12);
+  border-radius: 14px;
+  padding: 10px 16px;
+  background: #fff;
+  color: #35527d;
+  font-size: 14px;
+  font-weight: 600;
+}
+
 @media (max-width: 1279px) {
+  .admin-config-overview {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .admin-config-overview__hero {
+    grid-column: 1 / -1;
+  }
+
   .admin-config-layout {
     grid-template-columns: 220px minmax(0, 1fr);
   }
@@ -1456,13 +1464,17 @@ async function saveCurrent() {
 }
 
 @media (max-width: 768px) {
+  .admin-config-overview {
+    grid-template-columns: 1fr;
+  }
+
   .admin-config-layout {
     grid-template-columns: 1fr;
   }
 
-  .admin-config-sidebar,
-  .admin-config-main,
-  .admin-config-guide {
+  .admin-config-card,
+  .admin-config-overview__hero,
+  .admin-config-overview__stat {
     padding: 14px;
   }
 

@@ -154,7 +154,7 @@ def _select_dedup_candidate(
 def _build_cnki_strict_dedup_result(*, source_text: str, output: str, rule_trace: dict) -> dict:
     text = str(output or "").strip()
     if not text:
-        raise BizError(code=4621, message="知网降重复率严格 V14 输出为空")
+        raise BizError(code=4621, message="知网降重复率严格 V16 输出为空")
     prompt_b = dict(rule_trace.get("prompt_b_validation") or {})
     length_before = count_billable_chars(str(source_text or ""))
     length_after = count_billable_chars(text)
@@ -170,11 +170,12 @@ def _build_cnki_strict_dedup_result(*, source_text: str, output: str, rule_trace
         "change_ratio": change_ratio,
         "quality_score": 1.0,
         "quality_flags": {
-            "strict_v14_prompt_b_passed": True,
+            "strict_v16_prompt_b_passed": True,
             "semantic_ok": bool(prompt_b.get("semantic_ok", True)),
             "grammar_ok": bool(prompt_b.get("grammar_ok", True)),
-            "formality_maintained": bool(prompt_b.get("formality_maintained", True)),
-            "diversity_ok": bool(prompt_b.get("diversity_ok", True)),
+            "style_ok": bool(prompt_b.get("style_ok", True)),
+            "compound_ok": bool(prompt_b.get("compound_ok", True)),
+            "density_ok": bool(prompt_b.get("density_ok", True)),
         },
         "warnings": [],
         "rule_trace": dict(rule_trace or {}),

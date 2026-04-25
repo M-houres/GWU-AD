@@ -28,7 +28,7 @@
       <article class="scholar-chart-card dashboard-chart-card">
         <div class="dashboard-chart-head">
           <div>
-            <div class="scholar-kicker">Task Trend</div>
+            <div class="scholar-kicker">任务趋势</div>
             <h3 class="scholar-subtitle">近 7 天任务趋势</h3>
           </div>
           <button class="scholar-button scholar-button--secondary" type="button" @click="loadData">刷新</button>
@@ -39,7 +39,7 @@
       <article class="scholar-chart-card dashboard-chart-card">
         <div class="dashboard-chart-head">
           <div>
-            <div class="scholar-kicker">Revenue Trend</div>
+            <div class="scholar-kicker">收入趋势</div>
             <h3 class="scholar-subtitle">近 7 天收入趋势</h3>
           </div>
           <button class="scholar-button scholar-button--secondary" type="button" @click="loadData">刷新</button>
@@ -50,20 +50,20 @@
 
     <section class="scholar-grid scholar-grid--halves">
       <article class="scholar-chart-card dashboard-chart-card">
-        <div class="scholar-kicker">Usage Distribution</div>
+        <div class="scholar-kicker">功能分布</div>
         <h3 class="scholar-subtitle">功能使用占比</h3>
         <div ref="taskTypeChartEl" class="mt-4 h-60 w-full dashboard-chart-area dashboard-chart-area--short"></div>
       </article>
 
       <article class="scholar-chart-card dashboard-chart-card">
-        <div class="scholar-kicker">Platform Distribution</div>
+        <div class="scholar-kicker">平台分布</div>
         <h3 class="scholar-subtitle">平台使用量对比</h3>
         <div ref="platformChartEl" class="mt-4 h-60 w-full dashboard-chart-area dashboard-chart-area--short"></div>
       </article>
     </section>
 
     <section class="scholar-chart-card dashboard-chart-card">
-      <div class="scholar-kicker">Conversion Funnel</div>
+      <div class="scholar-kicker">转化漏斗</div>
       <h3 class="scholar-subtitle">用户转化对比</h3>
       <div ref="funnelChartEl" class="mt-4 h-56 w-full dashboard-chart-area dashboard-chart-area--compact"></div>
     </section>

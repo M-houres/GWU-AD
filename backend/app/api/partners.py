@@ -934,7 +934,7 @@ def _portal_channel(
 ) -> PartnerChannel:
     if current_channel is not None:
         return current_channel
-    return authenticate_partner_portal(db, channel_code=str(channel_code or ""), portal_token=str(portal_token or ""))
+    raise BizError(code=4486, message="渠道登录态已失效，请重新登录", http_status=401)
 
 
 def _partner_auth_payload(channel: PartnerChannel) -> dict:
@@ -1043,13 +1043,11 @@ def partner_portal_change_password(
 @router.get("/portal/overview", response_model=APIResp)
 def portal_overview(
     request: Request,
-    ch: str | None = Query(default=None, min_length=3, max_length=32),
-    pk: str | None = Query(default=None, min_length=16, max_length=128),
     statement_month: str | None = Query(default=None),
     db: Session = Depends(db_dep),
     current_channel: PartnerChannel | None = Depends(optional_partner),
 ) -> APIResp:
-    channel = _portal_channel(db, current_channel=current_channel, channel_code=ch, portal_token=pk)
+    channel = _portal_channel(db, current_channel=current_channel)
     overview = get_partner_portal_overview(db, channel=channel, statement_month=statement_month)
     parent = None
     if channel.parent_channel_id:
@@ -1075,8 +1073,6 @@ def portal_overview(
 
 @router.get("/portal/orders", response_model=APIResp)
 def portal_orders(
-    ch: str | None = Query(default=None, min_length=3, max_length=32),
-    pk: str | None = Query(default=None, min_length=16, max_length=128),
     scope: str | None = Query(default="self"),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=100),
@@ -1085,7 +1081,7 @@ def portal_orders(
     db: Session = Depends(db_dep),
     current_channel: PartnerChannel | None = Depends(optional_partner),
 ) -> APIResp:
-    channel = _portal_channel(db, current_channel=current_channel, channel_code=ch, portal_token=pk)
+    channel = _portal_channel(db, current_channel=current_channel)
     channel_ids = _scope_channel_ids(db, channel=channel, scope=scope)
     base_query = (
         db.query(PartnerRebateLedger, Order)
@@ -1145,8 +1141,6 @@ def portal_orders(
 
 @router.get("/portal/ledger", response_model=APIResp)
 def portal_ledger(
-    ch: str | None = Query(default=None, min_length=3, max_length=32),
-    pk: str | None = Query(default=None, min_length=16, max_length=128),
     scope: str | None = Query(default="self"),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=100),
@@ -1155,7 +1149,7 @@ def portal_ledger(
     db: Session = Depends(db_dep),
     current_channel: PartnerChannel | None = Depends(optional_partner),
 ) -> APIResp:
-    channel = _portal_channel(db, current_channel=current_channel, channel_code=ch, portal_token=pk)
+    channel = _portal_channel(db, current_channel=current_channel)
     channel_ids = _scope_channel_ids(db, channel=channel, scope=scope)
     base_query = db.query(PartnerRebateLedger).filter(PartnerRebateLedger.channel_id.in_(channel_ids))
     created_from_dt = _parse_datetime_filter(created_from)
@@ -1206,14 +1200,12 @@ def portal_ledger(
 
 @router.get("/portal/statements", response_model=APIResp)
 def portal_statements(
-    ch: str | None = Query(default=None, min_length=3, max_length=32),
-    pk: str | None = Query(default=None, min_length=16, max_length=128),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=100),
     db: Session = Depends(db_dep),
     current_channel: PartnerChannel | None = Depends(optional_partner),
 ) -> APIResp:
-    channel = _portal_channel(db, current_channel=current_channel, channel_code=ch, portal_token=pk)
+    channel = _portal_channel(db, current_channel=current_channel)
     base_query = db.query(PartnerMonthlyStatement).filter(PartnerMonthlyStatement.channel_id == channel.id)
     total = base_query.count()
     rows = (
@@ -1246,14 +1238,12 @@ def portal_statements(
 
 @router.get("/portal/withdrawals", response_model=APIResp)
 def portal_withdrawals(
-    ch: str | None = Query(default=None, min_length=3, max_length=32),
-    pk: str | None = Query(default=None, min_length=16, max_length=128),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=100),
     db: Session = Depends(db_dep),
     current_channel: PartnerChannel | None = Depends(optional_partner),
 ) -> APIResp:
-    channel = _portal_channel(db, current_channel=current_channel, channel_code=ch, portal_token=pk)
+    channel = _portal_channel(db, current_channel=current_channel)
     base_query = db.query(PartnerWithdrawRequest).filter(PartnerWithdrawRequest.channel_id == channel.id)
     total = base_query.count()
     rows = (
@@ -1274,13 +1264,11 @@ def portal_withdrawals(
 
 @router.post("/portal/withdraw-apply", response_model=APIResp)
 def portal_withdraw_apply(
-    ch: str | None = Query(default=None, min_length=3, max_length=32),
-    pk: str | None = Query(default=None, min_length=16, max_length=128),
     payload: dict = Body(default_factory=dict),
     db: Session = Depends(db_dep),
     current_channel: PartnerChannel | None = Depends(optional_partner),
 ) -> APIResp:
-    channel = _portal_channel(db, current_channel=current_channel, channel_code=ch, portal_token=pk)
+    channel = _portal_channel(db, current_channel=current_channel)
     try:
         apply_amount_cny = float(payload.get("apply_amount_cny") or 0)
     except Exception:
@@ -1300,12 +1288,10 @@ def portal_withdraw_apply(
 @router.get("/portal/subchannels", response_model=APIResp)
 def portal_subchannels(
     request: Request,
-    ch: str | None = Query(default=None, min_length=3, max_length=32),
-    pk: str | None = Query(default=None, min_length=16, max_length=128),
     db: Session = Depends(db_dep),
     current_channel: PartnerChannel | None = Depends(optional_partner),
 ) -> APIResp:
-    channel = _portal_channel(db, current_channel=current_channel, channel_code=ch, portal_token=pk)
+    channel = _portal_channel(db, current_channel=current_channel)
     rows = (
         db.query(PartnerChannel)
         .filter(PartnerChannel.parent_channel_id == channel.id)
@@ -1318,32 +1304,26 @@ def portal_subchannels(
 @router.get("/portal/channel-tree", response_model=APIResp)
 def portal_channel_tree(
     request: Request,
-    ch: str | None = Query(default=None, min_length=3, max_length=32),
-    pk: str | None = Query(default=None, min_length=16, max_length=128),
     db: Session = Depends(db_dep),
     current_channel: PartnerChannel | None = Depends(optional_partner),
 ) -> APIResp:
-    channel = _portal_channel(db, current_channel=current_channel, channel_code=ch, portal_token=pk)
+    channel = _portal_channel(db, current_channel=current_channel)
     return ok(data={"item": _channel_tree_payload(db, channel=channel, request=request)})
 
 
 @router.get("/portal/team-summary", response_model=APIResp)
 def portal_team_summary(
-    ch: str | None = Query(default=None, min_length=3, max_length=32),
-    pk: str | None = Query(default=None, min_length=16, max_length=128),
     scope: str | None = Query(default="subtree"),
     db: Session = Depends(db_dep),
     current_channel: PartnerChannel | None = Depends(optional_partner),
 ) -> APIResp:
-    channel = _portal_channel(db, current_channel=current_channel, channel_code=ch, portal_token=pk)
+    channel = _portal_channel(db, current_channel=current_channel)
     channel_ids = _scope_channel_ids(db, channel=channel, scope=scope)
     return ok(data=_team_summary_payload(db, channel_ids=channel_ids, scope=scope))
 
 
 @router.get("/portal/customers", response_model=APIResp)
 def portal_customers(
-    ch: str | None = Query(default=None, min_length=3, max_length=32),
-    pk: str | None = Query(default=None, min_length=16, max_length=128),
     scope: str | None = Query(default="subtree"),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=100),
@@ -1353,7 +1333,7 @@ def portal_customers(
     db: Session = Depends(db_dep),
     current_channel: PartnerChannel | None = Depends(optional_partner),
 ) -> APIResp:
-    channel = _portal_channel(db, current_channel=current_channel, channel_code=ch, portal_token=pk)
+    channel = _portal_channel(db, current_channel=current_channel)
     channel_ids = _scope_channel_ids(db, channel=channel, scope=scope)
     return ok(
         data=_customer_list_payload(
@@ -1371,13 +1351,11 @@ def portal_customers(
 @router.post("/portal/subchannels", response_model=APIResp)
 def portal_create_subchannel(
     request: Request,
-    ch: str | None = Query(default=None, min_length=3, max_length=32),
-    pk: str | None = Query(default=None, min_length=16, max_length=128),
     payload: dict = Body(default_factory=dict),
     db: Session = Depends(db_dep),
     current_channel: PartnerChannel | None = Depends(optional_partner),
 ) -> APIResp:
-    channel = _portal_channel(db, current_channel=current_channel, channel_code=ch, portal_token=pk)
+    channel = _portal_channel(db, current_channel=current_channel)
     child = create_partner_channel(
         db,
         name=str(payload.get("name") or ""),
@@ -1396,13 +1374,11 @@ def portal_create_subchannel(
 def portal_update_subchannel(
     channel_id: int,
     request: Request,
-    ch: str | None = Query(default=None, min_length=3, max_length=32),
-    pk: str | None = Query(default=None, min_length=16, max_length=128),
     payload: dict = Body(default_factory=dict),
     db: Session = Depends(db_dep),
     current_channel: PartnerChannel | None = Depends(optional_partner),
 ) -> APIResp:
-    channel = _portal_channel(db, current_channel=current_channel, channel_code=ch, portal_token=pk)
+    channel = _portal_channel(db, current_channel=current_channel)
     try:
         child = _portal_managed_channel(channel, channel_id, db)
     except ValueError as exc:
@@ -1424,12 +1400,10 @@ def portal_update_subchannel(
 @router.get("/portal/subchannels/{channel_id}/policies", response_model=APIResp)
 def portal_subchannel_policies(
     channel_id: int,
-    ch: str | None = Query(default=None, min_length=3, max_length=32),
-    pk: str | None = Query(default=None, min_length=16, max_length=128),
     db: Session = Depends(db_dep),
     current_channel: PartnerChannel | None = Depends(optional_partner),
 ) -> APIResp:
-    channel = _portal_channel(db, current_channel=current_channel, channel_code=ch, portal_token=pk)
+    channel = _portal_channel(db, current_channel=current_channel)
     try:
         child = _portal_managed_channel(channel, channel_id, db)
     except ValueError as exc:
@@ -1462,13 +1436,11 @@ def portal_subchannel_policies(
 @router.post("/portal/subchannels/{channel_id}/policy", response_model=APIResp)
 def portal_upsert_subchannel_policy(
     channel_id: int,
-    ch: str | None = Query(default=None, min_length=3, max_length=32),
-    pk: str | None = Query(default=None, min_length=16, max_length=128),
     payload: dict = Body(default_factory=dict),
     db: Session = Depends(db_dep),
     current_channel: PartnerChannel | None = Depends(optional_partner),
 ) -> APIResp:
-    channel = _portal_channel(db, current_channel=current_channel, channel_code=ch, portal_token=pk)
+    channel = _portal_channel(db, current_channel=current_channel)
     try:
         child = _portal_managed_channel(channel, channel_id, db)
     except ValueError as exc:
@@ -1498,13 +1470,11 @@ def portal_upsert_subchannel_policy(
 def _portal_refresh_subchannel_link(
     channel_id: int,
     request: Request,
-    ch: str | None = Query(default=None, min_length=3, max_length=32),
-    pk: str | None = Query(default=None, min_length=16, max_length=128),
     db: Session = Depends(db_dep),
     current_channel: PartnerChannel | None = Depends(optional_partner),
     auth_store=Depends(get_redis),
 ) -> APIResp:
-    channel = _portal_channel(db, current_channel=current_channel, channel_code=ch, portal_token=pk)
+    channel = _portal_channel(db, current_channel=current_channel)
     try:
         child = _portal_managed_channel(channel, channel_id, db)
     except ValueError as exc:
@@ -1520,8 +1490,6 @@ def _portal_refresh_subchannel_link(
 def portal_refresh_subchannel_link(
     channel_id: int,
     request: Request,
-    ch: str | None = Query(default=None, min_length=3, max_length=32),
-    pk: str | None = Query(default=None, min_length=16, max_length=128),
     db: Session = Depends(db_dep),
     current_channel: PartnerChannel | None = Depends(optional_partner),
     auth_store=Depends(get_redis),
@@ -1529,8 +1497,6 @@ def portal_refresh_subchannel_link(
     return _portal_refresh_subchannel_link(
         channel_id,
         request,
-        ch=ch,
-        pk=pk,
         db=db,
         current_channel=current_channel,
         auth_store=auth_store,
@@ -1541,8 +1507,6 @@ def portal_refresh_subchannel_link(
 def portal_reset_subchannel_password(
     channel_id: int,
     request: Request,
-    ch: str | None = Query(default=None, min_length=3, max_length=32),
-    pk: str | None = Query(default=None, min_length=16, max_length=128),
     db: Session = Depends(db_dep),
     current_channel: PartnerChannel | None = Depends(optional_partner),
     auth_store=Depends(get_redis),
@@ -1550,8 +1514,6 @@ def portal_reset_subchannel_password(
     return _portal_refresh_subchannel_link(
         channel_id,
         request,
-        ch=ch,
-        pk=pk,
         db=db,
         current_channel=current_channel,
         auth_store=auth_store,

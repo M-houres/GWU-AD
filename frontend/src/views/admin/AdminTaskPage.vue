@@ -1,11 +1,34 @@
 <template>
   <AdminShell title="任务管理" subtitle="多维筛选与任务详情查看。">
-    <section class="rounded-2xl border border-[#d9dee4] bg-white p-5">
-      <div class="mb-4 space-y-4 rounded-2xl border border-[#dee6ed] bg-white p-4">
+    <section class="gw-admin-task-overview">
+      <article class="gw-admin-task-overview__hero">
+        <div class="gw-admin-task-overview__eyebrow">任务工作台</div>
+        <h2>任务管理</h2>
+        <p>筛选、查看详情和下载结果都集中处理，减少后台重复点开任务的成本。</p>
+      </article>
+      <article class="gw-admin-task-overview__stat">
+        <span>当前结果</span>
+        <strong>{{ rows.length }}</strong>
+        <em>按筛选条件展示</em>
+      </article>
+      <article class="gw-admin-task-overview__stat">
+        <span>处理中</span>
+        <strong>{{ processingCount }}</strong>
+        <em>等待、排队和处理中任务</em>
+      </article>
+      <article class="gw-admin-task-overview__stat">
+        <span>已完成</span>
+        <strong>{{ completedCount }}</strong>
+        <em>结果可进一步复核</em>
+      </article>
+    </section>
+
+    <section class="gw-admin-task-panel">
+      <div class="gw-admin-task-filters">
         <div class="grid gap-2 md:grid-cols-3">
-          <input v-model.trim="filters.qPhone" class="rounded-lg border border-[#ccd5dd] px-3 py-2 text-sm outline-none" placeholder="用户手机号" />
-          <input v-model="filters.startDate" type="date" class="rounded-lg border border-[#ccd5dd] px-3 py-2 text-sm outline-none" />
-          <input v-model="filters.endDate" type="date" class="rounded-lg border border-[#ccd5dd] px-3 py-2 text-sm outline-none" />
+          <input v-model.trim="filters.qPhone" class="gw-admin-task-input" placeholder="用户手机号" />
+          <input v-model="filters.startDate" type="date" class="gw-admin-task-input" />
+          <input v-model="filters.endDate" type="date" class="gw-admin-task-input" />
         </div>
 
         <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
@@ -59,8 +82,8 @@
         </div>
       </div>
 
-      <div class="overflow-x-auto">
-        <table class="min-w-full text-sm">
+      <div class="overflow-x-auto gw-admin-task-table-shell">
+        <table class="scholar-table gw-admin-task-table">
           <thead>
             <tr class="border-b border-[#e1e6eb] text-left text-[#5a6671]">
               <th class="px-2 py-2">任务ID</th>
@@ -98,12 +121,38 @@
           </tbody>
         </table>
       </div>
+
+      <div class="gw-admin-task-mobile-list">
+        <article v-for="row in rows" :key="`task-mobile-${row.id}`" class="gw-admin-task-card">
+          <div class="gw-admin-task-card__head">
+            <div>
+              <div class="gw-admin-task-card__eyebrow">任务 #{{ row.id }}</div>
+              <strong class="gw-admin-task-card__title">{{ mapTaskType(row.task_type) }} / {{ mapPlatform(row.platform, row.task_type) }}</strong>
+              <div class="gw-admin-task-card__sub">用户 {{ row.user_id }} · {{ mapSource(row.source) }}</div>
+            </div>
+            <span :class="statusClass(row.status)" class="inline-flex items-center rounded-full border px-2 py-1 text-xs">
+              {{ mapStatus(row.status) }}
+            </span>
+          </div>
+
+          <div class="gw-admin-task-card__grid">
+            <div><span>字符数</span><strong>{{ row.char_count }}</strong></div>
+            <div><span>通用点数</span><strong>{{ formatCredits(rowCostFen(row)) }}</strong></div>
+            <div><span>创建时间</span><strong>{{ formatTime(row.created_at) }}</strong></div>
+          </div>
+
+          <div class="gw-admin-task-card__actions">
+            <button class="scholar-button scholar-button--compact" @click="openDetail(row.id)">查看详情</button>
+          </div>
+        </article>
+        <div v-if="rows.length === 0" class="scholar-empty">暂无任务</div>
+      </div>
     </section>
 
-    <section v-if="taskDetail" class="mt-4 rounded-2xl border border-[#d9dee4] bg-white p-5">
+    <section v-if="taskDetail" class="gw-admin-task-detail">
       <div class="mb-4 flex flex-wrap items-center justify-between gap-3">
         <div>
-          <div class="text-[11px] uppercase tracking-[0.18em] text-[#73808b]">Task Insight</div>
+          <div class="text-[11px] uppercase tracking-[0.18em] text-[#73808b]">任务洞察</div>
           <h3 class="mt-2 text-base font-semibold">任务详情 #{{ taskDetail.id }}</h3>
           <p class="mt-1 text-sm leading-6 text-[#5c6872]">{{ resultSummary(taskDetail) }}</p>
         </div>
@@ -229,6 +278,10 @@ const sourceOptions = [
   { value: "miniapp", label: "小程序" },
   { value: "other", label: "其他" },
 ]
+const completedCount = computed(() => rows.value.filter((row) => row.status === "completed").length)
+const processingCount = computed(() =>
+  rows.value.filter((row) => ["preprocessing", "queued", "pending", "running"].includes(String(row.status || ""))).length
+)
 
 watch(
   () => route.query.task_id,
@@ -400,3 +453,224 @@ function formatJson(value) {
   }
 }
 </script>
+
+<style scoped>
+.gw-admin-task-overview {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) repeat(3, minmax(0, 0.62fr));
+  gap: 14px;
+  margin-bottom: 16px;
+}
+
+.gw-admin-task-overview__hero,
+.gw-admin-task-overview__stat,
+.gw-admin-task-panel,
+.gw-admin-task-detail,
+.gw-admin-task-card {
+  border: 1px solid rgba(30, 91, 223, 0.12);
+  border-radius: 22px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(245, 249, 255, 0.94));
+  box-shadow: 0 16px 30px rgba(30, 91, 223, 0.08);
+}
+
+.gw-admin-task-overview__hero {
+  padding: 20px 22px;
+  display: grid;
+  gap: 8px;
+}
+
+.gw-admin-task-overview__eyebrow {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #6c87ac;
+}
+
+.gw-admin-task-overview__hero h2 {
+  margin: 0;
+  font-size: 28px;
+  line-height: 1.1;
+  color: #1f3555;
+}
+
+.gw-admin-task-overview__hero p {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.8;
+  color: #607894;
+}
+
+.gw-admin-task-overview__stat {
+  padding: 18px 18px 16px;
+  display: grid;
+  gap: 6px;
+}
+
+.gw-admin-task-overview__stat span {
+  font-size: 12px;
+  color: #6d84a2;
+}
+
+.gw-admin-task-overview__stat strong {
+  font-size: 24px;
+  line-height: 1.08;
+  color: #1e5bdf;
+}
+
+.gw-admin-task-overview__stat em {
+  font-style: normal;
+  font-size: 12px;
+  line-height: 1.6;
+  color: #68809d;
+}
+
+.gw-admin-task-panel,
+.gw-admin-task-detail {
+  padding: 20px;
+}
+
+.gw-admin-task-filters {
+  margin-bottom: 18px;
+  padding: 16px;
+  border-radius: 18px;
+  border: 1px solid rgba(30, 91, 223, 0.12);
+  background: #fff;
+}
+
+.gw-admin-task-input {
+  width: 100%;
+  min-height: 40px;
+  border: 1px solid rgba(30, 91, 223, 0.14);
+  border-radius: 12px;
+  padding: 0 12px;
+  font-size: 13px;
+  color: #21416a;
+  background: #fff;
+}
+
+.gw-admin-task-input:focus {
+  outline: none;
+  border-color: #1e5bdf;
+  box-shadow: 0 0 0 3px rgba(30, 91, 223, 0.12);
+}
+
+.gw-admin-task-table-shell {
+  margin-top: 0;
+}
+
+.gw-admin-task-table :deep(th) {
+  white-space: nowrap;
+}
+
+.gw-admin-task-mobile-list {
+  display: none;
+  margin-top: 18px;
+}
+
+.gw-admin-task-card {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+}
+
+.gw-admin-task-card + .gw-admin-task-card {
+  margin-top: 12px;
+}
+
+.gw-admin-task-card__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.gw-admin-task-card__eyebrow {
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #6b85a8;
+}
+
+.gw-admin-task-card__title {
+  display: block;
+  margin-top: 6px;
+  font-size: 16px;
+  line-height: 1.5;
+  color: #1f3555;
+}
+
+.gw-admin-task-card__sub {
+  margin-top: 4px;
+  font-size: 13px;
+  color: #607894;
+}
+
+.gw-admin-task-card__grid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.gw-admin-task-card__grid div {
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  border: 1px solid rgba(30, 91, 223, 0.1);
+  background: #fff;
+}
+
+.gw-admin-task-card__grid span {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #6c85a8;
+}
+
+.gw-admin-task-card__grid strong {
+  font-size: 13px;
+  line-height: 1.6;
+  color: #1f3555;
+  word-break: break-word;
+}
+
+.gw-admin-task-card__actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+@media (max-width: 980px) {
+  .gw-admin-task-overview {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .gw-admin-task-overview__hero {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 768px) {
+  .gw-admin-task-overview {
+    grid-template-columns: 1fr;
+  }
+
+  .gw-admin-task-panel,
+  .gw-admin-task-detail {
+    padding: 14px;
+  }
+
+  .gw-admin-task-table-shell {
+    display: none;
+  }
+
+  .gw-admin-task-mobile-list {
+    display: block;
+  }
+
+  .gw-admin-task-card__grid {
+    grid-template-columns: 1fr;
+  }
+}
+</style>

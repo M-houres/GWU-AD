@@ -79,16 +79,6 @@ from app.services.aigc_detect_strategies.config import (
     aigc_detect_strategy_readiness,
     normalize_aigc_detect_strategy_config,
 )
-from app.services.dedup_strategies.config import (
-    DEFAULT_DEDUP_STRATEGY_CONFIG,
-    dedup_strategy_readiness,
-    normalize_dedup_strategy_config,
-)
-from app.services.rewrite_strategies.config import (
-    DEFAULT_REWRITE_STRATEGY_CONFIG,
-    normalize_rewrite_strategy_config,
-    rewrite_strategy_readiness,
-)
 from app.services.task_artifacts import resolve_task_artifact_path
 from app.services.task_filename import build_task_filename_pair, build_task_result_filename
 from app.services.user_navigation_service import default_user_navigation_config, normalize_user_navigation_config
@@ -114,8 +104,6 @@ CONFIG_CATEGORIES = {
     "user_navigation",
     "promo_center",
     "aigc_detect_strategy",
-    "rewrite_strategy",
-    "dedup_strategy",
 }
 CONFIG_LABELS = {
     "llm": "大模型配置",
@@ -127,8 +115,6 @@ CONFIG_LABELS = {
     "user_navigation": "前台导航",
     "promo_center": "推广中心",
     "aigc_detect_strategy": "AIGC检测策略",
-    "rewrite_strategy": "降AIGC率策略",
-    "dedup_strategy": "降重复率策略",
 }
 CONFIG_FIELD_LABELS = {
     "llm": {
@@ -245,14 +231,6 @@ CONFIG_FIELD_LABELS = {
     "aigc_detect_strategy": {
         "cnki": "知网AIGC检测策略",
         "vip": "维普AIGC检测策略",
-    },
-    "rewrite_strategy": {
-        "cnki": "知网降AIGC率策略",
-        "vip": "维普降AIGC率策略",
-    },
-    "dedup_strategy": {
-        "cnki": "知网降重复率策略",
-        "vip": "维普降重复率策略",
     },
 }
 CONFIG_DEFAULTS = {
@@ -541,8 +519,6 @@ CONFIG_DEFAULTS = {
         },
     },
     "aigc_detect_strategy": deepcopy(DEFAULT_AIGC_DETECT_STRATEGY_CONFIG),
-    "rewrite_strategy": deepcopy(DEFAULT_REWRITE_STRATEGY_CONFIG),
-    "dedup_strategy": deepcopy(DEFAULT_DEDUP_STRATEGY_CONFIG),
 }
 
 PROMO_CENTER_PAGE_KEYS = ("invite", "like", "create", "partner")
@@ -1423,12 +1399,6 @@ def _normalize_category_payload(category: str, payload: dict) -> dict:
     if category == "aigc_detect_strategy":
         return normalize_aigc_detect_strategy_config(raw)
 
-    if category == "rewrite_strategy":
-        return normalize_rewrite_strategy_config(raw)
-
-    if category == "dedup_strategy":
-        return normalize_dedup_strategy_config(raw)
-
     if category == "llm":
         base["enabled"] = _as_bool(raw.get("enabled", base["enabled"]), default=False)
         provider = normalize_llm_provider(_as_text(raw.get("provider", base["provider"]), default="openai", max_len=64))
@@ -2170,12 +2140,6 @@ def _category_readiness(category: str, value: dict) -> dict:
     if category == "aigc_detect_strategy":
         readiness = aigc_detect_strategy_readiness(value)
         return {"category": category, "status": readiness["status"], "message": readiness["message"]}
-    if category == "rewrite_strategy":
-        readiness = rewrite_strategy_readiness(value)
-        return {"category": category, "status": readiness["status"], "message": readiness["message"]}
-    if category == "dedup_strategy":
-        readiness = dedup_strategy_readiness(value)
-        return {"category": category, "status": readiness["status"], "message": readiness["message"]}
     if category == "miniapp":
         miniapp = _extract_miniapp_payload(value)
         if not miniapp["enabled"]:
@@ -2267,10 +2231,6 @@ def _get_category_config(db: Session, category: str, *, redact: bool = False) ->
         return normalize_user_navigation_config(source)
     if category == "aigc_detect_strategy":
         source = normalize_aigc_detect_strategy_config(source)
-    if category == "rewrite_strategy":
-        source = normalize_rewrite_strategy_config(source)
-    if category == "dedup_strategy":
-        source = normalize_dedup_strategy_config(source)
     if category == "notice" and (not source):
         source = _notice_to_notice_fields(_extract_notice_payload(_read_system_config_raw(db, "login")))
     if category == "miniapp" and (not source):
@@ -2890,7 +2850,7 @@ def dashboard(_: AdminUser = Depends(require_admin_permission("dashboard:view"))
     )
     platform_items = [{"platform": p, "count": int(c)} for p, c in platform_dist]
     readiness_map = {}
-    for category in ("login", "payment", "billing", "llm", "miniapp", "aigc_detect_strategy", "rewrite_strategy", "dedup_strategy"):
+    for category in ("login", "payment", "billing", "llm", "miniapp", "aigc_detect_strategy"):
         readiness_map[category] = _category_readiness(category, _get_category_config(db, category, redact=False))
     strategy_rows = list_process_strategies(db).get("items", [])
     strategy_total = len(strategy_rows)
@@ -3677,7 +3637,7 @@ def get_config_readiness(
     db: Session = Depends(db_dep),
 ) -> APIResp:
     items = []
-    for c in ("llm", "payment", "billing", "login", "notice", "miniapp", "user_navigation", "promo_center", "aigc_detect_strategy", "rewrite_strategy", "dedup_strategy"):
+    for c in ("llm", "payment", "billing", "login", "notice", "miniapp", "user_navigation", "promo_center", "aigc_detect_strategy"):
         value = _get_category_config(db, c)
         items.append(_category_readiness(c, value))
     return ok(data={"items": items})

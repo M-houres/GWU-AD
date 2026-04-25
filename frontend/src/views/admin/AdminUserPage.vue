@@ -1,9 +1,32 @@
 ﻿<template>
   <AdminShell title="用户管理" subtitle="查询用户、封禁状态与通用点数调整。">
+    <section class="gw-admin-overview">
+      <article class="gw-admin-overview__hero">
+        <div class="gw-admin-overview__eyebrow">用户工作台</div>
+        <h2>用户管理</h2>
+        <p>搜索、筛选和处理常用操作集中在一个页面，减少来回切换。</p>
+      </article>
+      <article class="gw-admin-overview__stat">
+        <span>当前加载</span>
+        <strong>{{ rows.length }}</strong>
+        <em>本次查询返回用户数</em>
+      </article>
+      <article class="gw-admin-overview__stat">
+        <span>正常用户</span>
+        <strong>{{ activeCount }}</strong>
+        <em>当前结果中的可用账号</em>
+      </article>
+      <article class="gw-admin-overview__stat">
+        <span>小程序来源</span>
+        <strong>{{ miniappCount }}</strong>
+        <em>方便单独观察渠道结构</em>
+      </article>
+    </section>
+
     <section class="scholar-panel">
       <div class="scholar-panel__header">
         <div class="scholar-kicker">用户搜索</div>
-        <h3 class="scholar-subtitle">检索与筛选</h3>
+        <h3 class="scholar-subtitle">搜索与筛选</h3>
       </div>
 
       <div class="scholar-panel__body">
@@ -274,6 +297,74 @@ function mapSource(value) {
 </script>
 
 <style scoped>
+.gw-admin-overview {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) repeat(3, minmax(0, 0.62fr));
+  gap: 14px;
+  margin-bottom: 16px;
+}
+
+.gw-admin-overview__hero,
+.gw-admin-overview__stat,
+.gw-admin-user-card {
+  border: 1px solid rgba(30, 91, 223, 0.12);
+  border-radius: 22px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(245, 249, 255, 0.94));
+  box-shadow: 0 16px 30px rgba(30, 91, 223, 0.08);
+}
+
+.gw-admin-overview__hero {
+  padding: 20px 22px;
+  display: grid;
+  gap: 8px;
+}
+
+.gw-admin-overview__eyebrow {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #6c87ac;
+}
+
+.gw-admin-overview__hero h2 {
+  margin: 0;
+  font-size: 28px;
+  line-height: 1.1;
+  color: #1f3555;
+}
+
+.gw-admin-overview__hero p {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.8;
+  color: #607894;
+}
+
+.gw-admin-overview__stat {
+  padding: 18px 18px 16px;
+  display: grid;
+  gap: 6px;
+}
+
+.gw-admin-overview__stat span {
+  font-size: 12px;
+  color: #6d84a2;
+}
+
+.gw-admin-overview__stat strong {
+  font-size: 24px;
+  line-height: 1.08;
+  color: #1e5bdf;
+}
+
+.gw-admin-overview__stat em {
+  font-style: normal;
+  font-size: 12px;
+  line-height: 1.6;
+  color: #68809d;
+}
+
 .gw-admin-toolbar {
   align-items: stretch;
 }
@@ -287,9 +378,9 @@ function mapSource(value) {
   min-height: 34px !important;
   padding: 0 14px !important;
   border-radius: 999px !important;
-  border: 1px solid #111111 !important;
+  border: 1px solid rgba(30, 91, 223, 0.14) !important;
   background: #ffffff !important;
-  color: #111111 !important;
+  color: #35527d !important;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -304,16 +395,16 @@ function mapSource(value) {
 .gw-admin-status-btn:focus-visible,
 .gw-admin-btn:focus-visible,
 .gw-admin-btn:active {
-  background: #111111 !important;
-  color: #ffffff !important;
-  border-color: #111111 !important;
+  background: #eef4ff !important;
+  color: #1e5bdf !important;
+  border-color: rgba(30, 91, 223, 0.22) !important;
 }
 
 .gw-admin-status-btn.is-active,
 .gw-admin-status-btn[aria-pressed="true"] {
-  background: #111111 !important;
+  background: linear-gradient(135deg, #5d92ff, #1e5bdf) !important;
   color: #ffffff !important;
-  border-color: #111111 !important;
+  border-color: rgba(30, 91, 223, 0.14) !important;
 }
 
 .gw-admin-btn:disabled {
@@ -330,9 +421,6 @@ function mapSource(value) {
   display: grid;
   gap: 14px;
   padding: 16px;
-  border: 1px solid rgba(17, 17, 17, 0.08);
-  border-radius: 18px;
-  background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
 }
 
 .gw-admin-user-card + .gw-admin-user-card {
@@ -350,7 +438,7 @@ function mapSource(value) {
   font-size: 11px;
   letter-spacing: 0.1em;
   text-transform: uppercase;
-  color: #5f6d79;
+  color: #6b85a8;
 }
 
 .gw-admin-user-card__title {
@@ -358,13 +446,13 @@ function mapSource(value) {
   margin-top: 6px;
   font-size: 16px;
   line-height: 1.5;
-  color: #111111;
+  color: #1f3555;
 }
 
 .gw-admin-user-card__sub {
   margin-top: 4px;
   font-size: 13px;
-  color: #556470;
+  color: #607894;
 }
 
 .gw-admin-user-card__grid {
@@ -378,7 +466,7 @@ function mapSource(value) {
   gap: 4px;
   padding: 10px 12px;
   border-radius: 14px;
-  border: 1px solid rgba(17, 17, 17, 0.06);
+  border: 1px solid rgba(30, 91, 223, 0.1);
   background: #ffffff;
 }
 
@@ -386,13 +474,13 @@ function mapSource(value) {
   font-size: 11px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: #5f6d79;
+  color: #6c85a8;
 }
 
 .gw-admin-user-card__grid strong {
   font-size: 13px;
   line-height: 1.6;
-  color: #17222b;
+  color: #1f3555;
   word-break: break-word;
 }
 
@@ -403,6 +491,10 @@ function mapSource(value) {
 }
 
 @media (max-width: 768px) {
+  .gw-admin-overview {
+    grid-template-columns: 1fr;
+  }
+
   .gw-admin-toolbar {
     flex-direction: column;
     align-items: stretch;

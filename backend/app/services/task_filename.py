@@ -41,8 +41,10 @@ def build_task_result_filename(
 ) -> str:
     normalized_task_type = _normalize_task_type(task_type)
     source_stem = _normalize_source_stem(source_filename)
-    suffix = _TASK_FILENAME_SUFFIX.get(normalized_task_type, "处理结果")
     ext = _resolve_output_ext(normalized_task_type, source_filename, output_path)
+    if normalized_task_type in {TaskType.REWRITE.value, TaskType.DEDUP.value}:
+        return f"改写+{source_stem}{ext}"
+    suffix = _TASK_FILENAME_SUFFIX.get(normalized_task_type, "处理结果")
     return f"{source_stem}_{suffix}{ext}"
 
 

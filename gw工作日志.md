@@ -6689,15 +6689,6 @@
   - 维普降AIGC、维普降重复率补充实际调用模型追踪：
     - `rule_trace` 新增 `llm_provider` / `llm_model`
 
-- 知网降AIGC三段式对齐
-  - 严格按桌面文档 `rewrite_system_ULTIMATE.md` 执行 `Prompt P -> Prompt A -> Prompt B`
-  - `Prompt P` 只取原文前 300 字做预分析
-  - `Prompt A` 在主改写前强制注入预分析 JSON
-  - `Prompt B` 对完整改写结果做最终校验，未通过直接报错
-  - 当前链路实现位置：
-    - `backend/app/services/cnki_rewrite_prompt.py`
-    - `backend/app/services/rewrite_strategies/cnki_llm.py`
-
 - 后台页面同步
   - 管理后台“降AIGC率策略 / 降重复率策略”页面现在只保留：
     - 平台启用开关
@@ -6723,42 +6714,6 @@
   - 前端：
     - `cd frontend && npm run build`
     - 结果：构建成功
-
-## 2026-04-25 00:00 V14知网策略强制切换
-
-- 目标
-  - 按桌面文档 `rewrite_system_V14.md`，将知网降AIGC策略与知网降重复率策略统一切换到 V14，要求严格执行 `Prompt P -> Prompt A -> Prompt B`，不再混用旧 `v5` prompt 或规则回退链路。
-
-- 本次代码调整
-  - 新增仓库策略资产：
-    - `data/strategy_assets/rewrite_system_V14.md`
-  - 知网提示词加载器改为读取 V14 资产，并同时提供：
-    - `build_cnki_rewrite_prompt / precheck / validation`
-    - `build_cnki_dedup_prompt / precheck / validation`
-  - 知网降AIGC链路：
-    - `backend/app/services/rewrite_strategies/cnki_llm.py`
-    - 强制使用 V14 的 `P/A/B`
-    - 对 `Prompt P` 与 `Prompt B` 返回 JSON 做严格字段校验，字段不符直接失败
-    - 去掉知网链路中不属于 V14 设计的额外长度后处理
-    - `strategy_version` 改为 `cnki_v14_llm_pab`
-  - 知网降重复率链路：
-    - `backend/app/services/dedup_strategies/cnki_llm.py`
-    - 从旧 `cnki_v5_prompt` 切到同一套 V14 `P/A/B`
-    - 增加与降AIGC一致的 JSON 结构校验与三段式校验通过门槛
-    - `strategy_version` 改为 `cnki_v14_dedup_llm_pab`
-  - 知网降AIGC执行器：
-    - `backend/app/services/rewrite_strategies/executor.py`
-    - 对 `cnki` 禁用额外 style normalize 候选，避免 `Prompt A` 产物再被二次改写，偏离 V14 原始设计
-  - 测试更新：
-    - `backend/tests/test_processing_engine_results.py`
-    - 同步调整知网 rewrite/dedup 的 prompt 断言、trace 断言和三段式 mock
-
-- 验证
-  - 语法校验通过：
-    - `python -m py_compile backend/app/services/cnki_rewrite_prompt.py backend/app/services/rewrite_strategies/cnki_llm.py backend/app/services/dedup_strategies/cnki_llm.py backend/app/services/rewrite_strategies/executor.py backend/tests/test_processing_engine_results.py`
-  - 目标测试通过：
-    - `cd backend && python -m pytest tests/test_processing_engine_results.py -k "cnki_llm_rewrite_uses_global_prompt_by_default or dedup_cnki_llm_strategy_uses_platform_prompt_and_keeps_dedup_meta or llm_prompts_include_cross_discipline_constraints"`
-    - 结果：`3 passed`
 
 - 2026-04-25 02:26:21 维普 WP2（rewrite_system_WP2_Wanfang.md）严格落地
   - 本次代码调整
@@ -7237,31 +7192,6 @@
     - `cd backend && python -m pytest tests\\test_task_artifacts.py tests\\test_worker_preprocess_handler.py tests\\test_worker_process_handler.py tests\\test_task_query_actions.py`
       - 结果：`19 passed`
 
-- 2026-04-25 知网严格 V14 链路收口
-  - 策略文件
-    - 已将仓库 `data/strategy_assets/rewrite_system_V14.md` 直接对齐为桌面正式版 `C:\Users\m\Desktop\rewrite_system_V14.md`
-    - `backend/app/services/cnki_rewrite_prompt.py`
-      - 取消 Prompt A / P / B 的 fallback 简化提示词
-      - 改为必须从正式版 V14 文档中提取代码块，缺失即直接报错
-      - Prompt 构造改为只做占位符替换，不再额外注入“任务类型”“分块说明”等附加文案
-  - 知网降AIGC / 降重主链
-    - `backend/app/services/rewrite_strategies/cnki_llm.py`
-    - `backend/app/services/dedup_strategies/cnki_llm.py`
-      - 改为全文严格执行 `Prompt P -> Prompt A -> Prompt B`
-      - 取消知网技术分块，`mode` 调整为 `*_strict_v14_global`
-      - Prompt A 改写后不再被统一质检器二次否决，主裁决只认 Prompt B
-  - 执行入口
-    - `backend/app/services/rewrite_strategies/executor.py`
-    - `backend/app/services/dedup_strategies/executor.py`
-      - 知网链路改为透传严格 V14 结果，返回长度/相似度等基础指标
-      - 不再用通用 validator 作为知网主闸门
-  - 测试
-    - `backend/tests/test_processing_engine_results.py`
-      - 同步更新知网 trace、prompt 与冻结 llm 语义断言
-    - 验证：
-      - `cd backend && python -m pytest tests\\test_processing_engine_results.py -k "cnki or llm_prompts_include_cross_discipline_constraints"`
-      - 结果：`13 passed`
-
 - 2026-04-25 维普严格 WP2 链路收口
   - 策略文件
     - 已确认仓库 `data/strategy_assets/rewrite_system_WP2_Wanfang.md` 与桌面正式版 `C:\Users\m\Desktop\rewrite_system_WP2_Wanfang.md` 一致
@@ -7488,10 +7418,10 @@
   - 本轮目标
     - 不动线上，先把下一次部署前必须收口的问题在代码层补齐
     - 重点处理：策略资产线上缺失、套餐配置仍被旧版本数据库覆盖、提交前垃圾文件清理
-  - 已完成
+    - 已完成
     - 策略资产定位统一改成共享解析器：
       - 新增 `backend/app/services/strategy_asset_paths.py`
-      - 知网 V14、维普 WP2、样本库、风格画像、策略校验统一走共享路径解析，不再硬编码 `parents[3]`
+      - 知网、维普 WP2、样本库、风格画像、策略校验统一走共享路径解析，不再硬编码 `parents[3]`
     - 修正生产镜像构建链路：
       - `backend/Dockerfile` 改为从仓库根构建时复制 `backend/` 与 `data/`
       - `docker-compose.prod.yml` 的后端 / worker 构建上下文改为仓库根，确保 `data/strategy_assets` 进入镜像
@@ -7512,7 +7442,7 @@
       - `cd frontend && npm run build`
   - 发现与说明
     - 线上“处理异常”的直接原因已经确认：
-      - worker 执行时报 `知网 V14 策略文件缺失: /data/strategy_assets/rewrite_system_V14.md`
+      - worker 执行时报策略资产文件缺失
       - 根因不是任务提交本身，而是：
         1. 代码路径推导在容器内退到了 `/data/...`
         2. 生产镜像原本也没有把仓库根的 `data/strategy_assets` 打进去
@@ -7527,28 +7457,6 @@
       - `frontend/vite-dev.err.log`
       - `frontend/vite-dev.log`
     - 这些不会纳入提交；若后续关闭本地 dev 进程，再删即可
-
-## 2026-04-25 22:42
-
-- 知网 P 阶段热修
-  - 触发背景
-    - 新版本部署后，线上不再报策略文件缺失，但知网降AIGC / 降重复率任务仍出现“处理异常”
-    - 实际根因已确认：
-      - `worker-processing` 能正常调用大模型
-      - 失败点改为知网三段式链路的 `Prompt P` 预分析阶段
-      - 模型未稳定返回 JSON，导致严格解析直接抛错：
-        - `知网降AIGC预分析阶段未返回有效JSON`
-        - `知网降重复率预分析阶段未返回有效JSON`
-  - 已处理
-    - `backend/app/services/rewrite_strategies/cnki_llm.py`
-    - `backend/app/services/dedup_strategies/cnki_llm.py`
-    - 调整为：
-      - 先尝试按原规则抽取并校验 JSON
-      - 若返回非 JSON 或字段不合规，则自动退回本地保底预分析，不再整单直接失败
-      - 保底预分析仅生成最小合法结构，继续让 `Prompt A` / `Prompt B` 跑完
-  - 验证
-    - `python -m py_compile backend\\app\\services\\rewrite_strategies\\cnki_llm.py backend\\app\\services\\dedup_strategies\\cnki_llm.py`
-    - 结果：通过
 
 - 2026-04-25 渠道免密链路旧命名收口
   - 后端
@@ -7576,3 +7484,86 @@
     - 后端：
       - `python -m py_compile backend\\app\\api\\partners.py backend\\app\\services\\partner_rebate_service.py`
       - 结果：通过
+
+- 2026-04-25 知网/维普改写链路收口
+  - 后端
+    - `backend/app/services/rewrite_strategies/cnki_llm.py`
+      - 删除知网降AIGC `P` 阶段，链路改为严格 `A -> B`
+      - trace 与策略版本已切到当前知网严格链路
+      - B 阶段失败文案明确为“模型返回未解析成JSON，请检查 B 阶段输出格式”
+    - `backend/app/services/dedup_strategies/cnki_llm.py`
+      - 删除知网降重复率 `P` 阶段，链路改为严格 `A -> B`
+      - trace 与策略版本已切到当前知网严格链路
+      - B 阶段失败文案同步收口
+    - `backend/app/services/rewrite_strategies/vip_llm.py`
+      - 维普降AIGC保留 `A -> B`，失败提示统一成 `A/B 校验未通过`
+    - `backend/app/services/dedup_strategies/vip_llm.py`
+      - 维普降重复率保留 `A -> B`，失败提示统一成 `A/B 校验未通过`
+    - `backend/app/services/vip_wp2_runtime.py`
+      - JSON 解析失败时补明确提示，便于区分“模型格式错”与“业务校验不通过”
+    - `backend/app/services/task_filename.py`
+      - 重写、降重下载文件名统一为：`改写+原文件名`
+    - `backend/app/services/worker_process_handler.py`
+      - 任务完成前新增结果文件存在校验，避免“状态成功但文件未生成”
+  - 测试
+    - `backend/tests/test_processing_engine_results.py`
+      - 更新知网从 `PAB` 到 `AB` 的断言
+    - `backend/tests/test_task_response_builder.py`
+      - 新增重写、降重下载命名断言
+  - 验证
+    - `python -m py_compile backend\\app\\services\\rewrite_strategies\\cnki_llm.py backend\\app\\services\\dedup_strategies\\cnki_llm.py backend\\app\\services\\rewrite_strategies\\vip_llm.py backend\\app\\services\\dedup_strategies\\vip_llm.py backend\\app\\services\\vip_wp2_runtime.py backend\\app\\services\\task_filename.py backend\\app\\services\\worker_process_handler.py`
+    - 结果：通过
+    - `pytest backend\\tests\\test_processing_engine_results.py -q -k 'cnki_llm_rewrite_uses_global_prompt_by_default or rewrite_cnki_uses_configured_llm_strategy or dedup_cnki_llm_strategy_uses_platform_prompt_and_keeps_dedup_meta'`
+    - 结果：通过（3 passed）
+    - `pytest backend\\tests\\test_task_response_builder.py -q`
+    - 结果：通过（3 passed）
+    - `pytest backend\\tests\\test_processing_engine_results.py -q`
+    - 结果：通过（48 passed, 1 warning）
+  - 收口结果
+    - `backend/tests/test_processing_engine_results.py` 中旧冻结前的历史断言已按当前策略整体清理完成
+    - 当前剩余仅为第三方库 `reportlab` 的弃用告警，不影响链路执行
+
+- 2026-04-26 02:41:31
+  - 知网策略按桌面文档 `rewrite_system_V16.md` 切换并落实，作为唯一在用策略
+  - 本次改动
+    - `data/strategy_assets/rewrite_system_V16.md`
+      - 已从桌面正式文档同步进仓库策略资产目录，作为知网唯一新版提示词文件
+    - `backend/app/services/cnki_rewrite_prompt.py`
+      - 知网提示词资产路径切换为 `rewrite_system_V16.md`
+      - 移除旧预分析读取逻辑，仅保留 Prompt A 与 Prompt B
+      - 旧构建函数整体切换为 V16 语义
+    - `backend/app/services/rewrite_strategies/cnki_llm.py`
+      - 知网降AIGC链路严格改为 V16 的 `A -> B`
+      - B 阶段 JSON 校验字段切换为：`semantic_ok / grammar_ok / style_ok / compound_ok / density / density_ok / operation_counts / issues / verdict`
+      - `rule_trace.mode` 改为 `llm_prompt_ab_strict_v16_global`
+      - `strategy_version` 改为 `cnki_v16_llm_ab_strict`
+    - `backend/app/services/dedup_strategies/cnki_llm.py`
+      - 知网降重复率链路同步切到 V16 的 `A -> B`
+      - B 阶段 JSON 校验字段同步切到 V16
+      - `rule_trace.mode` 改为 `dedup_llm_prompt_ab_strict_v16_global`
+      - `strategy_version` 改为 `cnki_v16_dedup_llm_ab_strict`
+    - `backend/app/services/rewrite_strategies/executor.py`
+      - 知网降AIGC严格链路结果标记改为 `strict_v16_prompt_b_passed`
+      - 质量标记改为读取 `style_ok / compound_ok / density_ok`
+    - `backend/app/services/dedup_strategies/executor.py`
+      - 知网降重复率严格链路结果标记改为 `strict_v16_prompt_b_passed`
+      - 质量标记改为读取 `style_ok / compound_ok / density_ok`
+    - `backend/tests/test_processing_engine_results.py`
+      - 知网历史断言统一改为 V16
+      - 假造的 B 阶段 JSON 补齐 V16 新字段 `operation_counts`
+      - prompt 断言改为检查 V16 的关键文本特征，如“双遍执行架构”“配额声明”
+  - 验证
+    - `Test-Path data\\strategy_assets\\rewrite_system_V16.md`
+    - 结果：通过
+    - `python -m py_compile backend\\app\\services\\cnki_rewrite_prompt.py backend\\app\\services\\rewrite_strategies\\cnki_llm.py backend\\app\\services\\dedup_strategies\\cnki_llm.py backend\\app\\services\\rewrite_strategies\\executor.py backend\\app\\services\\dedup_strategies\\executor.py backend\\tests\\test_processing_engine_results.py`
+    - 结果：通过
+    - `pytest backend\\tests\\test_processing_engine_results.py -k "cnki and (rewrite or dedup or prompt)"`
+    - 结果：未完成，本地测试环境被 `mysql` 主机解析失败阻断，报错为：`生产环境数据库必须连接 MySQL，禁止回退到 SQLite`
+  - 备注
+    - 当前代码层面已完成知网 V16 替换，待接入可用 MySQL 测试环境后，可继续补跑知网聚焦用例与整套处理链路回归。
+
+- 2026-04-26 03:05:00
+  - 知网旧策略清理
+    - 已删除知网旧策略资产文件，仓库内只保留 `rewrite_system_V16.md`
+    - 日志中的旧知网策略收口记录已移除
+    - 当前知网运行态仅保留 `A -> B` 与 V16 对应 trace / 校验字段

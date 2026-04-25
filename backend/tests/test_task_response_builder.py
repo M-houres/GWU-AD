@@ -75,3 +75,59 @@ def test_task_response_builder_preserves_public_task_fields(db_session) -> None:
     assert recover_payload["result_filename"] == "paper_AIGC检测报告.pdf"
     assert recover_payload["filename_pair"] == "paper.docx + paper_AIGC检测报告.pdf"
     assert "result_json" not in recover_payload
+
+
+def test_task_response_builder_uses_rewrite_download_name(db_session) -> None:
+    user = User(phone="13800008882", nickname="rewrite-user", credits=1200)
+    db_session.add(user)
+    db_session.flush()
+
+    task = Task(
+        user_id=user.id,
+        task_type=TaskType.REWRITE,
+        platform="cnki",
+        source="web",
+        status=TaskStatus.COMPLETED,
+        source_filename="论文终稿.docx",
+        source_path="/tmp/source.docx",
+        output_path="/tmp/output.docx",
+        char_count=800,
+        cost_credits=200,
+        refund_done=False,
+        result_json={},
+    )
+    db_session.add(task)
+    db_session.commit()
+
+    payload = build_detail_payload(task)
+
+    assert payload["result_filename"] == "改写+论文终稿.docx"
+    assert payload["filename_pair"] == "论文终稿.docx + 改写+论文终稿.docx"
+
+
+def test_task_response_builder_uses_dedup_download_name(db_session) -> None:
+    user = User(phone="13800008883", nickname="dedup-user", credits=1200)
+    db_session.add(user)
+    db_session.flush()
+
+    task = Task(
+        user_id=user.id,
+        task_type=TaskType.DEDUP,
+        platform="vip",
+        source="web",
+        status=TaskStatus.COMPLETED,
+        source_filename="查重样稿.txt",
+        source_path="/tmp/source.txt",
+        output_path="/tmp/output.txt",
+        char_count=640,
+        cost_credits=180,
+        refund_done=False,
+        result_json={},
+    )
+    db_session.add(task)
+    db_session.commit()
+
+    payload = build_detail_payload(task)
+
+    assert payload["result_filename"] == "改写+查重样稿.txt"
+    assert payload["filename_pair"] == "查重样稿.txt + 改写+查重样稿.txt"

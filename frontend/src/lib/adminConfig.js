@@ -3,8 +3,6 @@ export const CONFIG_TABS = [
   { key: "payment", label: "支付配置", desc: "微信支付 / 支付宝" },
   { key: "billing", label: "计费规则", desc: "按字符扣费" },
   { key: "aigc_detect_strategy", label: "AIGC检测策略", desc: "知网 / 维普内部检测" },
-  { key: "dedup_strategy", label: "降重复率策略", desc: "知网 / 维普策略路由" },
-  { key: "rewrite_strategy", label: "降AIGC率策略", desc: "知网 / 维普策略路由" },
   { key: "user_navigation", label: "前台导航", desc: "左侧功能编排" },
   { key: "promo_center", label: "推广中心", desc: "点数规则 / 文案 / 活动素材" },
   { key: "llm", label: "大模型配置", desc: "国内外主流模型" },
@@ -104,30 +102,6 @@ export const ADMIN_CONFIG_GUIDES = {
       "知网和维普至少应有 1 个平台保持启用。",
       "AIGC 检测现在只走内部算法策略，不依赖 LLM。",
       "这里只控制后端检测可用性，不影响前台入口、计费和下载。",
-    ],
-    docs: [],
-  },
-  dedup_strategy: {
-    code: "Dedup Config",
-    lead: "把降重复率执行收敛成最少配置项，只保留平台启用和固定的大模型主策略。",
-    title: "先保证降重链稳定",
-    desc: "知网和维普的降重复率任务都会经过后端统一执行器。当前两端均已冻结为大模型主策略，不再提供算法切换。",
-    checklist: [
-      "知网和维普至少应有 1 个平台保持启用。",
-      "知网和维普降重复率均固定走大模型主策略，依赖 LLM 配置可用。",
-      "这里只控制后端执行策略，不影响前台入口、计费和下载。",
-    ],
-    docs: [],
-  },
-  rewrite_strategy: {
-    code: "Rewrite Config",
-    lead: "把降AIGC率执行收敛成最少配置项，只保留平台启用和固定的大模型主策略。",
-    title: "先保证后端稳定处理",
-    desc: "知网和维普的降AIGC率任务都会经过后端统一执行器。当前两端均已冻结为大模型主策略，不再提供算法切换。",
-    checklist: [
-      "知网和维普至少应有 1 个平台保持启用。",
-      "知网和维普降AIGC率均固定走大模型主策略，依赖 LLM 配置可用。",
-      "这里只控制后端执行策略，不影响前台入口、计费和下载。",
     ],
     docs: [],
   },
@@ -972,7 +946,7 @@ export function strategyDescription(strategy, platform = "") {
     return "该平台已冻结为大模型主策略，保存时会自动纠正为 llm。"
   }
   if (normalizedPlatform === "cnki") {
-    return "固定走知网大模型主策略。降AIGC率严格执行 Prompt P -> Prompt A -> Prompt B 三段式链路，结果仍会经过统一质检闸门。"
+    return "固定走知网大模型主策略。降AIGC率严格执行 Prompt A -> Prompt B 闭环校验链路，结果仍会经过统一质检闸门。"
   }
   if (normalizedPlatform === "vip") {
     return "固定走维普大模型主策略，结果仍会经过统一质检闸门。"

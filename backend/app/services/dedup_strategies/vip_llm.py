@@ -45,7 +45,7 @@ def rewrite(db, *, task: Task | None, text: str, report_summary: dict | None = N
         if not wp2_prompt_b_passed(prompt_b):
             issues = prompt_b.get("issues") if isinstance(prompt_b.get("issues"), list) else []
             issue_text = "；".join(str(item.get("detail") or "").strip() for item in issues[:3] if isinstance(item, dict))
-            raise BizError(code=4635, message=f"维普降重复率 WP2校验未通过{f'：{issue_text}' if issue_text else ''}")
+            raise BizError(code=4635, message=f"维普降重复率 A/B 校验未通过{f'：{issue_text}' if issue_text else ''}")
         rule_trace = {
             "mode": "dedup_llm_prompt_ab_strict_wp2_global",
             "applied_rules": [

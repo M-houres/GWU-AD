@@ -4,11 +4,11 @@
       <article class="partner-login__intro">
         <p class="partner-login__eyebrow">渠道门户</p>
         <h1 class="partner-login__title">免密进入渠道后台</h1>
-        <p class="partner-login__desc">渠道端不再使用账号密码，统一通过专属门户链接自动进入后台。</p>
+        <p class="partner-login__desc">渠道端统一通过专属门户链接进入，不再需要账号密码。</p>
 
         <div class="partner-login__tips">
           <div class="partner-login__tip-card">
-            <strong>你通常会收到</strong>
+            <strong>通常会收到</strong>
             <span>专属门户链接</span>
             <span>推广链接</span>
             <span>小程序路径</span>
@@ -24,8 +24,8 @@
 
       <section class="partner-login__card">
         <header class="partner-login__card-head">
-          <h2>专属门户链接进入</h2>
-          <span>直接打开上级或平台发你的门户链接，系统会自动登录。</span>
+          <h2>粘贴门户链接</h2>
+          <span>粘贴平台发给你的专属门户链接，系统会自动完成进入。</span>
         </header>
 
         <form class="partner-login__form" @submit.prevent="submitEntry">
@@ -34,7 +34,7 @@
             <textarea
               v-model.trim="portalLink"
               class="partner-login__textarea"
-              placeholder="例如：https://xxx.com/app/partner?ch=CHROOT01&pk=xxxx"
+              placeholder="例如：https://xxx.com/app/partner/login-entry/xxxxx"
             />
           </label>
 
@@ -47,7 +47,7 @@
 
         <div class="partner-login__helper">
           <span>如果没有门户链接，请让上级或平台重新发送。</span>
-          <span>旧版渠道链接也可直接打开，系统会自动换成当前登录态。</span>
+          <span>如果链接失效，请让上级或平台刷新后重新发送。</span>
         </div>
       </section>
     </section>
@@ -55,7 +55,7 @@
 </template>
 
 <script setup>
-import { onMounted, ref } from "vue"
+import { ref } from "vue"
 import { useRoute, useRouter } from "vue-router"
 
 import { partnerHttp } from "../../lib/http"
@@ -68,13 +68,6 @@ const router = useRouter()
 const portalLink = ref("")
 const loading = ref(false)
 const errorText = ref("")
-
-onMounted(async () => {
-  const legacyCh = String(route.query.ch || "").trim()
-  const legacyPk = String(route.query.pk || "").trim()
-  if (!legacyCh || !legacyPk) return
-  await exchangeByCredential({ channelCode: legacyCh, portalToken: legacyPk })
-})
 
 function extractPortalCredential(rawValue) {
   const raw = String(rawValue || "").trim()

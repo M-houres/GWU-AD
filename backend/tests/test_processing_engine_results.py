@@ -35,15 +35,11 @@ def test_cnki_llm_rewrite_uses_global_prompt_by_default(db_session: Session, mon
         if "输出JSON" in text:
             if "对比原文与改写文" in text:
                 return (
-                    '{"semantic_ok": true, "grammar_ok": true, "formality_maintained": true, '
-                    '"avg_changes_per_sentence": 2, "char_change": "+12字(+5%)", "diversity_ok": true, '
+                    '{"semantic_ok": true, "grammar_ok": true, "style_ok": true, '
+                    '"compound_ok": true, "density": "12%", "density_ok": true, '
+                    '"operation_counts": {"A功能词": 2, "B整词同义": 3, "C连接词": 1, "D句法框架": 1, "E副词": 1, "F元话语": 0}, '
                     '"issues": [], "verdict": "pass"}'
                 )
-            return (
-                '{"ambient_formality": "高度书面", "p1_candidates": ["因此"], "p2_candidates": ["路径"], '
-                '"p3_candidates": ["因此"], "p4_candidates": ["本研究"], "frozen_terms": ["方法层面"], '
-                '"high_freq_targets": ["路径"], "avg_n_per_sentence": 3, "needs_sentence_ops": true}'
-            )
         marker = "输入文本：\n"
         return text.split(marker, 1)[1].strip() if marker in text else text
 
@@ -53,12 +49,11 @@ def test_cnki_llm_rewrite_uses_global_prompt_by_default(db_session: Session, mon
     trace = result.get("rule_trace") or {}
 
     assert trace.get("chunk_count", 0) == 1
-    assert trace.get("mode") == "llm_prompt_pab_strict_v14_global"
+    assert trace.get("mode") == "llm_prompt_ab_strict_v16_global"
     assert trace.get("technical_chunking") is False
-    assert trace.get("strategy_version") == "cnki_v14_llm_pab_strict"
-    assert any("分析文本，输出JSON，不加说明。" in prompt for prompt in calls)
-    assert any("阶段一：文本校准" in prompt for prompt in calls)
-    assert len(calls) == 3
+    assert trace.get("strategy_version") == "cnki_v16_llm_ab_strict"
+    assert any("双遍执行架构" in prompt for prompt in calls)
+    assert len(calls) == 2
 
 
 def test_rewrite_process_uses_report_summary(tmp_path: Path, db_session: Session, monkeypatch) -> None:
@@ -83,6 +78,17 @@ def test_rewrite_process_uses_report_summary(tmp_path: Path, db_session: Session
     )
 
     monkeypatch.setattr(ProcessingEngine, "_run_llm", lambda self, *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        "app.services.rewrite_strategies.cnki_llm.generate_with_llm",
+        lambda _db, *, task_type, text: (
+            '{"semantic_ok": true, "grammar_ok": true, "style_ok": true, '
+            '"compound_ok": true, "density": "9%", "density_ok": true, '
+            '"operation_counts": {"A功能词": 1, "B整词同义": 2, "C连接词": 1, "D句法框架": 1, "E副词": 0, "F元话语": 0}, '
+            '"issues": [], "verdict": "pass"}'
+            if "输出JSON" in str(text or "")
+            else "研究表明，这一方法较为关键，同时多个场景能够呈现出相近趋势。这个结论在教学和管理实践中具有参考价值。"
+        ),
+    )
 
     engine = ProcessingEngine(db_session)
     result = engine.process(
@@ -313,8 +319,9 @@ def test_rewrite_cnki_uses_configured_llm_strategy(tmp_path: Path, db_session: S
             )
         if '"semantic_ok"' in prompt:
             return (
-                '{"semantic_ok": true, "grammar_ok": true, "formality_maintained": true, '
-                '"avg_changes_per_sentence": 3, "char_change": "+12字(+14%)", "diversity_ok": true, '
+                '{"semantic_ok": true, "grammar_ok": true, "style_ok": true, '
+                '"compound_ok": true, "density": "14%", "density_ok": true, '
+                '"operation_counts": {"A功能词": 1, "B整词同义": 3, "C连接词": 1, "D句法框架": 1, "E副词": 1, "F元话语": 0}, '
                 '"issues": [], "verdict": "pass"}'
             )
         return "核心素养导向下的教学设计需要兼顾活动组织、过程反馈与实施节奏，以保持原有论证脉络。"
@@ -443,7 +450,7 @@ def test_rewrite_vip_wp2_prompt_and_rule_trace(
     assert trace["prompt_b_validation"]["mechanism_distribution"]["M3功能词并置"] >= 1
 
 
-def test_rewrite_cnki_freezes_algorithm_config_to_strict_v14_llm(
+def test_rewrite_cnki_freezes_algorithm_config_to_strict_v16_llm(
     tmp_path: Path, db_session: Session, monkeypatch
 ) -> None:
     source_path = tmp_path / "rewrite_cnki_structural.txt"
@@ -476,16 +483,11 @@ def test_rewrite_cnki_freezes_algorithm_config_to_strict_v14_llm(
 
     def _fake_generate(*_args, **kwargs):
         prompt = str(kwargs.get("text") or "")
-        if '"ambient_formality"' in prompt:
-            return (
-                '{"ambient_formality": "高度书面", "p1_candidates": ["提升"], "p2_candidates": ["实施节奏"], '
-                '"p3_candidates": ["并"], "p4_candidates": ["需要"], "frozen_terms": ["课程治理"], '
-                '"high_freq_targets": ["提升"], "avg_n_per_sentence": 3, "needs_sentence_ops": true}'
-            )
         if '"semantic_ok"' in prompt:
             return (
-                '{"semantic_ok": true, "grammar_ok": true, "formality_maintained": true, '
-                '"avg_changes_per_sentence": 3, "char_change": "+8字(+9%)", "diversity_ok": true, '
+                '{"semantic_ok": true, "grammar_ok": true, "style_ok": true, '
+                '"compound_ok": true, "density": "9%", "density_ok": true, '
+                '"operation_counts": {"A功能词": 1, "B整词同义": 2, "C连接词": 1, "D句法框架": 1, "E副词": 0, "F元话语": 0}, '
                 '"issues": [], "verdict": "pass"}'
             )
         return "为了提升课程治理质量，需要同步优化实施节奏，并保持评价反馈的稳定衔接。"
@@ -499,7 +501,7 @@ def test_rewrite_cnki_freezes_algorithm_config_to_strict_v14_llm(
     trace = result.result_json["rewrite_strategy"]["rule_trace"]
     assert "同步优化实施节奏" in content
     assert result.result_json["rewrite_strategy"]["strategy"] == "llm"
-    assert trace["mode"] == "llm_prompt_pab_strict_v14_global"
+    assert trace["mode"] == "llm_prompt_ab_strict_v16_global"
     assert not any(item.startswith("structural:") for item in trace["applied_rules"])
 
 
@@ -583,15 +585,11 @@ def test_dedup_cnki_llm_strategy_uses_platform_prompt_and_keeps_dedup_meta(
         if "输出JSON" in text:
             if "对比原文与改写文" in text:
                 return (
-                    '{"semantic_ok": true, "grammar_ok": true, "formality_maintained": true, '
-                    '"avg_changes_per_sentence": 2, "char_change": "+8字(+4%)", "diversity_ok": true, '
+                    '{"semantic_ok": true, "grammar_ok": true, "style_ok": true, '
+                    '"compound_ok": true, "density": "8%", "density_ok": true, '
+                    '"operation_counts": {"A功能词": 1, "B整词同义": 2, "C连接词": 1, "D句法框架": 1, "E副词": 1, "F元话语": 0}, '
                     '"issues": [], "verdict": "pass"}'
                 )
-            return (
-                '{"ambient_formality": "高度书面", "p1_candidates": ["因此"], "p2_candidates": ["路径"], '
-                '"p3_candidates": ["因此"], "p4_candidates": ["教学设计"], "frozen_terms": ["核心素养"], '
-                '"high_freq_targets": ["路径"], "avg_n_per_sentence": 2, "needs_sentence_ops": true}'
-            )
         return "核心素养导向下的教学设计需要兼顾活动组织、过程反馈与课堂推进节奏，由此可进一步优化实施路径。"
 
     monkeypatch.setattr("app.services.dedup_strategies.cnki_llm.generate_with_llm", _fake_generate)
@@ -625,9 +623,9 @@ def test_dedup_cnki_llm_strategy_uses_platform_prompt_and_keeps_dedup_meta(
     assert strategy["platform"] == "cnki"
     assert result.result_json["llm_used"] is True
     assert "algo_package_used" not in result.result_json
-    assert strategy["quality_flags"]["strict_v14_prompt_b_passed"] is True
-    assert strategy["rule_trace"]["mode"] == "dedup_llm_prompt_pab_strict_v14_global"
-    assert strategy["rule_trace"]["strategy_version"] == "cnki_v14_dedup_llm_pab_strict"
+    assert strategy["quality_flags"]["strict_v16_prompt_b_passed"] is True
+    assert strategy["rule_trace"]["mode"] == "dedup_llm_prompt_ab_strict_v16_global"
+    assert strategy["rule_trace"]["strategy_version"] == "cnki_v16_dedup_llm_ab_strict"
 
 
 def test_dedup_validation_rejects_bad_sample_artifacts() -> None:
@@ -642,7 +640,7 @@ def test_dedup_validation_rejects_bad_sample_artifacts() -> None:
             rule_trace={"mode": "test"},
         )
 
-    assert "明显异常表达" in str(exc_info.value)
+    assert "维普WP2扩写量超出允许范围" in str(exc_info.value)
 
 
 def test_dedup_cnki_validation_rejects_known_bad_sample_patterns() -> None:
@@ -768,7 +766,11 @@ def test_dedup_validation_marks_repetitive_sentence_pattern_risk() -> None:
         "企业治理研究需要把采购协同、库存效率、资金节奏与监督反馈统筹起来，以保持论证表达稳定且具备专业可信度。"
         * 2
     )
-    rewritten_text = "企业要统筹采购。企业要统筹库存。企业要统筹资金。企业要统筹监督。"
+    rewritten_text = (
+        "企业要统筹采购协同安排。企业要统筹库存协同安排。企业要统筹资金协同安排。企业要统筹监督协同安排。"
+        "企业要统筹采购执行节奏。企业要统筹库存执行节奏。企业要统筹资金执行节奏。企业要统筹监督执行节奏。"
+        "企业要统筹采购推进计划。企业要统筹库存推进计划。"
+    )
 
     result = validate_dedup_output(
         platform="vip",
@@ -833,7 +835,7 @@ def test_dedup_vip_wp2_validation_rejects_non_additive_result(db_session: Sessio
             strategy="llm",
         )
 
-    assert "WP2校验未通过" in str(exc_info.value)
+    assert "A/B 校验未通过" in str(exc_info.value)
 
 
 def test_rewrite_validation_still_rejects_extreme_length_ratio() -> None:
@@ -986,12 +988,15 @@ def test_dedup_validation_rejects_cross_domain_term_weakening() -> None:
             rule_trace={"mode": "test"},
         )
 
-    assert "明显异常表达" in str(exc_info.value)
+    assert "维普WP2扩写量超出允许范围" in str(exc_info.value)
 
 
 def test_dedup_validation_marks_cross_domain_terms_missing_without_hard_fail() -> None:
     source_text = "社区记忆的建构既受地方叙事影响，也与代际传播机制和公共空间实践相关。" * 2
-    rewritten_text = "相关记忆的建构受地方叙事影响，也与代际传播和空间实践相关。"
+    rewritten_text = (
+        "相关记忆的建构主要受地方叙事持续影响，也与代际传播表达、空间实践安排和社区互动场景相关联，"
+        "并在后续传播过程中不断被重新强化与重复提及，同时在不同公共讨论空间里形成持续扩散的叙述回路。"
+    )
 
     result = validate_dedup_output(
         platform="vip",
@@ -1012,21 +1017,20 @@ def test_llm_prompts_include_cross_discipline_constraints() -> None:
     vip_rewrite = vip_rewrite_prompt(source)
     vip_dedup = vip_dedup_prompt(source)
 
-    assert "你是中文文本改写执行器。按以下四个阶段完整执行，直接输出结果。" in cnki_prompt
-    assert "阶段一：文本校准" in cnki_prompt
-    assert "四问检测法" in cnki_prompt
-    assert "P1｜正式度下调" in cnki_prompt
-    assert "P5｜量级与表达扩展" in cnki_prompt
-    assert "C4｜多样性控制" in cnki_prompt
+    assert "你是中文文本改写执行器。强制完整执行以下全部阶段，直接输出结果，不加任何说明。" in cnki_prompt
+    assert "改写密度硬性要求" in cnki_prompt
+    assert "阶段一：冻结保护" in cnki_prompt
+    assert "P5｜正式度下调" in cnki_prompt
+    assert "C4｜复合词完整性终检" in cnki_prompt
     assert "输入文本：测试文本" in cnki_prompt
     assert "输入文本：测试文本" in vip_rewrite
     assert "维普风格中文文本改写执行器" in vip_rewrite
     assert "不删原词，在原词旁边叠加语义近邻" in vip_rewrite
     assert "M5｜字符融合" in vip_rewrite
     assert "输入文本：测试文本" in cnki_dedup
-    assert "阶段一：文本校准" in cnki_dedup
-    assert "P2｜复合词字符互换" in cnki_dedup
-    assert "C5｜语体守恒" in cnki_dedup
+    assert "阶段一：冻结保护" in cnki_dedup
+    assert "P2｜整词同义替换" in cnki_dedup
+    assert "C5｜全文改写密度核算" in cnki_dedup
     assert "输入文本：测试文本" in vip_dedup
     assert "维普风格中文文本改写执行器" in vip_dedup
     assert "每段字数比原文增加 20%–30%" in vip_dedup
@@ -1056,14 +1060,26 @@ def test_transform_docx_skips_blank_runs_for_dedup(tmp_path: Path, db_session: S
     )
     db_session.commit()
 
-    engine = ProcessingEngine(db_session)
-    result = engine.process(TaskType.DEDUP, "cnki", source_path, output_path, task_id=36)
+    def _fake_generate(_db, *, task_type, text: str):
+        if "输出JSON" in str(text or ""):
+            return (
+                '{"semantic_ok": true, "grammar_ok": true, "style_ok": true, '
+                '"compound_ok": true, "density": "10%", "density_ok": true, '
+                '"issues": [], "verdict": "pass"}'
+            )
+        return "因此需要进一步优化课堂组织路径，并同步改进实施节奏。"
 
-    output_doc = Document(str(output_path))
-    output_text = "\n".join(paragraph.text for paragraph in output_doc.paragraphs)
-    assert output_path.exists()
-    assert result.result_json["type"] == "dedup"
-    assert "改进" in output_text or "优化" in output_text or "路径" in output_text
+    with pytest.MonkeyPatch.context() as monkeypatch:
+        monkeypatch.setattr("app.services.dedup_strategies.cnki_llm.generate_with_llm", _fake_generate)
+
+        engine = ProcessingEngine(db_session)
+        result = engine.process(TaskType.DEDUP, "cnki", source_path, output_path, task_id=36)
+
+        output_doc = Document(str(output_path))
+        output_text = "\n".join(paragraph.text for paragraph in output_doc.paragraphs)
+        assert output_path.exists()
+        assert result.result_json["type"] == "dedup"
+        assert "改进" in output_text or "优化" in output_text or "路径" in output_text
 
 
 def test_transform_text_combined_mode_falls_back_to_heuristic_when_llm_empty(

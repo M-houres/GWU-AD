@@ -27,14 +27,6 @@
         </button>
       </section>
 
-      <section v-if="currentPage" class="promo-banner">
-        <div>
-          <h3>{{ currentPage.title }}</h3>
-          <p>{{ currentPage.subtitle }}</p>
-        </div>
-        <span class="promo-banner__pill">{{ currentCard?.badge || "活动中" }}</span>
-      </section>
-
       <template v-if="activeTab === 'invite'">
         <section class="promo-layout">
           <section class="promo-section promo-section--compact">
@@ -346,8 +338,6 @@ const activeTab = computed(() => {
   return keys[0] || "invite"
 })
 
-const currentCard = computed(() => enabledCards.value.find((item) => item.key === activeTab.value) || null)
-const currentPage = computed(() => promoConfig.value?.pages?.[activeTab.value] || null)
 const invitePage = computed(() => promoConfig.value?.pages?.invite || DEFAULT_PROMO_CENTER_CONFIG.pages.invite)
 const likePage = computed(() => promoConfig.value?.pages?.like || DEFAULT_PROMO_CENTER_CONFIG.pages.like)
 const createPage = computed(() => promoConfig.value?.pages?.create || DEFAULT_PROMO_CENTER_CONFIG.pages.create)
@@ -478,17 +468,23 @@ function formatPoints(value) {
 <style scoped>
 .promo-page {
   display: grid;
-  gap: 14px;
+  gap: 16px;
   font-family: var(--font-sans);
 }
+
 .promo-primary,
 .promo-secondary,
 .promo-action-row__controls button {
-  min-height: 40px;
-  padding: 0 14px;
-  border-radius: 12px;
+  min-height: 42px;
+  padding: 0 16px;
+  border-radius: 14px;
   font-weight: 700;
   cursor: pointer;
+  transition:
+    transform var(--motion-fast) var(--ease-standard),
+    box-shadow var(--motion-fast) var(--ease-standard),
+    border-color var(--motion-fast) var(--ease-standard),
+    background-color var(--motion-fast) var(--ease-standard);
 }
 
 .promo-primary:disabled,
@@ -500,30 +496,69 @@ function formatPoints(value) {
 
 .promo-tabs {
   display: grid;
-  gap: 10px;
+  gap: 12px;
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
 .promo-tab {
-  padding: 14px 16px;
-  border-radius: 16px;
-  border: 1px solid #dbe5f1;
-  background: #fff;
+  position: relative;
+  overflow: hidden;
+  padding: 16px 18px;
+  border-radius: 20px;
+  border: 1px solid rgba(194, 212, 242, 0.92);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(247, 251, 255, 0.98) 100%);
   text-align: left;
   cursor: pointer;
+  box-shadow: 0 14px 28px rgba(24, 74, 164, 0.08);
+  transition:
+    transform var(--motion-fast) var(--ease-standard),
+    box-shadow var(--motion-fast) var(--ease-standard),
+    border-color var(--motion-fast) var(--ease-standard),
+    background var(--motion-fast) var(--ease-standard);
+}
+
+.promo-tab::after {
+  content: "";
+  position: absolute;
+  inset: auto 18px 0;
+  height: 3px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, rgba(77, 132, 255, 0), rgba(77, 132, 255, 0.88), rgba(77, 132, 255, 0));
+  opacity: 0;
+  transform: translateY(6px);
+  transition:
+    opacity var(--motion-fast) var(--ease-standard),
+    transform var(--motion-fast) var(--ease-standard);
+}
+
+.promo-tab:hover {
+  transform: translateY(-2px);
+  border-color: rgba(82, 132, 231, 0.4);
+  box-shadow: 0 18px 34px rgba(24, 74, 164, 0.12);
+}
+
+.promo-tab:hover::after {
+  opacity: 1;
+  transform: translateY(0);
 }
 
 .promo-tab--active {
-  border-color: var(--primary);
-  background: var(--primary-gradient);
-  box-shadow: 0 12px 28px rgba(30, 91, 223, 0.18);
+  border-color: rgba(30, 91, 223, 0.62);
+  background: linear-gradient(135deg, #6ca0ff 0%, #4584fa 28%, #1e5bdf 66%, #184ec8 100%);
+  box-shadow: 0 20px 36px rgba(30, 91, 223, 0.22);
+}
+
+.promo-tab--active::after {
+  opacity: 1;
+  transform: translateY(0);
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0), rgba(255, 255, 255, 0.9), rgba(255, 255, 255, 0));
 }
 
 .promo-tab span {
   display: block;
   font-size: 11px;
-  color: var(--primary);
-  letter-spacing: 0.08em;
+  color: #2f67d7;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
   font-weight: 700;
 }
@@ -531,16 +566,16 @@ function formatPoints(value) {
 .promo-tab strong {
   display: block;
   margin-top: 6px;
-  font-size: 16px;
-  color: #17385f;
+  font-size: 17px;
+  color: #183962;
 }
 
 .promo-tab em {
   display: block;
-  margin-top: 8px;
+  margin-top: 7px;
   font-size: 12px;
-  line-height: 1.55;
-  color: #657c97;
+  line-height: 1.65;
+  color: #607894;
   font-style: normal;
 }
 
@@ -550,71 +585,43 @@ function formatPoints(value) {
   color: #fff;
 }
 
-.promo-banner,
 .promo-section,
 .promo-tab {
   box-sizing: border-box;
 }
 
-.promo-banner {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 12px;
-  align-items: center;
-  padding: 16px 18px;
-  border-radius: 18px;
-  border: 1px solid #dbe5f1;
-  background: linear-gradient(180deg, #fafcff 0%, #ffffff 100%);
-}
-
-.promo-banner h3,
+.promo-section__head h4,
 .promo-section__head h4 {
   margin: 0;
   color: #17385f;
   font-family: var(--font-display);
 }
 
-.promo-banner h3 {
-  font-size: 24px;
-}
-
-.promo-banner p,
 .promo-detail,
 .promo-qrcode-side p,
 .promo-entry-card p {
   margin: 6px 0 0;
-  font-size: 12px;
+  font-size: 13px;
   line-height: 1.7;
   color: #627a95;
 }
 
-.promo-banner__pill {
-  display: inline-flex;
-  align-items: center;
-  min-height: 32px;
-  padding: 0 13px;
-  border-radius: 999px;
-  background: var(--primary-light);
-  color: var(--primary);
-  font-size: 12px;
-  font-weight: 700;
-}
-
 .promo-layout {
   display: grid;
-  gap: 14px;
+  gap: 16px;
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .promo-section {
-  padding: 16px 18px;
-  border-radius: 18px;
-  border: 1px solid #dbe5f1;
-  background: #fff;
+  padding: 18px 20px;
+  border-radius: 20px;
+  border: 1px solid rgba(207, 222, 244, 0.96);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.99) 0%, rgba(248, 251, 255, 0.99) 100%);
+  box-shadow: 0 16px 32px rgba(20, 64, 146, 0.08);
 }
 
 .promo-section--soft {
-  background: linear-gradient(180deg, #f8fbff 0%, #ffffff 100%);
+  background: linear-gradient(180deg, rgba(242, 248, 255, 0.98) 0%, rgba(255, 255, 255, 0.98) 100%);
 }
 
 .promo-section--compact {
@@ -630,15 +637,16 @@ function formatPoints(value) {
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 12px;
   align-items: center;
+  margin-bottom: 2px;
 }
 
 .promo-section__head h4 {
-  font-size: 20px;
+  font-size: 19px;
 }
 
 .promo-grid {
   display: grid;
-  gap: 14px;
+  gap: 12px;
 }
 
 .promo-grid--2 {
@@ -661,15 +669,12 @@ function formatPoints(value) {
 .promo-flow-card,
 .promo-platform-card,
 .promo-tier-card,
-.promo-chip,
 .promo-step-card,
 .promo-entry-card,
-.promo-partner-card,
-.promo-badge-row strong {
-  border: 1px solid #dbe5f1;
+.promo-partner-card {
+  border: 1px solid rgba(212, 224, 242, 0.96);
   background: linear-gradient(180deg, #fbfdff 0%, #ffffff 100%);
 }
-
 .promo-stat-card,
 .promo-flow-card,
 .promo-platform-card,
@@ -677,8 +682,9 @@ function formatPoints(value) {
 .promo-step-card,
 .promo-entry-card,
 .promo-partner-card {
-  padding: 14px;
-  border-radius: 16px;
+  padding: 14px 15px;
+  border-radius: 18px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.88);
 }
 
 .promo-stat-card span,
@@ -703,7 +709,7 @@ function formatPoints(value) {
 }
 
 .promo-stat-card strong {
-  font-size: 24px;
+  font-size: 25px;
   font-family: var(--font-display);
 }
 
@@ -725,7 +731,7 @@ function formatPoints(value) {
 .promo-partner-grid {
   margin-top: 12px;
   display: grid;
-  gap: 10px;
+  gap: 12px;
 }
 
 .promo-chip-grid {
@@ -746,8 +752,10 @@ function formatPoints(value) {
 }
 
 .promo-chip {
-  padding: 10px 12px;
-  border-radius: 16px;
+  padding: 11px 13px;
+  border-radius: 14px;
+  border: 1px solid rgba(212, 224, 242, 0.96);
+  background: linear-gradient(180deg, #fbfdff 0%, #ffffff 100%);
   font-size: 12px;
   line-height: 1.65;
   color: #2f4763;
@@ -780,9 +788,11 @@ function formatPoints(value) {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-height: 34px;
-  padding: 0 14px;
+  min-height: 38px;
+  padding: 0 16px;
   border-radius: 999px;
+  border: 1px solid rgba(198, 214, 238, 0.96);
+  background: linear-gradient(180deg, #fbfdff 0%, #ffffff 100%);
   font-size: 12px;
   color: #1f436b;
 }
@@ -799,8 +809,8 @@ function formatPoints(value) {
   gap: 14px;
   align-items: center;
   padding: 14px 16px;
-  border-radius: 16px;
-  border: 1px solid #dbe5f1;
+  border-radius: 18px;
+  border: 1px solid rgba(212, 224, 242, 0.96);
   background: linear-gradient(180deg, #fcfdff 0%, #ffffff 100%);
 }
 
@@ -838,27 +848,42 @@ function formatPoints(value) {
 .promo-submit-row input {
   flex: 1;
   min-width: 220px;
-  min-height: 40px;
-  padding: 0 12px;
-  border-radius: 12px;
+  min-height: 42px;
+  padding: 0 14px;
+  border-radius: 14px;
   border: 1px solid #d1dceb;
   background: #fff;
   color: #17385f;
   font-size: 14px;
   outline: none;
+  transition:
+    border-color var(--motion-fast) var(--ease-standard),
+    box-shadow var(--motion-fast) var(--ease-standard);
+}
+
+.promo-action-row__controls input:focus,
+.promo-submit-row input:focus {
+  border-color: rgba(30, 91, 223, 0.58);
+  box-shadow: 0 0 0 4px rgba(30, 91, 223, 0.08);
 }
 
 .promo-primary {
   border: 1px solid var(--primary);
   background: var(--primary-gradient);
   color: #fff;
-  box-shadow: 0 10px 20px rgba(30, 91, 223, 0.14);
+  box-shadow: 0 12px 24px rgba(30, 91, 223, 0.18);
 }
 
 .promo-secondary {
   border: 1px solid rgba(30, 91, 223, 0.18);
-  background: rgba(30, 91, 223, 0.06);
+  background: rgba(30, 91, 223, 0.08);
   color: var(--primary);
+}
+
+.promo-primary:hover:not(:disabled),
+.promo-secondary:hover:not(:disabled),
+.promo-action-row__controls button:hover:not(:disabled) {
+  transform: translateY(-1px);
 }
 
 .promo-qrcode-layout {
@@ -870,7 +895,7 @@ function formatPoints(value) {
 
 .promo-qrcode-box {
   min-height: 220px;
-  border-radius: 18px;
+  border-radius: 20px;
   border: 1px dashed #cfdcec;
   background: linear-gradient(180deg, #f8fbff 0%, #ffffff 100%);
   display: grid;
@@ -915,7 +940,7 @@ function formatPoints(value) {
 .promo-template-box {
   margin-top: 12px;
   padding: 14px 16px;
-  border-radius: 16px;
+  border-radius: 18px;
   background: linear-gradient(180deg, #f8fbff 0%, #ffffff 100%);
   color: #24466f;
   font-size: 14px;

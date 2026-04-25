@@ -5,7 +5,7 @@
         <div class="border-b border-[#e4eaf0] bg-[linear-gradient(135deg,#f6f4ed,#eef4f8)] px-6 py-5">
           <div class="flex flex-wrap items-start justify-between gap-4">
             <div>
-              <div class="text-[11px] uppercase tracking-[0.18em] text-[#72808c]">Operator Desk</div>
+              <div class="text-[11px] uppercase tracking-[0.18em] text-[#72808c]">用户工作台</div>
               <h2 class="mt-2 text-2xl font-semibold text-[#14212a]">
                 {{ detail.user?.nickname || detail.user?.phone || `用户 #${detail.user?.id || "-"}` }}
               </h2>
@@ -35,7 +35,7 @@
           <div class="space-y-5">
             <div class="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
               <article class="rounded-2xl border border-[#dde5eb] bg-[#fbfcfd] p-4">
-                <div class="text-xs tracking-[0.1em] text-[#6c7985]">当前通用点数</div>
+                <div class="text-xs tracking-[0.1em] text-[#6c7985]">当前点数</div>
                 <div class="mt-2 text-2xl font-semibold text-[#17222b]">{{ formatCredits(userBalanceFen(detail.user)) }}</div>
               </article>
               <article class="rounded-2xl border border-[#dde5eb] bg-[#fbfcfd] p-4">
@@ -113,7 +113,7 @@
               <button class="rounded-xl bg-[#0f7a5f] px-4 py-3 text-sm text-white" @click="adjustCredits">确认调整</button>
             </div>
             <div class="mt-4 rounded-2xl border border-[#e2e8ee] bg-white px-4 py-3 text-xs leading-6 text-[#61707c]">
-              建议写清来源与原因，方便后续对账和审计追踪。
+              建议把补偿或扣减原因写清楚，后续核对会更方便。
             </div>
             <p v-if="hintText" class="mt-3 text-sm text-[#106c4f]">{{ hintText }}</p>
             <p v-if="errorText" class="mt-3 text-sm text-[#af3f33]">{{ errorText }}</p>
@@ -124,7 +124,7 @@
       <section class="rounded-[28px] border border-[#d9dee4] bg-white p-6">
         <div class="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <div class="text-[11px] uppercase tracking-[0.18em] text-[#73808b]">Credit Timeline</div>
+              <div class="text-[11px] uppercase tracking-[0.18em] text-[#73808b]">点数流水</div>
             <h3 class="mt-2 text-lg font-semibold text-[#17222b]">近期点数流水</h3>
             </div>
           <span class="rounded-full bg-[#eef3f7] px-3 py-1 text-xs text-[#5d6973]">最近 20 条</span>
@@ -167,7 +167,7 @@
       <section class="rounded-[28px] border border-[#d9dee4] bg-white p-6">
         <div class="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <div class="text-[11px] uppercase tracking-[0.18em] text-[#73808b]">Task Review</div>
+            <div class="text-[11px] uppercase tracking-[0.18em] text-[#73808b]">任务复核</div>
             <h3 class="mt-2 text-lg font-semibold text-[#17222b]">近期任务与结果摘要</h3>
             <p class="mt-1 text-sm text-[#5d6973]">左侧挑选任务，右侧直接查看摘要、风险段落和结果预览。</p>
           </div>
@@ -222,7 +222,7 @@
             <template v-if="selectedTask">
               <div class="flex flex-wrap items-start justify-between gap-3">
                 <div>
-                  <div class="text-[11px] uppercase tracking-[0.18em] text-[#73808b]">Selected Task</div>
+                  <div class="text-[11px] uppercase tracking-[0.18em] text-[#73808b]">当前任务</div>
                   <h4 class="mt-2 text-lg font-semibold text-[#17222b]">任务 #{{ selectedTask.id }}</h4>
                   <p class="mt-2 text-sm leading-6 text-[#4f5d68]">{{ resultSummary(selectedTask) }}</p>
                 </div>

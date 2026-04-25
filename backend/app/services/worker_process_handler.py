@@ -86,9 +86,12 @@ def finalize_processed_task(db, *, task_id: int, result, task_snapshot: dict, me
     task = db.query(Task).filter(Task.id == task_id).first()
     if task is None:
         return {"ok": False, "reason": "task_not_found_after_process"}
+    output_path = Path(result.output_path)
+    if not output_path.exists():
+        raise FileNotFoundError(f"处理结果文件未生成: {output_path}")
     merged_result_json = merge_task_result_metadata(task_snapshot["result_json"], result.result_json)
     task.status = TaskStatus.COMPLETED
-    task.output_path = serialize_task_artifact_path(Path(result.output_path)) or result.output_path
+    task.output_path = serialize_task_artifact_path(output_path) or result.output_path
     task.result_json = merged_result_json
     task.error_message = None
     task.updated_at = datetime.utcnow()

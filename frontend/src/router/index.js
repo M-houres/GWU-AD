@@ -133,10 +133,6 @@ router.beforeEach((to) => {
     }
   }
   if (to.meta.auth === 'partner' && !getPartnerToken()) {
-    const hasLegacyCredential = Boolean(String(to.query.ch || '').trim() && String(to.query.pk || '').trim())
-    if (hasLegacyCredential) {
-      return true
-    }
     const redirect = encodeURIComponent(to.fullPath || '/app/partner')
     return `/app/partner/login?redirect=${redirect}`
   }

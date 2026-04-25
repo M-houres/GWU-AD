@@ -1,6 +1,29 @@
 <template>
   <AdminShell title="渠道返佣" subtitle="先建一级渠道，再把登录和推广信息发给对应负责人。">
     <section class="admin-partner-page">
+      <section class="admin-partner-summary">
+        <article class="admin-partner-summary-card admin-partner-summary-card--primary">
+          <span>一级渠道</span>
+          <strong>{{ rootChannelCount }}</strong>
+          <p>平台侧只建一级，避免越级代建导致客户归属混乱。</p>
+        </article>
+        <article class="admin-partner-summary-card">
+          <span>全部渠道</span>
+          <strong>{{ channels.length }}</strong>
+          <p>一级发展二级，二级发展三级，每级都能自己带客户。</p>
+        </article>
+        <article class="admin-partner-summary-card">
+          <span>待审核提现</span>
+          <strong>{{ pendingWithdrawalCount }}</strong>
+          <p>待处理的渠道提现申请会集中在当前后台处理。</p>
+        </article>
+        <article class="admin-partner-summary-card">
+          <span>待结算返佣</span>
+          <strong>{{ totalPendingRebateText }}</strong>
+          <p>从专属链接进入的客户会锁定归属到对应渠道。</p>
+        </article>
+      </section>
+
       <section class="admin-partner-panel admin-partner-toolbar-panel">
         <div class="admin-partner-toolbar">
           <div class="admin-partner-toolbar__stats">
@@ -1164,7 +1187,7 @@ function formatTime(value) {
 <style scoped>
 .admin-partner-page {
   display: grid;
-  gap: 16px;
+  gap: 18px;
 }
 
 .admin-partner-summary {
@@ -1174,17 +1197,20 @@ function formatTime(value) {
 }
 
 .admin-partner-summary-card {
-  border: 1px solid #d9dee4;
-  border-radius: 20px;
-  background: #ffffff;
-  padding: 18px;
+  border: 1px solid rgba(214, 225, 242, 0.96);
+  border-radius: 22px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.99) 0%, rgba(247, 251, 255, 0.99) 100%);
+  padding: 18px 19px;
   display: grid;
   gap: 8px;
+  box-shadow: 0 14px 28px rgba(20, 64, 146, 0.08);
 }
 
 .admin-partner-summary-card--primary {
-  border-color: #bed0f6;
-  background: linear-gradient(135deg, #eef4ff 0%, #ffffff 100%);
+  border-color: rgba(112, 157, 245, 0.4);
+  background:
+    radial-gradient(circle at 100% 0%, rgba(255, 255, 255, 0.18), transparent 24%),
+    linear-gradient(135deg, rgba(238, 244, 255, 0.98) 0%, rgba(255, 255, 255, 0.98) 100%);
 }
 
 .admin-partner-summary-card span {
@@ -1193,8 +1219,8 @@ function formatTime(value) {
 }
 
 .admin-partner-summary-card strong {
-  color: #18242b;
-  font-size: 28px;
+  color: #17385f;
+  font-size: 30px;
 }
 
 .admin-partner-summary-card p {
@@ -1206,20 +1232,21 @@ function formatTime(value) {
 
 .admin-partner-grid {
   display: grid;
-  gap: 16px;
+  gap: 18px;
   grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.8fr);
 }
 
 .admin-partner-panel {
-  border: 1px solid #d9dee4;
-  border-radius: 20px;
-  background: #ffffff;
+  border: 1px solid rgba(214, 225, 242, 0.96);
+  border-radius: 22px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.99) 0%, rgba(248, 251, 255, 0.99) 100%);
   padding: 20px;
+  box-shadow: 0 14px 28px rgba(20, 64, 146, 0.08);
 }
 
 .admin-partner-toolbar-panel {
-  padding-top: 16px;
-  padding-bottom: 16px;
+  padding-top: 18px;
+  padding-bottom: 18px;
 }
 
 .admin-partner-toolbar {
@@ -1251,8 +1278,8 @@ function formatTime(value) {
   min-height: 34px;
   padding: 0 12px;
   border-radius: 999px;
-  border: 1px solid #d8e4f5;
-  background: #f4f8ff;
+  border: 1px solid rgba(207, 221, 243, 0.96);
+  background: linear-gradient(180deg, #f5f9ff 0%, #ffffff 100%);
   color: #1e4fae;
   display: inline-flex;
   align-items: center;
@@ -1303,8 +1330,8 @@ function formatTime(value) {
 
 .admin-partner-panel__head h3 {
   margin: 6px 0 0;
-  font-size: 20px;
-  color: #18242b;
+  font-size: 21px;
+  color: #17385f;
 }
 
 .admin-partner-form {
@@ -1336,11 +1363,20 @@ function formatTime(value) {
 .admin-partner-input {
   width: 100%;
   min-height: 42px;
-  border: 1px solid #ccd5dd;
-  border-radius: 12px;
-  padding: 0 12px;
+  border: 1px solid #cfdae8;
+  border-radius: 14px;
+  padding: 0 14px;
   font-size: 14px;
   outline: none;
+  background: #fff;
+  transition:
+    border-color var(--motion-fast) var(--ease-standard),
+    box-shadow var(--motion-fast) var(--ease-standard);
+}
+
+.admin-partner-input:focus {
+  border-color: rgba(30, 91, 223, 0.58);
+  box-shadow: 0 0 0 4px rgba(30, 91, 223, 0.08);
 }
 
 .admin-partner-actions {
@@ -1405,10 +1441,10 @@ function formatTime(value) {
   display: grid;
   gap: 14px;
   margin-bottom: 16px;
-  padding: 16px;
-  border-radius: 18px;
+  padding: 18px;
+  border-radius: 20px;
   background: linear-gradient(180deg, #f7fbff 0%, #ffffff 100%);
-  border: 1px solid #d9e4f5;
+  border: 1px solid rgba(217, 228, 245, 0.96);
 }
 
 .admin-partner-tree-head {
@@ -1553,9 +1589,9 @@ function formatTime(value) {
 .admin-partner-ops-card {
   display: grid;
   gap: 6px;
-  padding: 14px 16px;
-  border-radius: 16px;
-  border: 1px solid #d9e4f5;
+  padding: 15px 16px;
+  border-radius: 18px;
+  border: 1px solid rgba(217, 228, 245, 0.96);
   background: linear-gradient(180deg, #f8fbff 0%, #ffffff 100%);
 }
 
@@ -1580,7 +1616,7 @@ function formatTime(value) {
 .admin-partner-table th,
 .admin-partner-table td {
   padding: 12px 10px;
-  border-bottom: 1px solid #e8edf2;
+  border-bottom: 1px solid #e5edf7;
   text-align: left;
   vertical-align: top;
 }

@@ -83,10 +83,13 @@
             </div>
 
             <div class="scholar-topbar__intro">
+              <div class="scholar-topbar__eyebrow">运营工作台</div>
               <div class="scholar-topbar__title">{{ title }}</div>
+              <p v-if="subtitle" class="scholar-topbar__subtitle">{{ subtitle }}</p>
             </div>
 
             <div class="scholar-topbar__status">
+              <span class="scholar-topbar__chip">实时管理</span>
               <button type="button" class="scholar-topbar__logout" @click="logout">退出后台</button>
             </div>
           </div>
@@ -222,17 +225,34 @@ function isRouteMatch(currentPath, targetPath) {
   flex-direction: column;
   overflow: hidden;
   padding: 18px 14px;
-  border: 1px solid #dbe3ee !important;
+  border: 0 !important;
   border-radius: 0 !important;
-  background: #ffffff !important;
-  box-shadow: 0 14px 34px rgba(15, 23, 42, 0.08) !important;
+  background:
+    linear-gradient(180deg, rgba(23, 83, 203, 0.98), rgba(13, 56, 154, 0.99)),
+    linear-gradient(145deg, rgba(255, 255, 255, 0.12), transparent 48%) !important;
+  box-shadow: 18px 0 40px rgba(13, 56, 154, 0.2) !important;
   transition: width 0.2s ease, transform 0.2s ease;
   z-index: 80;
 }
 
-.scholar-sidebar--admin::before,
+.scholar-sidebar--admin::before {
+  display: block !important;
+  content: "";
+  position: absolute;
+  inset: 20px 18px auto 18px;
+  height: 1px;
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0.22), transparent);
+}
+
 .scholar-sidebar--admin::after {
-  display: none !important;
+  display: block !important;
+  content: "";
+  position: absolute;
+  inset: auto -40px -64px auto;
+  width: 180px;
+  height: 180px;
+  border-radius: 999px;
+  background: radial-gradient(circle, rgba(255, 255, 255, 0.16), transparent 72%);
 }
 
 .scholar-sidebar__header-row {
@@ -252,7 +272,7 @@ function isRouteMatch(currentPath, targetPath) {
 .scholar-brand__eyebrow {
   margin-bottom: 6px;
   font-size: 11px;
-  color: #64748b !important;
+  color: rgba(225, 236, 255, 0.72) !important;
   letter-spacing: 0.12em;
 }
 
@@ -285,12 +305,12 @@ function isRouteMatch(currentPath, targetPath) {
   font-size: 16px;
   font-weight: 700;
   letter-spacing: 0;
-  color: #0f172a !important;
+  color: #ffffff !important;
 }
 
 .scholar-brand__lead {
   margin-top: 8px;
-  color: #64748b !important;
+  color: rgba(231, 240, 255, 0.8) !important;
   font-size: 12px;
   line-height: 1.6;
 }
@@ -305,9 +325,9 @@ function isRouteMatch(currentPath, targetPath) {
   width: 34px;
   height: 34px;
   border-radius: 10px;
-  border: 1px solid #d5dee9;
-  background: #ffffff;
-  color: #334155;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.12);
+  color: #eff6ff;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -316,9 +336,9 @@ function isRouteMatch(currentPath, targetPath) {
 }
 
 .scholar-shell__toggle:hover {
-  border-color: #93c5fd;
-  background: #eff6ff;
-  color: #1d4ed8;
+  border-color: rgba(255, 255, 255, 0.32);
+  background: rgba(255, 255, 255, 0.22);
+  color: #ffffff;
 }
 
 .scholar-nav {
@@ -343,9 +363,9 @@ function isRouteMatch(currentPath, targetPath) {
   gap: 12px;
   padding: 12px 14px;
   border-radius: 12px;
-  border: 1px solid #dbe3ee !important;
-  background: #ffffff !important;
-  color: #334155 !important;
+  border: 1px solid transparent !important;
+  background: rgba(255, 255, 255, 0.08) !important;
+  color: rgba(239, 246, 255, 0.92) !important;
   box-shadow: none !important;
   justify-content: flex-start;
 }
@@ -353,20 +373,21 @@ function isRouteMatch(currentPath, targetPath) {
 .scholar-sidebar--admin .scholar-nav__item:hover,
 .scholar-sidebar--admin .scholar-nav__item:focus,
 .scholar-sidebar--admin .scholar-nav__item:active {
-  border-color: #93c5fd !important;
-  background: #f8fbff !important;
-  color: #1f2937 !important;
-  box-shadow: none !important;
+  border-color: rgba(255, 255, 255, 0.16) !important;
+  background: rgba(255, 255, 255, 0.14) !important;
+  color: #ffffff !important;
+  box-shadow: 0 14px 22px rgba(10, 37, 103, 0.18) !important;
 }
 
 .scholar-sidebar--admin .scholar-nav__item.is-active {
-  border-color: #93c5fd !important;
-  background: #eff6ff !important;
-  color: #1d4ed8 !important;
+  border-color: rgba(255, 255, 255, 0.12) !important;
+  background: #ffffff !important;
+  color: #1c57d4 !important;
+  box-shadow: 0 16px 28px rgba(10, 37, 103, 0.22) !important;
 }
 
 .scholar-sidebar--admin .scholar-nav__item.is-active::before {
-  background: #1d4ed8 !important;
+  background: #1d5de3 !important;
 }
 
 .scholar-sidebar--admin .scholar-nav__item .scholar-nav__label {
@@ -380,6 +401,11 @@ function isRouteMatch(currentPath, targetPath) {
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
   gap: 14px;
+  padding: 16px 18px;
+  border: 1px solid rgba(30, 91, 223, 0.14);
+  border-radius: 22px;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.96), rgba(241, 247, 255, 0.94));
+  box-shadow: 0 18px 34px rgba(30, 91, 223, 0.08);
 }
 
 .scholar-main {
@@ -396,25 +422,60 @@ function isRouteMatch(currentPath, targetPath) {
 
 .scholar-topbar__intro {
   min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.scholar-topbar__eyebrow {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  color: #6b84a8;
+  text-transform: uppercase;
 }
 
 .scholar-topbar__title {
   margin: 0;
+  color: #1f3555;
+  font-size: clamp(24px, 2.4vw, 30px);
+  line-height: 1.12;
+}
+
+.scholar-topbar__subtitle {
+  margin: 0;
+  color: #6b7f99;
+  font-size: 13px;
+  line-height: 1.7;
 }
 
 .scholar-topbar__status {
   display: inline-flex;
   align-items: center;
   justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.scholar-topbar__chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 34px;
+  padding: 0 12px;
+  border-radius: 999px;
+  background: rgba(30, 91, 223, 0.08);
+  border: 1px solid rgba(30, 91, 223, 0.16);
+  color: #1e5bdf;
+  font-size: 12px;
+  font-weight: 700;
 }
 
 .scholar-topbar__logout {
   min-height: 34px;
   padding: 0 14px;
   border-radius: 10px;
-  border: 1px solid #d5dee9;
+  border: 1px solid rgba(30, 91, 223, 0.16);
   background: #ffffff;
-  color: #334155;
+  color: #35527d;
   font-size: 12px;
   font-weight: 600;
   cursor: pointer;
@@ -422,9 +483,9 @@ function isRouteMatch(currentPath, targetPath) {
 }
 
 .scholar-topbar__logout:hover {
-  border-color: #93c5fd;
-  background: #eff6ff;
-  color: #1d4ed8;
+  border-color: rgba(30, 91, 223, 0.28);
+  background: #edf4ff;
+  color: #1e5bdf;
 }
 
 .scholar-shell--collapsed .scholar-sidebar__header-row {
@@ -466,7 +527,7 @@ function isRouteMatch(currentPath, targetPath) {
     padding: 18px 14px;
     border-radius: 0 16px 16px 0 !important;
     transform: translateX(-104%);
-    box-shadow: 0 20px 38px rgba(15, 23, 42, 0.2) !important;
+    box-shadow: 0 20px 38px rgba(13, 56, 154, 0.3) !important;
   }
 
   .scholar-sidebar--admin.is-open {
@@ -477,7 +538,7 @@ function isRouteMatch(currentPath, targetPath) {
     position: sticky;
     top: 0;
     z-index: 70;
-    padding: calc(18px + env(safe-area-inset-top, 0px)) 16px 18px;
+    padding: calc(18px + env(safe-area-inset-top, 0px)) 6px 18px;
   }
 
   .scholar-main {
@@ -486,7 +547,8 @@ function isRouteMatch(currentPath, targetPath) {
   }
 
   .scholar-topbar__meta {
-    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-columns: auto minmax(0, 1fr);
+    padding: 14px 14px;
   }
 }
 
@@ -501,6 +563,11 @@ function isRouteMatch(currentPath, targetPath) {
 
   .scholar-topbar__title {
     font-size: 22px;
+  }
+
+  .scholar-topbar__status {
+    grid-column: 1 / -1;
+    justify-content: space-between;
   }
 
   .admin-brand__name {

@@ -7,16 +7,39 @@
     :disable-notice-dialog="true"
     @buy="showBuy = !showBuy"
   >
-    <section class="aigc-record-head">
-      <div class="aigc-record-head__title">降AIGC率</div>
-      <p class="aigc-record-head__hint">
-        <span>i</span>
-        保留论点结构并降低AI痕迹，完成后可下载处理文档。
-      </p>
+    <section class="aigc-record-hero">
+      <div class="aigc-record-hero__main">
+        <div class="aigc-record-hero__eyebrow">任务记录</div>
+        <div class="aigc-record-hero__title">降AIGC率</div>
+        <p class="aigc-record-hero__desc">保留论点结构并降低 AI 痕迹，完成后可直接下载改写文档。</p>
+      </div>
+
+      <div class="aigc-record-hero__stats">
+        <div class="aigc-record-hero__stat">
+          <span>全部任务</span>
+          <strong>{{ counts.all }}</strong>
+          <em>按最新时间排序</em>
+        </div>
+        <div class="aigc-record-hero__stat">
+          <span>已完成</span>
+          <strong>{{ counts.completed }}</strong>
+          <em>可下载处理结果</em>
+        </div>
+        <div class="aigc-record-hero__stat">
+          <span>处理中</span>
+          <strong>{{ counts.processing }}</strong>
+          <em>系统持续轮询更新</em>
+        </div>
+        <div class="aigc-record-hero__stat">
+          <span>累计消耗</span>
+          <strong>{{ formatCredits(totalCreditsFen) }}</strong>
+          <em>{{ latestTaskTime }}</em>
+        </div>
+      </div>
     </section>
 
-    <section class="aigc-record-tools">
-      <div class="aigc-record-tools__left">
+    <section class="aigc-record-toolbar">
+      <div class="aigc-record-toolbar__filters">
         <label class="aigc-search">
           <svg viewBox="0 0 24 24">
             <path
@@ -44,9 +67,9 @@
         </div>
       </div>
 
-      <button class="scholar-button scholar-button--secondary aigc-record-tools__upload" type="button" @click="goUpload">
-        上传文档
-      </button>
+      <div class="aigc-record-toolbar__actions">
+        <button class="scholar-button aigc-record-toolbar__upload" type="button" @click="goUpload">新建任务</button>
+      </div>
     </section>
 
     <p class="aigc-record-retain">结果文件将保留 30 天，请及时下载与归档。</p>
@@ -71,15 +94,20 @@
         <div class="aigc-record-item__left">
           <div class="aigc-record-item__title-row">
             <div class="aigc-record-item__title">{{ taskLabel(item) }}</div>
+            <div class="aigc-record-item__badges">
+              <span class="aigc-record-item__service">{{ mapTaskPlatform(item.platform, item.task_type) }}</span>
+              <span v-if="focusTaskId === item.id" class="aigc-record-item__service aigc-record-item__service--focus">
+                当前查看
+              </span>
+            </div>
           </div>
 
           <div class="aigc-record-item__meta">
             <div>作者：{{ safeText(item.result_json?.authors) }}</div>
             <div>提交时间：{{ formatTime(item.created_at) }}</div>
-            <div>平台：{{ mapTaskPlatform(item.platform, item.task_type) }}</div>
             <div>文档字数：{{ item.char_count || 0 }}</div>
             <div>消耗通用点数：{{ formatCredits(taskCostFen(item)) }}</div>
-            <div>文件名：{{ filenamePair(item) }}</div>
+            <div class="aigc-record-item__meta-wide">文件：{{ filenamePair(item) }}</div>
           </div>
         </div>
 
@@ -191,6 +219,8 @@ const statusTabs = computed(() => [
   { key: "processing", label: "处理中", count: counts.value.processing },
   { key: "completed", label: "已完成", count: counts.value.completed },
 ])
+const totalCreditsFen = computed(() => tasks.value.reduce((sum, item) => sum + taskCostFen(item), 0))
+const latestTaskTime = computed(() => (tasks.value[0]?.created_at ? `最近提交 ${formatTime(tasks.value[0].created_at)}` : "暂无记录"))
 
 const filteredTasks = computed(() => {
   const text = keyword.value.trim().toLowerCase()

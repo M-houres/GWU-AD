@@ -1,5 +1,28 @@
 ﻿<template>
   <AdminShell title="订单管理" subtitle="筛选、详情与退款操作。">
+    <section class="gw-admin-order-overview">
+      <article class="gw-admin-order-overview__hero">
+        <div class="gw-admin-order-overview__eyebrow">订单工作台</div>
+        <h2>订单管理</h2>
+        <p>常用筛选、订单状态和退款动作都集中处理，减少来回切页。</p>
+      </article>
+      <article class="gw-admin-order-overview__stat">
+        <span>当前结果</span>
+        <strong>{{ rows.length }}</strong>
+        <em>按筛选条件返回</em>
+      </article>
+      <article class="gw-admin-order-overview__stat">
+        <span>已支付</span>
+        <strong>{{ paidCount }}</strong>
+        <em>当前结果中的有效订单</em>
+      </article>
+      <article class="gw-admin-order-overview__stat">
+        <span>当前收入</span>
+        <strong>¥{{ currentRevenueCny }}</strong>
+        <em>基于当前结果统计</em>
+      </article>
+    </section>
+
     <section class="rounded-2xl border border-[#d9dee4] bg-white p-5">
       <div class="mb-4 space-y-4 rounded-2xl border border-[#dee6ed] bg-white p-4">
         <div class="grid gap-2 md:grid-cols-3">
@@ -182,6 +205,12 @@ const sourceOptions = [
   { value: "miniapp", label: "小程序" },
   { value: "other", label: "其他" },
 ]
+const paidCount = computed(() => rows.value.filter((row) => String(row.status || "") === "paid").length)
+const currentRevenueCny = computed(() =>
+  rows.value
+    .reduce((sum, row) => sum + Number(row.amount_cny || 0), 0)
+    .toFixed(2)
+)
 
 onMounted(loadData)
 
@@ -289,6 +318,74 @@ function formatTime(value) {
 </script>
 
 <style scoped>
+.gw-admin-order-overview {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) repeat(3, minmax(0, 0.62fr));
+  gap: 14px;
+  margin-bottom: 16px;
+}
+
+.gw-admin-order-overview__hero,
+.gw-admin-order-overview__stat,
+.admin-order-card {
+  border: 1px solid rgba(30, 91, 223, 0.12);
+  border-radius: 22px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(245, 249, 255, 0.94));
+  box-shadow: 0 16px 30px rgba(30, 91, 223, 0.08);
+}
+
+.gw-admin-order-overview__hero {
+  padding: 20px 22px;
+  display: grid;
+  gap: 8px;
+}
+
+.gw-admin-order-overview__eyebrow {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #6c87ac;
+}
+
+.gw-admin-order-overview__hero h2 {
+  margin: 0;
+  font-size: 28px;
+  line-height: 1.1;
+  color: #1f3555;
+}
+
+.gw-admin-order-overview__hero p {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.8;
+  color: #607894;
+}
+
+.gw-admin-order-overview__stat {
+  padding: 18px 18px 16px;
+  display: grid;
+  gap: 6px;
+}
+
+.gw-admin-order-overview__stat span {
+  font-size: 12px;
+  color: #6d84a2;
+}
+
+.gw-admin-order-overview__stat strong {
+  font-size: 24px;
+  line-height: 1.08;
+  color: #1e5bdf;
+}
+
+.gw-admin-order-overview__stat em {
+  font-style: normal;
+  font-size: 12px;
+  line-height: 1.6;
+  color: #68809d;
+}
+
 .admin-order-mobile-list {
   display: none;
 }
@@ -297,9 +394,6 @@ function formatTime(value) {
   display: grid;
   gap: 14px;
   padding: 16px;
-  border: 1px solid #e1e6eb;
-  border-radius: 18px;
-  background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
 }
 
 .admin-order-card + .admin-order-card {
@@ -317,7 +411,7 @@ function formatTime(value) {
   font-size: 11px;
   letter-spacing: 0.1em;
   text-transform: uppercase;
-  color: #5f6d79;
+  color: #6b85a8;
 }
 
 .admin-order-card__title {
@@ -325,7 +419,7 @@ function formatTime(value) {
   margin-top: 6px;
   font-size: 15px;
   line-height: 1.6;
-  color: #111111;
+  color: #1f3555;
   word-break: break-all;
 }
 
@@ -340,7 +434,7 @@ function formatTime(value) {
   gap: 4px;
   padding: 10px 12px;
   border-radius: 14px;
-  border: 1px solid #e7edf3;
+  border: 1px solid rgba(30, 91, 223, 0.1);
   background: #ffffff;
 }
 
@@ -348,13 +442,13 @@ function formatTime(value) {
   font-size: 11px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: #5f6d79;
+  color: #6c85a8;
 }
 
 .admin-order-card__grid strong {
   font-size: 13px;
   line-height: 1.6;
-  color: #17222b;
+  color: #1f3555;
   word-break: break-word;
 }
 
@@ -364,7 +458,21 @@ function formatTime(value) {
   flex-wrap: wrap;
 }
 
+@media (max-width: 980px) {
+  .gw-admin-order-overview {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .gw-admin-order-overview__hero {
+    grid-column: 1 / -1;
+  }
+}
+
 @media (max-width: 768px) {
+  .gw-admin-order-overview {
+    grid-template-columns: 1fr;
+  }
+
   .admin-order-table-shell {
     display: none;
   }

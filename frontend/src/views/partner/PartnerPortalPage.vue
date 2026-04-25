@@ -5,7 +5,7 @@
         <div>
           <p class="partner-portal-head__eyebrow">渠道返佣专属门户</p>
           <h1 class="partner-portal-head__title">渠道后台</h1>
-          <p class="partner-portal-head__desc">看收益、发链接、带下级，常用操作都收在这里。</p>
+          <p class="partner-portal-head__desc">收益、链接和下级管理都在这里。</p>
         </div>
         <div class="partner-portal-head__actions">
           <button type="button" class="partner-portal-head__refresh" :disabled="loading" @click="loadPortalData">
@@ -58,7 +58,7 @@
         <article class="partner-data-card partner-workbench-card">
           <header class="partner-data-card__head">
             <h2>先做这几步</h2>
-            <span>把最常用的动作放前面，打开就能直接做</span>
+            <span>打开就能直接做</span>
           </header>
           <div class="partner-workbench-grid">
             <div class="partner-task-grid partner-task-grid--compact">
@@ -81,19 +81,19 @@
             <div class="partner-quick-grid partner-quick-grid--compact">
               <button type="button" class="partner-quick-action partner-quick-action--primary" @click="copyCustomerShareText">
                 <strong>发给客户</strong>
-                <span>只复制客户需要的推广信息</span>
+                <span>复制客户分发信息</span>
               </button>
               <button type="button" class="partner-quick-action" @click="copyRecruitmentBundle">
                 <strong>发给下级</strong>
-                <span>复制招募文案、门户链接和推广信息</span>
+                <span>复制招募信息</span>
               </button>
               <button type="button" class="partner-quick-action" @click="scrollToSection('child-form')">
                 <strong>新建直属下级</strong>
-                <span>快速跳到下级创建区</span>
+                <span>跳到创建区</span>
               </button>
               <button type="button" class="partner-quick-action" @click="scrollToSection('withdraw-panel')">
                 <strong>提交提现</strong>
-                <span>直接跳到提现区</span>
+                <span>跳到提现区</span>
               </button>
             </div>
           </div>
@@ -101,14 +101,14 @@
         <article class='partner-data-card'>
           <header class="partner-data-card__head">
             <h2>分发与下级</h2>
-            <span>先分发，再建直属下级，后面的动作都围绕这条主线。</span>
+            <span>先分发，再发展下级。</span>
           </header>
 
           <div class="partner-share-strip">
             <article class="partner-share-card partner-share-card--primary">
               <div class="partner-share-card__head">
                 <strong>我的分发信息</strong>
-                <span>把客户分发和下级招募拆开，减少发错内容。</span>
+                <span>客户和下级分开发。</span>
               </div>
               <div class="partner-share-card__meta">
                 <span>门户链接：{{ overview.portal_link || overview.portal_login_link || "-" }}</span>
@@ -130,7 +130,7 @@
               <div class="partner-block__head">
                 <strong>{{ editingChildId ? "编辑直属下级" : "新建直属下级" }}</strong>
                 <span v-if="overview.can_create_child">最多到三级，下级返佣比例不能高于你当前的比例。</span>
-                <span v-else>你当前已经到三级，不能继续往下建，但还能维护已有下级。</span>
+                <span v-else>当前已到三级，不能继续新增。</span>
               </div>
               <div class="partner-child-summary">
                 <article class="partner-child-summary__card">
@@ -189,7 +189,7 @@
             <div class="partner-tree-board__head">
               <div class="partner-block__head">
                 <strong>渠道树</strong>
-                <span>按层级查看团队结构，点节点即可切换查看对应渠道的直属下级。</span>
+                <span>按层级查看团队结构。</span>
               </div>
               <div class="partner-tree-board__actions">
                 <span v-if="selectedTreeNode">当前查看：{{ selectedTreeNode.name || "-" }}</span>
@@ -216,7 +216,7 @@
             <div class="partner-subchannel-board__head">
               <div class="partner-block__head">
                 <strong>直属下级列表</strong>
-                <span>从谁的推广链接进入，客户就归谁名下。</span>
+                <span>查看直属下级和链接。</span>
               </div>
               <div class="partner-subchannel-board__actions">
                 <span v-if="selectedTreeNode">当前视角：{{ selectedTreeNode.name || "-" }}</span>
@@ -349,7 +349,7 @@
           <summary class="partner-fold-card__summary">
             <div>
               <h2>查看更多明细</h2>
-              <span>订单、返佣明细、客户归属都收在这里</span>
+              <span>订单、返佣和客户明细</span>
             </div>
           </summary>
 
@@ -555,7 +555,7 @@
 
       <section v-if="!hasPortalSession && !loading" class="partner-empty">
         <h2>请先登录渠道门户</h2>
-        <p>渠道门户已升级为正式登录态。你也可以继续使用旧专属链接自动换取登录会话。</p>
+        <p>渠道门户统一使用正式登录态，进入后直接查看团队、客户和返佣数据。</p>
         <div class="partner-subchannel-actions">
           <button type="button" @click="goLogin">前往登录</button>
         </div>
@@ -566,14 +566,13 @@
 
 <script setup>
 import { computed, ref, watch } from "vue"
-import { useRoute, useRouter } from "vue-router"
+import { useRouter } from "vue-router"
 
 import PartnerChannelTreeNode from "../../components/partner/PartnerChannelTreeNode.vue"
 import { partnerHttp } from "../../lib/http"
 import { triggerBlobDownload } from "../../lib/download"
-import { clearPartnerSession, getPartnerInfo, setPartnerInfo, setPartnerRefreshToken, setPartnerToken } from "../../lib/session"
+import { clearPartnerSession, getPartnerInfo } from "../../lib/session"
 
-const route = useRoute()
 const router = useRouter()
 const loading = ref(false)
 const errorText = ref("")
@@ -623,8 +622,6 @@ const dateFilters = ref({
   customers_to: "",
 })
 
-const channelCode = computed(() => normalizeQueryValue(route.query.ch).toUpperCase())
-const portalToken = computed(() => normalizeQueryValue(route.query.pk))
 const partnerInfo = ref(getPartnerInfo())
 const hasPortalSession = computed(() => Boolean(partnerInfo.value?.id))
 const recruitmentMessage = computed(() => {
@@ -633,10 +630,10 @@ const recruitmentMessage = computed(() => {
   const orderLink = String(overview.value?.order_link || "").trim()
   const lines = [
     `你好，我是 ${name}。`,
-    "如果你要做下级渠道，下面这套信息可以直接开用：",
+    "这是一套可直接使用的下级信息：",
     portalLink ? `渠道门户链接：${portalLink}` : "",
     orderLink ? `推广链接：${orderLink}` : "",
-    "打开后会自动进入渠道后台，可以看收益、发链接、发展自己的直属下级。",
+    "打开后会直接进入渠道后台。",
   ].filter(Boolean)
   return lines.join("\n")
 })
@@ -646,7 +643,7 @@ const customerShareText = computed(() => {
   const miniappOrderPath = String(overview.value?.miniapp_order_path || "").trim()
   const lines = [
     `你好，我是 ${name}。`,
-    "这是我的专属办理入口，直接从这里进入即可：",
+    "这是我的专属入口：",
     orderLink ? `推广链接：${orderLink}` : "",
     miniappOrderPath ? `小程序路径：${miniappOrderPath}` : "",
   ].filter(Boolean)
@@ -658,19 +655,19 @@ const taskItems = computed(() => {
   return [
     {
       title: "先把推广信息发出去",
-      desc: "客户和合作方先拿到专属链接，渠道归属才能锁定到你名下。",
+      desc: "先把专属链接发出去。",
       cta: "发给客户",
       action: () => copyCustomerShareText(),
     },
     {
       title: canCreateChild ? (childCount > 0 ? "继续发展直属下级" : "先建一个直属下级") : "当前已到三级",
-      desc: canCreateChild ? "把直属下级先发展起来，后面复制和分发会顺很多。" : "不能继续往下建了，但还能继续维护客户和推广信息。",
+      desc: canCreateChild ? "先把直属下级建起来。" : "当前只保留维护能力。",
       cta: canCreateChild ? "去创建下级" : "去提现区",
       action: () => scrollToSection(canCreateChild ? "child-form" : "withdraw-panel"),
     },
     {
       title: Number(overview.value?.pending_rebate_fen || 0) > 0 ? "跟进返佣与提现" : "查看客户归属",
-      desc: Number(overview.value?.pending_rebate_fen || 0) > 0 ? "已有待结算返佣时，直接跟进提现节奏更重要。" : "直接看我的客户和团队客户，确认归属链路是否跑通。",
+      desc: Number(overview.value?.pending_rebate_fen || 0) > 0 ? "当前有待结算返佣。" : "直接看客户归属。",
       cta: Number(overview.value?.pending_rebate_fen || 0) > 0 ? "去提现区" : "看客户列表",
       action: () => {
         if (Number(overview.value?.pending_rebate_fen || 0) > 0) {
@@ -684,39 +681,12 @@ const taskItems = computed(() => {
 })
 
 watch(
-  () => [channelCode.value, portalToken.value],
-  async () => {
-    if (channelCode.value && portalToken.value && !hasPortalSession.value) {
-      await exchangeLegacyCredential()
-      return
-    }
+  () => hasPortalSession.value,
+  () => {
     loadPortalData()
   },
   { immediate: true }
 )
-
-async function exchangeLegacyCredential() {
-  loading.value = true
-  errorText.value = ""
-  try {
-    const data = await partnerHttp.post("/partners/portal/auth/exchange", {
-      channel_code: channelCode.value,
-      portal_token: portalToken.value,
-    })
-    setPartnerToken(data.token)
-    setPartnerRefreshToken(data.refresh_token)
-    setPartnerInfo(data.channel || null)
-    partnerInfo.value = data.channel || null
-    await router.replace({ path: "/app/partner" })
-    await loadPortalData()
-  } catch (error) {
-    clearPartnerSession()
-    partnerInfo.value = null
-    errorText.value = String(error?.message || "渠道登录失败")
-  } finally {
-    loading.value = false
-  }
-}
 
 function createEmptyChildForm() {
   return {
@@ -1119,13 +1089,6 @@ async function copyChildCustomerShare(item) {
   await copyText(bundle, `已复制 ${item.name} 的客户分发文案`)
 }
 
-function normalizeQueryValue(value) {
-  if (Array.isArray(value)) {
-    return String(value[0] || "").trim()
-  }
-  return String(value || "").trim()
-}
-
 function formatFenToCny(value) {
   const amount = Number(value || 0) / 100
   return Number.isFinite(amount) ? `¥${amount.toFixed(2)}` : "¥0.00"
@@ -1313,30 +1276,32 @@ function exportRows(type) {
 <style scoped>
 .partner-portal-page {
   min-height: 100vh;
-  padding: 24px;
+  padding: 22px;
   background:
-    radial-gradient(circle at 15% 12%, rgba(30, 91, 223, 0.16), transparent 34%),
-    radial-gradient(circle at 88% 22%, rgba(24, 145, 110, 0.12), transparent 28%),
-    #f3f7ff;
+    radial-gradient(circle at 15% 12%, rgba(30, 91, 223, 0.14), transparent 32%),
+    radial-gradient(circle at 88% 18%, rgba(93, 145, 255, 0.12), transparent 24%),
+    linear-gradient(180deg, #eef5ff 0%, #f6f9ff 24%, #ffffff 54%, #ffffff 100%);
 }
 
 .partner-portal-shell {
   width: min(1380px, 100%);
   margin: 0 auto;
   display: grid;
-  gap: 16px;
+  gap: 18px;
 }
 
 .partner-portal-head {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 14px;
-  padding: 18px 20px;
-  border-radius: 18px;
-  background: linear-gradient(135deg, #123b7a 0%, #1f5fd6 100%);
+  gap: 16px;
+  padding: 22px 24px;
+  border-radius: 24px;
+  background:
+    radial-gradient(circle at 100% 0%, rgba(255, 255, 255, 0.16), transparent 26%),
+    linear-gradient(135deg, #133f82 0%, #1e5bdf 54%, #4b89fb 100%);
   color: #fff;
-  box-shadow: 0 20px 36px rgba(13, 42, 88, 0.24);
+  box-shadow: 0 24px 44px rgba(13, 42, 88, 0.22);
 }
 
 .partner-portal-head__actions {
@@ -1356,13 +1321,13 @@ function exportRows(type) {
 
 .partner-portal-head__title {
   margin: 6px 0;
-  font-size: 30px;
+  font-size: 32px;
   line-height: 1.08;
 }
 
 .partner-portal-head__desc {
   margin: 0;
-  font-size: 13px;
+  font-size: 14px;
   opacity: 0.9;
 }
 
@@ -1371,26 +1336,40 @@ function exportRows(type) {
 .partner-btn--ghost,
 .partner-subchannel-item__links button,
 .partner-subchannel-item__actions button {
-  min-height: 36px;
-  padding: 0 14px;
-  border-radius: 10px;
-  border: 0;
+  min-height: 38px;
+  padding: 0 15px;
+  border-radius: 12px;
+  border: 1px solid transparent;
   cursor: pointer;
   font-weight: 700;
+  transition:
+    transform var(--motion-fast) var(--ease-standard),
+    box-shadow var(--motion-fast) var(--ease-standard),
+    background-color var(--motion-fast) var(--ease-standard),
+    border-color var(--motion-fast) var(--ease-standard);
 }
 
 .partner-portal-head__refresh,
 .partner-subchannel-actions button {
-  background: linear-gradient(135deg, #1457cc 0%, #0c73d6 100%);
+  background: linear-gradient(135deg, #1f6ee9 0%, #1457cc 56%, #0c73d6 100%);
   color: #fff;
+  box-shadow: 0 12px 22px rgba(20, 87, 204, 0.18);
 }
 
 .partner-btn--ghost,
 .partner-subchannel-item__links button,
 .partner-subchannel-item__actions button {
-  background: #f4f8ff;
-  border: 1px solid #c8d7ea;
+  background: linear-gradient(180deg, #f7fbff 0%, #ffffff 100%);
+  border: 1px solid #cfddf3;
   color: #1457cc;
+}
+
+.partner-portal-head__refresh:hover,
+.partner-subchannel-actions button:hover,
+.partner-btn--ghost:hover,
+.partner-subchannel-item__links button:hover,
+.partner-subchannel-item__actions button:hover {
+  transform: translateY(-1px);
 }
 
 .partner-alert {
@@ -1416,10 +1395,10 @@ function exportRows(type) {
 .partner-overview,
 .partner-data-card,
 .partner-empty {
-  border-radius: 16px;
-  background: #fff;
-  border: 1px solid #dae3f1;
-  box-shadow: 0 14px 28px rgba(19, 40, 72, 0.08);
+  border-radius: 20px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.99) 0%, rgba(248, 251, 255, 0.99) 100%);
+  border: 1px solid rgba(213, 224, 242, 0.96);
+  box-shadow: 0 18px 34px rgba(19, 40, 72, 0.08);
 }
 
 .partner-fold-card {
@@ -1464,7 +1443,7 @@ function exportRows(type) {
 }
 
 .partner-overview {
-  padding: 16px;
+  padding: 18px;
   display: grid;
   gap: 14px;
 }
@@ -1479,15 +1458,16 @@ function exportRows(type) {
 
 .partner-overview__cards {
   display: grid;
-  gap: 10px;
+  gap: 12px;
   grid-template-columns: repeat(6, minmax(0, 1fr));
 }
 
 .partner-card {
-  padding: 14px;
-  border-radius: 14px;
-  background: linear-gradient(180deg, #f6f9ff 0%, #ffffff 100%);
-  border: 1px solid #dde6f2;
+  padding: 15px 16px;
+  border-radius: 16px;
+  background: linear-gradient(180deg, #f7fbff 0%, #ffffff 100%);
+  border: 1px solid rgba(216, 227, 243, 0.96);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.88);
 }
 
 .partner-card p {
@@ -1500,7 +1480,7 @@ function exportRows(type) {
   display: block;
   margin-top: 8px;
   color: #0f2849;
-  font-size: 24px;
+  font-size: 26px;
   line-height: 1.1;
 }
 
@@ -1515,9 +1495,9 @@ function exportRows(type) {
 
 .partner-workbench-grid {
   display: grid;
-  gap: 14px;
+  gap: 16px;
   grid-template-columns: minmax(0, 1.05fr) minmax(360px, 0.95fr);
-  padding: 14px 16px 16px;
+  padding: 16px 18px 18px;
 }
 
 .partner-task-grid {
@@ -1536,12 +1516,13 @@ function exportRows(type) {
 }
 
 .partner-task-card {
-  border: 1px solid #d7e4f6;
-  border-radius: 16px;
-  padding: 14px;
+  border: 1px solid rgba(215, 228, 246, 0.96);
+  border-radius: 18px;
+  padding: 15px;
   background: linear-gradient(180deg, #f8fbff 0%, #ffffff 100%);
   display: grid;
   gap: 8px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.88);
 }
 
 .partner-task-card strong {
@@ -1575,14 +1556,23 @@ function exportRows(type) {
 }
 
 .partner-quick-action {
-  border: 1px solid #d6e2f4;
-  border-radius: 16px;
+  border: 1px solid rgba(214, 226, 244, 0.96);
+  border-radius: 18px;
   background: linear-gradient(180deg, #f7fbff 0%, #ffffff 100%);
-  padding: 14px;
+  padding: 15px;
   text-align: left;
   display: grid;
   gap: 6px;
   cursor: pointer;
+  transition:
+    transform var(--motion-fast) var(--ease-standard),
+    box-shadow var(--motion-fast) var(--ease-standard),
+    border-color var(--motion-fast) var(--ease-standard);
+}
+
+.partner-quick-action:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 14px 26px rgba(30, 91, 223, 0.08);
 }
 
 .partner-quick-action strong {
@@ -1609,9 +1599,9 @@ function exportRows(type) {
 }
 
 .partner-share-card {
-  border: 1px solid #d7e4f6;
-  border-radius: 16px;
-  padding: 14px;
+  border: 1px solid rgba(215, 228, 246, 0.96);
+  border-radius: 18px;
+  padding: 15px;
   background: linear-gradient(180deg, #f8fbff 0%, #ffffff 100%);
   display: grid;
   gap: 12px;
@@ -1654,7 +1644,7 @@ function exportRows(type) {
   justify-content: space-between;
   align-items: center;
   gap: 12px;
-  padding: 16px 16px 0;
+  padding: 18px 18px 0;
 }
 
 .partner-data-card__head h2 {
@@ -1728,9 +1718,9 @@ function exportRows(type) {
 
 .partner-manage-grid {
   display: grid;
-  gap: 14px;
+  gap: 16px;
   grid-template-columns: 1fr;
-  padding: 14px 16px 0;
+  padding: 16px 18px 0;
 }
 
 .partner-block,
@@ -1739,7 +1729,7 @@ function exportRows(type) {
 .partner-table-wrap,
 .partner-subchannel-board,
 .partner-tree-board {
-  padding: 14px 16px 16px;
+  padding: 16px 18px 18px;
 }
 
 .partner-tree-board__head {
@@ -1804,9 +1794,9 @@ function exportRows(type) {
 }
 
 .partner-block {
-  border-radius: 14px;
+  border-radius: 18px;
   background: linear-gradient(180deg, #f7fbff 0%, #ffffff 100%);
-  border: 1px solid #dde7f5;
+  border: 1px solid rgba(221, 231, 245, 0.96);
 }
 
 .partner-block__head {
@@ -1884,10 +1874,10 @@ function exportRows(type) {
 .partner-subchannel-item {
   display: grid;
   gap: 10px;
-  padding: 12px;
-  border-radius: 14px;
+  padding: 14px;
+  border-radius: 16px;
   background: linear-gradient(180deg, #f7faff 0%, #ffffff 100%);
-  border: 1px solid #dde7f5;
+  border: 1px solid rgba(221, 231, 245, 0.96);
 }
 
 .partner-subchannel-item__top {
@@ -1968,7 +1958,7 @@ function exportRows(type) {
 .partner-table th,
 .partner-table td {
   padding: 12px 10px;
-  border-bottom: 1px solid #e8edf2;
+  border-bottom: 1px solid #e5edf7;
   text-align: left;
   vertical-align: top;
 }
@@ -2025,6 +2015,7 @@ function exportRows(type) {
 
   .partner-portal-head {
     flex-direction: column;
+    padding: 18px 18px 20px;
   }
 
   .partner-workbench-grid,
