@@ -101,6 +101,34 @@ def test_vip_w4_recovers_final_text_when_final_header_is_missing(db_session: Ses
     assert trace.get("reported_total_rewrites") == 5
 
 
+def test_cnki_v20_allows_plain_body_output_without_control_blocks(db_session: Session, monkeypatch) -> None:
+    from app.services.rewrite_strategies import cnki_llm
+
+    text = "因此，本研究在方法层面进行系统分析并提出改进路径，研究结论具有稳定的解释力。"
+
+    def _fake_generate(_db, *, task_type, text: str):
+        return "本研究在方法层面开展系统分析，并提出了改进途径，相关结论也保持了稳定的解释力。"
+
+    monkeypatch.setattr("app.services.cnki_v20_runtime.generate_with_llm", _fake_generate)
+
+    result = cnki_llm.rewrite(db_session, task=None, text=text, report_summary={})
+    assert "改进途径" in result.get("text", "")
+
+
+def test_vip_w4_allows_plain_body_output_without_control_blocks(db_session: Session, monkeypatch) -> None:
+    from app.services.rewrite_strategies import vip_llm
+
+    text = "当前机制较为重要，因此需要优化路径，并保持研究过程的整体稳定。"
+
+    def _fake_generate(_db, *, task_type, text: str):
+        return "目前方式比较主要，因此需要优化途径，并保持研究过程的整体稳定。"
+
+    monkeypatch.setattr("app.services.vip_w4_runtime.generate_with_llm", _fake_generate)
+
+    result = vip_llm.rewrite(db_session, task=None, text=text, report_summary={})
+    assert "优化途径" in result.get("text", "")
+
+
 def test_rewrite_process_uses_report_summary(tmp_path: Path, db_session: Session, monkeypatch) -> None:
     source_path = tmp_path / "paper.docx"
     report_path = tmp_path / "report.docx"
