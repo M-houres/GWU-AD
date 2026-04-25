@@ -7567,3 +7567,42 @@
     - 已删除知网旧策略资产文件，仓库内只保留 `rewrite_system_V16.md`
     - 日志中的旧知网策略收口记录已移除
     - 当前知网运行态仅保留 `A -> B` 与 V16 对应 trace / 校验字段
+
+- 2026-04-26 04:06:41
+  - 环境清理收尾
+    - 本地仓库清理
+      - `git remote` 已去重，当前仅保留 `origin -> https://github.com/M-houres/GWU-AD.git`
+      - 已删除临时缓存与运行残留，包括 `.pytest_cache`、多组 `logs/*_tmp` 与前端开发日志 `vite-dev.err.log`、`vite-dev.out.log`
+      - 清理完成后工作树已复核，无额外脏文件残留
+    - Docker / 容器清理
+      - 已执行 `docker image prune -f`、`docker builder prune -f`、`docker builder prune -af`
+      - 已移除异常 `wuhongai-edge` 容器，该容器原因为证书文件 `fullchain.pem` 无效导致启动失败
+      - 已手动重建并刷新 `worker-processing / worker-submission / worker-beat / worker-maintenance`，当前均已使用新镜像并处于 healthy
+    - 当前遗留事项
+      - 如需恢复 `edge`，部署时需先修复挂载证书内容，否则 Nginx 仍会因 PEM 解析失败而无法启动
+
+- 2026-04-26 04:14:29
+  - edge 公网入口收口
+    - `docker-compose.prod.yml`
+      - 去掉写死的 `/etc/letsencrypt/live/restin.top/*` 文件级挂载
+      - 改为统一挂载 `${EDGE_CERTS_DIR:-./deploy/certs}` 目录
+      - `edge` 增加启动脚本 `deploy/edge-bootstrap.sh`
+      - 容器健康检查改为基于 `http://127.0.0.1/`，不再强依赖 HTTPS 证书存在
+    - `deploy/`
+      - 原单文件 `nginx-public.conf` 已删除
+      - 新增 `nginx-public-http.conf` 与 `nginx-public-https.conf`
+      - 启动时根据证书目录里是否存在 `fullchain.pem / privkey.pem` 自动选择 HTTP-only 或 HTTPS 配置
+      - 新增 `deploy/certs/.gitkeep`，并通过 `.gitignore` 禁止提交证书文件
+    - `scripts/update_prod_server.sh`
+      - 自动为 `deploy/edge-bootstrap.sh` 做换行修正与执行权限处理
+      - 若服务器存在 `/etc/letsencrypt/live/<域名>` 且环境变量未配置 `EDGE_CERTS_DIR`，部署脚本会自动补写该目录
+      - 发布后健康检查改为走 `http://127.0.0.1/api/v1/auth/options`
+    - 验证
+      - `docker compose -f docker-compose.prod.yml config`
+      - 结果：通过
+      - `docker compose -f docker-compose.prod.yml up -d edge`
+      - 结果：通过
+      - `docker compose -f docker-compose.prod.yml ps edge frontend backend`
+      - 结果：`wuhongai-edge` 已恢复并 `healthy`
+      - `docker logs --tail 80 wuhongai-edge`
+      - 结果：命中日志 `[edge-bootstrap] TLS certificates not found. Starting HTTP-only edge.`

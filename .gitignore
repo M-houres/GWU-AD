@@ -37,6 +37,12 @@ output/
 frontend/run_frontend_*.log
 frontend/runtime_*local.log
 frontend/vite-dev*.log
+deploy/certs/*.pem
+deploy/certs/*.key
+deploy/certs/*.crt
+deploy/certs/*.csr
+deploy/certs/*.pfx
+deploy/certs/*.p12
 logs/
 .playwright-cli/
 .codex/

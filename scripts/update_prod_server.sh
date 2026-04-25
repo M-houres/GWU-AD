@@ -101,9 +101,23 @@ normalize_runtime_scripts() {
     run_root sed -i 's/\r$//' "${APP_DIR}/deploy/backup_runtime_state.sh" || true
     run_root chmod +x "${APP_DIR}/deploy/backup_runtime_state.sh" || true
   fi
+  if [ -f "${APP_DIR}/deploy/edge-bootstrap.sh" ]; then
+    run_root sed -i 's/\r$//' "${APP_DIR}/deploy/edge-bootstrap.sh" || true
+    run_root chmod +x "${APP_DIR}/deploy/edge-bootstrap.sh" || true
+  fi
 }
 
 prepare_public_edge() {
+  local edge_domain cert_dir
+  edge_domain="$(grep -E '^EDGE_DOMAIN=' "${ENV_FILE}" 2>/dev/null | tail -n 1 | cut -d= -f2- || true)"
+  edge_domain="${edge_domain:-restin.top}"
+  cert_dir="$(grep -E '^EDGE_CERTS_DIR=' "${ENV_FILE}" 2>/dev/null | tail -n 1 | cut -d= -f2- || true)"
+  if [ -z "${cert_dir}" ] && [ -d "/etc/letsencrypt/live/${edge_domain}" ]; then
+    cert_dir="/etc/letsencrypt/live/${edge_domain}"
+    log "Detected Let's Encrypt cert directory: ${cert_dir}"
+    printf '\nEDGE_CERTS_DIR=%s\n' "${cert_dir}" | run_root tee -a "${ENV_FILE}" >/dev/null
+  fi
+  run_root mkdir -p "${APP_DIR}/deploy/certs"
   if command -v systemctl >/dev/null 2>&1; then
     run_root systemctl stop nginx || true
     run_root systemctl disable nginx || true
@@ -151,7 +165,7 @@ health_check() {
   wait_for_service_state worker-maintenance healthy 90
   wait_for_service_state worker-beat healthy 90
 
-  if curl -kfsS -H "Host: restin.top" https://127.0.0.1/api/v1/auth/options >/dev/null 2>&1; then
+  if curl -fsS -H "Host: ${EDGE_DOMAIN:-restin.top}" http://127.0.0.1/api/v1/auth/options >/dev/null 2>&1; then
     echo "Health check passed."
     return 0
   fi
