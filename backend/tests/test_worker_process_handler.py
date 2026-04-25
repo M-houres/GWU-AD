@@ -75,12 +75,13 @@ def test_build_process_output_path_uses_pdf_for_aigc(tmp_path: Path) -> None:
             "id": 9,
             "user_id": 3,
             "task_type": TaskType.AIGC_DETECT,
+            "source_filename": "输入论文.docx",
             "source_path": str(tmp_path / "input.docx"),
         },
         settings=settings,
     )
 
-    assert path == tmp_path / "output" / "3" / "task_9_result.pdf"
+    assert path == tmp_path / "output" / "3" / "9" / "输入论文_AIGC检测报告.pdf"
 
 
 def test_run_processing_engine_passes_snapshot_fields(db_session, tmp_path: Path) -> None:
@@ -186,7 +187,7 @@ def test_finalize_processed_task_serializes_output_path_under_output_root(db_ses
     )
     db_session.add(task)
     db_session.flush()
-    output_path = output_root / str(user.id) / "task_1_result.docx"
+    output_path = output_root / str(user.id) / str(task.id) / "改写+done.docx"
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text("result", encoding="utf-8")
 
@@ -199,7 +200,7 @@ def test_finalize_processed_task_serializes_output_path_under_output_root(db_ses
     )
 
     assert merged == {"ok": True, "task_id": task.id, "status": "completed"}
-    assert task.output_path == f"output/{user.id}/task_1_result.docx"
+    assert task.output_path == f"output/{user.id}/{task.id}/改写+done.docx"
 
 
 def test_fail_processed_task_marks_failed_and_refunds(db_session) -> None:

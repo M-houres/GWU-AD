@@ -3,6 +3,8 @@ from pathlib import Path
 
 from app.models import Task, TaskStatus
 from app.services.task_artifacts import resolve_task_artifact_path, serialize_task_artifact_path
+from app.services.task_filename import build_task_result_filename
+from app.utils import safe_filename
 
 
 def claim_process_task(db, *, task_id: int) -> dict:
@@ -55,12 +57,21 @@ def claim_process_task(db, *, task_id: int) -> dict:
 
 def build_process_output_path(task_snapshot: dict, *, settings) -> Path:
     source_path = resolve_task_artifact_path(task_snapshot["source_path"]) or Path(task_snapshot["source_path"])
-    output_dir = settings.output_dir / str(task_snapshot["user_id"])
+    download_name = safe_filename(
+        build_task_result_filename(
+            task_snapshot["task_type"],
+            task_snapshot.get("source_filename"),
+            source_path,
+        )
+    )
+    output_dir = settings.output_dir / str(task_snapshot["user_id"]) / str(task_snapshot["id"])
     output_dir.mkdir(parents=True, exist_ok=True)
-    output_ext = ".pdf" if task_snapshot["task_type"].value == "aigc_detect" else source_path.suffix.lower()
-    if not output_ext:
-        output_ext = ".txt"
-    return output_dir / f"task_{task_snapshot['id']}_result{output_ext}"
+    if not download_name:
+        output_ext = ".pdf" if task_snapshot["task_type"].value == "aigc_detect" else source_path.suffix.lower()
+        if not output_ext:
+            output_ext = ".txt"
+        download_name = f"任务结果{output_ext}"
+    return output_dir / download_name
 
 
 def run_processing_engine(process_db, *, task_snapshot: dict, output_path: Path, processing_engine_cls):
