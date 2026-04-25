@@ -7528,6 +7528,28 @@
       - `frontend/vite-dev.log`
     - 这些不会纳入提交；若后续关闭本地 dev 进程，再删即可
 
+## 2026-04-25 22:42
+
+- 知网 P 阶段热修
+  - 触发背景
+    - 新版本部署后，线上不再报策略文件缺失，但知网降AIGC / 降重复率任务仍出现“处理异常”
+    - 实际根因已确认：
+      - `worker-processing` 能正常调用大模型
+      - 失败点改为知网三段式链路的 `Prompt P` 预分析阶段
+      - 模型未稳定返回 JSON，导致严格解析直接抛错：
+        - `知网降AIGC预分析阶段未返回有效JSON`
+        - `知网降重复率预分析阶段未返回有效JSON`
+  - 已处理
+    - `backend/app/services/rewrite_strategies/cnki_llm.py`
+    - `backend/app/services/dedup_strategies/cnki_llm.py`
+    - 调整为：
+      - 先尝试按原规则抽取并校验 JSON
+      - 若返回非 JSON 或字段不合规，则自动退回本地保底预分析，不再整单直接失败
+      - 保底预分析仅生成最小合法结构，继续让 `Prompt A` / `Prompt B` 跑完
+  - 验证
+    - `python -m py_compile backend\\app\\services\\rewrite_strategies\\cnki_llm.py backend\\app\\services\\dedup_strategies\\cnki_llm.py`
+    - 结果：通过
+
 - 2026-04-25 渠道免密链路旧命名收口
   - 后端
     - `backend/app/api/partners.py`

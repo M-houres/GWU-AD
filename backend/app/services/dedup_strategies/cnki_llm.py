@@ -56,6 +56,32 @@ def _is_json_number(value) -> bool:
     return isinstance(value, (int, float)) and not isinstance(value, bool)
 
 
+def _infer_ambient_formality(text: str) -> str:
+    content = str(text or "")
+    if any(marker in content for marker in ("我觉得", "你知道", "其实", "真的", "特别", "挺")):
+        return "偏口语"
+    if any(marker in content for marker in ("本文", "研究", "机制", "路径", "体系", "实践")):
+        return "高度书面"
+    return "中等书面"
+
+
+def _fallback_preanalysis_payload(text: str) -> dict:
+    content = re.sub(r"\s+", " ", str(text or "")).strip()
+    sentences = [item.strip() for item in re.split(r"[。！？；\n]+", content) if item.strip()]
+    avg_chars = round(sum(len(item) for item in sentences) / max(len(sentences), 1), 2)
+    return {
+        "ambient_formality": _infer_ambient_formality(content),
+        "p1_candidates": [],
+        "p2_candidates": [],
+        "p3_candidates": [],
+        "p4_candidates": [],
+        "frozen_terms": [],
+        "high_freq_targets": [],
+        "avg_n_per_sentence": avg_chars,
+        "needs_sentence_ops": bool(avg_chars >= 32 or any(len(item) >= 48 for item in sentences)),
+    }
+
+
 def _validate_preanalysis_payload(payload: dict) -> dict:
     required_keys = {
         "ambient_formality",
@@ -126,14 +152,18 @@ def _generate_json_payload(db, *, prompt: str, task_type: TaskType, error_code: 
 
 
 def _run_preanalysis(db, *, text: str) -> dict:
-    payload = _generate_json_payload(
+    raw = generate_with_llm(
         db,
         task_type=TaskType.DEDUP,
-        prompt=build_cnki_dedup_precheck_prompt(text),
-        error_code=4628,
-        error_message="知网降重复率预分析阶段未返回有效JSON",
+        text=build_cnki_dedup_precheck_prompt(text),
     )
-    return _validate_preanalysis_payload(payload)
+    payload = _extract_json_payload(raw)
+    if isinstance(payload, dict):
+        try:
+            return _validate_preanalysis_payload(payload)
+        except BizError:
+            pass
+    return _fallback_preanalysis_payload(text)
 
 
 def _run_prompt_b_validation(db, *, source_text: str, rewritten_text: str) -> dict:
