@@ -55,6 +55,52 @@ def test_cnki_llm_rewrite_uses_global_prompt_by_default(db_session: Session, mon
     assert len(calls) == 1
 
 
+def test_cnki_v20_recovers_final_text_when_final_header_is_missing(db_session: Session, monkeypatch) -> None:
+    from app.services.rewrite_strategies import cnki_llm
+
+    text = "因此，本研究在方法层面进行系统分析并提出改进路径，" * 24
+
+    def _fake_generate(_db, *, task_type, text: str):
+        return (
+            "【初始化】正文约432字，全文配额48次，共1段，各段配额：P1=48\n"
+            "【P_1 改写计划 共48条】\n"
+            "1. 将→把（触发问1）\n"
+            "【P_1 改写结果】\n"
+            "这是改写后的正文内容，能够体现知网 V20 的严格执行结果。\n"
+            "【P_1 验证】实际完成 48 处改写，配额要求 48 处。\n"
+        )
+
+    monkeypatch.setattr("app.services.cnki_v20_runtime.generate_with_llm", _fake_generate)
+
+    result = cnki_llm.rewrite(db_session, task=None, text=text, report_summary={})
+    trace = result.get("rule_trace") or {}
+    assert "这是改写后的正文内容" in result.get("text", "")
+    assert trace.get("reported_total_rewrites") == 48
+
+
+def test_vip_w4_recovers_final_text_when_final_header_is_missing(db_session: Session, monkeypatch) -> None:
+    from app.services.rewrite_strategies import vip_llm
+
+    text = "当前机制较为重要，因此需要优化路径，并保持研究过程的整体稳定。"
+
+    def _fake_generate(_db, *, task_type, text: str):
+        return (
+            "【初始化】正文约21字，全文配额5次，共1段，各段配额：P1=5\n"
+            "【P_1 改写计划 共5条】\n"
+            "1. 当前→目前（触发问3）\n"
+            "【P_1 改写结果】\n"
+            "目前方式比较主要，因此需要优化途径，并保持研究过程的整体稳定。\n"
+            "【P_1 验证】实际完成 5 处改写，配额要求 5 处，字数变化 ±0字。\n"
+        )
+
+    monkeypatch.setattr("app.services.vip_w4_runtime.generate_with_llm", _fake_generate)
+
+    result = vip_llm.rewrite(db_session, task=None, text=text, report_summary={})
+    trace = result.get("rule_trace") or {}
+    assert "目前方式比较主要" in result.get("text", "")
+    assert trace.get("reported_total_rewrites") == 5
+
+
 def test_rewrite_process_uses_report_summary(tmp_path: Path, db_session: Session, monkeypatch) -> None:
     source_path = tmp_path / "paper.docx"
     report_path = tmp_path / "report.docx"

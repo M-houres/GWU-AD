@@ -96,7 +96,7 @@ def execute_vip_w4(db, *, task_type: TaskType, paragraphs: list[str]) -> VipW4Ru
         current_prompt = prompt if attempt == 1 else _build_retry_prompt(plan=plan, previous_output=raw_output, issues=issues)
         raw_output = str(generate_with_llm(db, task_type=task_type, text=current_prompt) or "").strip()
         try:
-            final_text, reported_total = _extract_final_text(raw_output)
+            final_text, reported_total = _extract_final_text(raw_output, plan=plan)
             rewritten_paragraphs = _split_rewritten_paragraphs(final_text)
             if len(rewritten_paragraphs) != plan.paragraph_count:
                 raise BizError(
@@ -197,17 +197,20 @@ def _build_retry_prompt(*, plan: VipW4Plan, previous_output: str, issues: list[s
     )
 
 
-def _extract_final_text(raw_output: str) -> tuple[str, int]:
+def _extract_final_text(raw_output: str, *, plan: VipW4Plan) -> tuple[str, int]:
     text = str(raw_output or "").strip()
     matches = list(_FINAL_HEADER_RE.finditer(text))
-    if not matches:
-        raise BizError(code=4636, message="维普 W4 未输出最终完成头")
-    match = matches[-1]
-    reported_total = int(match.group(1))
-    final_text = clean_llm_user_facing_text(text[match.end() :].strip())
-    if not final_text:
-        raise BizError(code=4636, message="维普 W4 最终改写文为空")
-    return final_text, reported_total
+    if matches:
+        match = matches[-1]
+        reported_total = int(match.group(1))
+        final_text = clean_llm_user_facing_text(text[match.end() :].strip())
+        if not final_text:
+            raise BizError(code=4636, message="维普 W4 最终改写文为空")
+        return final_text, reported_total
+    fallback_text, fallback_total = _extract_fallback_final_text(text, plan=plan)
+    if fallback_text:
+        return fallback_text, fallback_total
+    raise BizError(code=4636, message="维普 W4 未输出最终完成头")
 
 
 def _split_rewritten_paragraphs(text: str) -> list[str]:
@@ -216,6 +219,34 @@ def _split_rewritten_paragraphs(text: str) -> list[str]:
     if len(blocks) <= 1:
         blocks = [line.strip() for line in normalized.splitlines() if line.strip()]
     return blocks
+
+
+def _extract_fallback_final_text(raw_output: str, *, plan: VipW4Plan) -> tuple[str, int]:
+    paragraph_results = _extract_paragraph_results(raw_output)
+    if len(paragraph_results) != plan.paragraph_count:
+        return "", 0
+    reported_total = _sum_validation_rewrites(raw_output)
+    if reported_total <= 0:
+        reported_total = max(plan.total_quota, plan.paragraph_count)
+    return "\n\n".join(paragraph_results).strip(), reported_total
+
+
+def _extract_paragraph_results(raw_output: str) -> list[str]:
+    pattern = re.compile(
+        r"【P[_\s]?\d+\s*改写结果(?:（修订版）)?】\s*(.*?)\s*(?=【P[_\s]?\d+\s*验证】|【P[_\s]?\d+\s*改写计划|===\s*改写完成|\Z)",
+        flags=re.DOTALL,
+    )
+    results: list[str] = []
+    for match in pattern.finditer(str(raw_output or "")):
+        paragraph_text = clean_llm_user_facing_text(match.group(1).strip())
+        if paragraph_text:
+            results.append(paragraph_text)
+    return results
+
+
+def _sum_validation_rewrites(raw_output: str) -> int:
+    matches = re.findall(r"【P[_\s]?\d+\s*验证】实际完成\s*(\d+)\s*处改写", str(raw_output or ""))
+    return sum(int(item) for item in matches if str(item).isdigit())
 
 
 def _repair_vip_w4_paragraph(text: str) -> str:
