@@ -37,6 +37,19 @@ run_root() {
   fi
 }
 
+upsert_env_value() {
+  local key="$1"
+  local value="$2"
+  local file="$3"
+  local escaped_value
+  escaped_value="$(printf '%s' "${value}" | sed 's/[&/\]/\\&/g')"
+  if run_root grep -q "^${key}=" "${file}" 2>/dev/null; then
+    run_root sed -i "s|^${key}=.*|${key}=${escaped_value}|" "${file}"
+  else
+    printf '\n%s=%s\n' "${key}" "${value}" | run_root tee -a "${file}" >/dev/null
+  fi
+}
+
 require_cmd() {
   command -v "$1" >/dev/null 2>&1 || abort "Missing command: $1"
 }
@@ -108,16 +121,24 @@ normalize_runtime_scripts() {
 }
 
 prepare_public_edge() {
-  local edge_domain cert_dir
+  local edge_domain cert_dir target_cert_dir
   edge_domain="$(grep -E '^EDGE_DOMAIN=' "${ENV_FILE}" 2>/dev/null | tail -n 1 | cut -d= -f2- || true)"
   edge_domain="${edge_domain:-restin.top}"
   cert_dir="$(grep -E '^EDGE_CERTS_DIR=' "${ENV_FILE}" 2>/dev/null | tail -n 1 | cut -d= -f2- || true)"
-  if [ -z "${cert_dir}" ] && [ -d "/etc/letsencrypt/live/${edge_domain}" ]; then
-    cert_dir="/etc/letsencrypt/live/${edge_domain}"
-    log "Detected Let's Encrypt cert directory: ${cert_dir}"
-    printf '\nEDGE_CERTS_DIR=%s\n' "${cert_dir}" | run_root tee -a "${ENV_FILE}" >/dev/null
+  target_cert_dir="${APP_DIR}/deploy/certs"
+  run_root mkdir -p "${target_cert_dir}"
+  if [ -d "/etc/letsencrypt/live/${edge_domain}" ] && [ -f "/etc/letsencrypt/live/${edge_domain}/fullchain.pem" ] && [ -f "/etc/letsencrypt/live/${edge_domain}/privkey.pem" ]; then
+    log "Detected Let's Encrypt cert directory: /etc/letsencrypt/live/${edge_domain}"
+    run_root cp -L "/etc/letsencrypt/live/${edge_domain}/fullchain.pem" "${target_cert_dir}/fullchain.pem"
+    run_root cp -L "/etc/letsencrypt/live/${edge_domain}/privkey.pem" "${target_cert_dir}/privkey.pem"
+    run_root chmod 644 "${target_cert_dir}/fullchain.pem"
+    run_root chmod 600 "${target_cert_dir}/privkey.pem"
+    cert_dir="${target_cert_dir}"
+    log "Copied TLS certs into ${target_cert_dir}"
+  elif [ -z "${cert_dir}" ]; then
+    cert_dir="${target_cert_dir}"
   fi
-  run_root mkdir -p "${APP_DIR}/deploy/certs"
+  upsert_env_value "EDGE_CERTS_DIR" "${cert_dir}" "${ENV_FILE}"
   if command -v systemctl >/dev/null 2>&1; then
     run_root systemctl stop nginx || true
     run_root systemctl disable nginx || true

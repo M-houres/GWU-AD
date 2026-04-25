@@ -7606,3 +7606,15 @@
       - 结果：`wuhongai-edge` 已恢复并 `healthy`
       - `docker logs --tail 80 wuhongai-edge`
       - 结果：命中日志 `[edge-bootstrap] TLS certificates not found. Starting HTTP-only edge.`
+
+- 2026-04-26 04:22:43
+  - edge HTTPS 续修
+    - 线上二次核对发现：服务器证书实际存在于 `/etc/letsencrypt/live/restin.top/`，但该目录内 `fullchain.pem / privkey.pem` 是指向 `../../archive/restin.top/*` 的符号链接
+    - 仅把 `live/restin.top` 目录 bind mount 进容器时，容器内无法解析到 `archive` 真实文件，因此 `edge-bootstrap` 仍判断为“证书不存在”，线上会退回 HTTP-only
+    - 已修复 `scripts/update_prod_server.sh`
+      - 检测到 Let’s Encrypt 证书后，先用 `cp -L` 解引用复制真实证书到 `/opt/gewuxueshu/deploy/certs/`
+      - 自动把 `EDGE_CERTS_DIR` 收口到该项目内证书目录，而不是直接指向 `/etc/letsencrypt/live/...`
+      - 这样 Docker 只需挂项目目录即可稳定读取真实 PEM 文件
+    - 验证
+      - `bash -n scripts/update_prod_server.sh`
+      - 结果：通过
