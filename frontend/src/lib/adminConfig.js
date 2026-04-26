@@ -3,6 +3,8 @@ export const CONFIG_TABS = [
   { key: "payment", label: "支付配置", desc: "微信支付 / 支付宝" },
   { key: "billing", label: "计费规则", desc: "按字符扣费" },
   { key: "aigc_detect_strategy", label: "AIGC检测策略", desc: "知网 / 维普内部检测" },
+  { key: "rewrite_strategy", label: "降AIGC提示词", desc: "知网 / 维普大模型提示词" },
+  { key: "dedup_strategy", label: "降重复率提示词", desc: "知网 / 维普大模型提示词" },
   { key: "user_navigation", label: "前台导航", desc: "左侧功能编排" },
   { key: "promo_center", label: "推广中心", desc: "点数规则 / 文案 / 活动素材" },
   { key: "llm", label: "大模型配置", desc: "国内外主流模型" },
@@ -102,6 +104,30 @@ export const ADMIN_CONFIG_GUIDES = {
       "知网和维普至少应有 1 个平台保持启用。",
       "AIGC 检测现在只走内部算法策略，不依赖 LLM。",
       "这里只控制后端检测可用性，不影响前台入口、计费和下载。",
+    ],
+    docs: [],
+  },
+  rewrite_strategy: {
+    code: "Rewrite Prompt",
+    lead: "这里只给运营改知网和维普的降AIGC率提示词，任务提交后运行时会直接读取这里的最新文本。",
+    title: "降AIGC率提示词后台可配",
+    desc: "平台只保留大模型主策略，不再给运营暴露复杂运行参数。只需要控制平台启停，并维护每个平台对应的提示词正文。",
+    checklist: [
+      "至少保留 1 个平台启用，避免前台提交后直接报平台不可用。",
+      "提示词里必须保留 `{{paragraph}}` 占位符，运行时会把真实段落插进去。",
+      "知网和维普可以共用结构，但文案内容应分别维护。",
+    ],
+    docs: [],
+  },
+  dedup_strategy: {
+    code: "Dedup Prompt",
+    lead: "这里只给运营改知网和维普的降重复率提示词，任务执行时会直接按这里的配置下发。",
+    title: "降重复率提示词后台可配",
+    desc: "平台固定走大模型主策略，后台只保留最核心的两项：是否启用、提示词文本。这样后续调整策略不需要再改代码发版。",
+    checklist: [
+      "至少保留 1 个平台启用，避免相关任务无法受理。",
+      "提示词里必须保留 `{{paragraph}}` 占位符，运行时会自动替换为待处理段落。",
+      "修改后建议立即提交一篇测试任务，确认输出风格符合预期。",
     ],
     docs: [],
   },
@@ -416,7 +442,7 @@ export const DEFAULT_PROMO_CENTER_CONFIG = {
 
 export const DEFAULT_REWRITE_STRATEGY_CONFIG = {
   cnki: {
-    rewrite: { enabled: true, active_strategy: "llm" },
+    rewrite: { enabled: true, active_strategy: "llm", prompt_template: "请严格按照策略处理以下段落：\n\n{{paragraph}}" },
     runtime: {
       chunk_min_chars: 180,
       chunk_max_chars: 260,
@@ -429,7 +455,7 @@ export const DEFAULT_REWRITE_STRATEGY_CONFIG = {
     },
   },
   vip: {
-    rewrite: { enabled: true, active_strategy: "llm" },
+    rewrite: { enabled: true, active_strategy: "llm", prompt_template: "请严格按照策略处理以下段落：\n\n{{paragraph}}" },
     runtime: {
       chunk_min_chars: 180,
       chunk_max_chars: 260,
@@ -450,7 +476,7 @@ export const DEFAULT_AIGC_DETECT_STRATEGY_CONFIG = {
 
 export const DEFAULT_DEDUP_STRATEGY_CONFIG = {
   cnki: {
-    dedup: { enabled: true, active_strategy: "llm" },
+    dedup: { enabled: true, active_strategy: "llm", prompt_template: "请严格按照策略处理以下段落：\n\n{{paragraph}}" },
     runtime: {
       chunk_min_chars: 180,
       chunk_max_chars: 260,
@@ -463,7 +489,7 @@ export const DEFAULT_DEDUP_STRATEGY_CONFIG = {
     },
   },
   vip: {
-    dedup: { enabled: true, active_strategy: "llm" },
+    dedup: { enabled: true, active_strategy: "llm", prompt_template: "请严格按照策略处理以下段落：\n\n{{paragraph}}" },
     runtime: {
       chunk_min_chars: 180,
       chunk_max_chars: 260,
@@ -871,10 +897,19 @@ export function normalizeRewriteStrategyEntry(raw, fallback, platform = "") {
   normalizedRuntime.llm_standard_chunk_max_changes = Math.max(normalizedRuntime.llm_standard_chunk_max_changes, normalizedRuntime.llm_medium_chunk_max_changes)
   normalizedRuntime.llm_long_chunk_max_changes = Math.max(normalizedRuntime.llm_long_chunk_max_changes, normalizedRuntime.llm_standard_chunk_max_changes)
   normalizedRuntime.llm_xlong_chunk_max_changes = Math.max(normalizedRuntime.llm_xlong_chunk_max_changes, normalizedRuntime.llm_long_chunk_max_changes)
+  const defaultPromptTemplate = String(defaultRewrite.prompt_template || "").trim()
+  let promptTemplate = String(rewrite.prompt_template || defaultPromptTemplate).trim().slice(0, 20000)
+  if (!promptTemplate) {
+    promptTemplate = defaultPromptTemplate
+  }
+  if (!promptTemplate.includes("{{paragraph}}")) {
+    promptTemplate = `${promptTemplate}\n\n待改写段落：\n{{paragraph}}`.trim()
+  }
   return {
     rewrite: {
       enabled: rewrite.enabled !== undefined ? rewrite.enabled === true : defaultRewrite.enabled !== false,
       active_strategy: resolvedStrategy,
+      prompt_template: promptTemplate,
     },
     runtime: normalizedRuntime,
   }
@@ -911,10 +946,19 @@ export function normalizeDedupStrategyEntry(raw, fallback, platform = "") {
   normalizedRuntime.llm_standard_chunk_max_changes = Math.max(normalizedRuntime.llm_standard_chunk_max_changes, normalizedRuntime.llm_medium_chunk_max_changes)
   normalizedRuntime.llm_long_chunk_max_changes = Math.max(normalizedRuntime.llm_long_chunk_max_changes, normalizedRuntime.llm_standard_chunk_max_changes)
   normalizedRuntime.llm_xlong_chunk_max_changes = Math.max(normalizedRuntime.llm_xlong_chunk_max_changes, normalizedRuntime.llm_long_chunk_max_changes)
+  const defaultPromptTemplate = String(defaultDedup.prompt_template || "").trim()
+  let promptTemplate = String(dedup.prompt_template || defaultPromptTemplate).trim().slice(0, 20000)
+  if (!promptTemplate) {
+    promptTemplate = defaultPromptTemplate
+  }
+  if (!promptTemplate.includes("{{paragraph}}")) {
+    promptTemplate = `${promptTemplate}\n\n待改写段落：\n{{paragraph}}`.trim()
+  }
   return {
     dedup: {
       enabled: dedup.enabled !== undefined ? dedup.enabled === true : defaultDedup.enabled !== false,
       active_strategy: normalizedPlatform ? "llm" : strategy === "llm" ? "llm" : "llm",
+      prompt_template: promptTemplate,
     },
     runtime: normalizedRuntime,
   }

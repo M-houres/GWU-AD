@@ -7,6 +7,8 @@ from sqlalchemy.orm import Session
 
 from app.exceptions import BizError
 from app.models import SystemConfig
+from app.services.cnki_dedup_prompt import DEFAULT_CNKI_DEDUP_PROMPT_TEMPLATE
+from app.services.vip_dedup_prompt import DEFAULT_VIP_DEDUP_PROMPT_TEMPLATE
 
 CONFIG_KEY = "dedup_strategy"
 STRATEGY_ALGORITHM = "algorithm"
@@ -34,6 +36,7 @@ DEFAULT_DEDUP_STRATEGY_CONFIG: dict[str, Any] = {
         "dedup": {
             "enabled": True,
             "active_strategy": STRATEGY_LLM,
+            "prompt_template": DEFAULT_CNKI_DEDUP_PROMPT_TEMPLATE,
         },
         "runtime": deepcopy(DEFAULT_DEDUP_RUNTIME_CONFIG),
     },
@@ -41,6 +44,7 @@ DEFAULT_DEDUP_STRATEGY_CONFIG: dict[str, Any] = {
         "dedup": {
             "enabled": True,
             "active_strategy": STRATEGY_LLM,
+            "prompt_template": DEFAULT_VIP_DEDUP_PROMPT_TEMPLATE,
         },
         "runtime": deepcopy(DEFAULT_DEDUP_RUNTIME_CONFIG),
     },
@@ -131,6 +135,10 @@ def normalize_dedup_strategy_config(raw: dict | None) -> dict[str, Any]:
             platform,
             dedup_source.get("active_strategy", result[platform]["dedup"]["active_strategy"])
         )
+        result[platform]["dedup"]["prompt_template"] = _normalize_prompt_template(
+            dedup_source.get("prompt_template", result[platform]["dedup"].get("prompt_template", "")),
+            fallback=result[platform]["dedup"].get("prompt_template", ""),
+        )
         runtime_source = platform_source.get("runtime")
         result[platform]["runtime"] = normalize_dedup_runtime_config(
             runtime_source,
@@ -142,6 +150,16 @@ def normalize_dedup_strategy_config(raw: dict | None) -> dict[str, Any]:
             fallback=DEFAULT_DEDUP_RUNTIME_CONFIG,
         )
     return result
+
+
+def _normalize_prompt_template(raw: Any, *, fallback: str) -> str:
+    text = str(raw or "").strip()
+    if not text:
+        text = str(fallback or "").strip()
+    text = text[:20000]
+    if "{{paragraph}}" not in text:
+        text = f"{text}\n\n待改写段落：\n{{{{paragraph}}}}".strip()
+    return text
 
 
 def load_dedup_strategy_config(db: Session) -> dict[str, Any]:
@@ -175,6 +193,16 @@ def get_dedup_runtime_config(db: Session, *, platform: str) -> dict[str, int]:
     slot = config.get(normalized_platform) if isinstance(config, dict) else {}
     runtime = slot.get("runtime") if isinstance(slot, dict) else {}
     return normalize_dedup_runtime_config(runtime, fallback=DEFAULT_DEDUP_RUNTIME_CONFIG)
+
+
+def get_dedup_prompt_template(db: Session, *, platform: str) -> str:
+    normalized_platform = str(platform or "").strip().lower()
+    if normalized_platform not in SUPPORTED_DEDUP_PLATFORMS:
+        raise BizError(code=4116, message="不支持的平台")
+    config = load_dedup_strategy_config(db)
+    dedup_slot = config.get(normalized_platform, {}).get("dedup", {})
+    fallback = DEFAULT_DEDUP_STRATEGY_CONFIG[normalized_platform]["dedup"]["prompt_template"]
+    return _normalize_prompt_template(dedup_slot.get("prompt_template", fallback), fallback=fallback)
 
 
 def dedup_strategy_readiness(value: dict) -> dict:

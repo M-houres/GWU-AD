@@ -7747,3 +7747,111 @@
         - split-run 前置信息保护
     - 验证结果
       - 聚焦回归已通过：`3 passed`
+
+- 2026-04-26 22:26:00
+  - DOCX 段落边界漂移修复
+    - 问题定位
+      - 最新线上 `task_id=43` 的知网改写结果虽然标题、摘要标签、关键词标签已保住，但仍存在“段数正确、句子错段”的问题
+      - 具体表现为：
+        - 摘要最后一句漂移到引言正文段
+        - 正文前后相邻自然段彼此串段
+      - 根因不是结构识别失效，而是模型输出时虽然保留了段落数，却把相邻段的句子边界切错，现有逻辑此前只校验段数与长度，没有修复这种“同段数错边界”的漂移
+    - 代码修复
+      - `backend/app/services/cnki_v20_runtime.py`
+      - `backend/app/services/vip_w4_runtime.py`
+      - 在段落数匹配时，新增“相邻段句子边界重平衡”修复：
+        - 逐对检查相邻段
+        - 按原段目标长度与句号边界，尝试把下一段首句回拉到上一段，或把上一段尾句后移到下一段
+        - 在总误差相同场景下，优先让前一段先回正，修复摘要尾句 / 正文首句漂移
+    - 回归补强
+      - `backend/tests/test_processing_engine_results.py`
+      - 新增知网 / 维普两条回归：
+        - 模型输出段数正确，但故意把摘要尾句和正文首句切串
+        - 系统必须自动修回原段
+    - 验证结果
+      - 聚焦 DOCX 回归：`5 passed`
+      - 知网 / 维普聚焦回归：`15 passed`
+
+- 2026-04-26 23:08:00
+  - 知网策略工程化重构
+    - 重构目标
+      - 按新要求将“知网降AIGC”和“知网降重”拆成两条独立工程链路
+      - 两条链路共享段落布局 / 非正文保护 / 文档回填底座，但不再共用同一套旧 `V20` 运行时
+      - 去掉旧知网多版本策略实现，仅保留新的单链路风格迁移方案
+    - 代码调整
+      - 新增共享底座：
+        - `backend/app/services/cnki_pipeline_shared.py`
+        - 统一处理纯文本块布局、标题/关键词/参考文献保护、段落重组与结果回填
+      - 新增知网降AIGC链路：
+        - `backend/app/services/cnki_rewrite_prompt.py`
+        - `backend/app/services/cnki_rewrite_runtime.py`
+      - 新增知网降重链路：
+        - `backend/app/services/cnki_dedup_prompt.py`
+        - `backend/app/services/cnki_dedup_runtime.py`
+      - 替换入口挂接：
+        - `backend/app/services/rewrite_strategies/cnki_llm.py`
+        - `backend/app/services/dedup_strategies/cnki_llm.py`
+        - `backend/app/services/rewrite_strategies/executor.py`
+        - `backend/app/services/dedup_strategies/executor.py`
+        - `backend/app/services/processing_engine.py`
+      - 删除旧知网策略文件：
+        - `backend/app/services/cnki_v20_prompt.py`
+        - `backend/app/services/cnki_v20_runtime.py`
+    - 策略形态
+      - 知网降AIGC：
+        - 非正文默认保护
+        - 正文逐段强风格迁移
+        - 不暴露用户端“免费重新生成/强制改写”
+      - 知网降重：
+        - 非正文默认保护
+        - 正文逐段重述式改写
+        - 与降AIGC独立 prompt / 独立 runtime / 独立 metadata
+    - 验证结果
+      - 旧 `cnki_v20` 残留引用已清理完成
+      - 新增 / 修改知网链路文件已通过 `python -m py_compile`
+
+- 2026-04-26 23:22:00
+  - 维普策略结构对齐与旧 W4 删除
+    - 重构目标
+      - 维普与知网统一为“共享底座 + 两条独立链路”的工程结构
+      - 维普降AIGC、维普降重仅保留新结构入口，后续只替换提示词，不再沿用旧 `W4` 运行时
+    - 代码调整
+      - 新增维普新结构文件：
+        - `backend/app/services/vip_rewrite_prompt.py`
+        - `backend/app/services/vip_dedup_prompt.py`
+        - `backend/app/services/vip_rewrite_runtime.py`
+        - `backend/app/services/vip_dedup_runtime.py`
+      - 替换入口挂接：
+        - `backend/app/services/rewrite_strategies/vip_llm.py`
+        - `backend/app/services/dedup_strategies/vip_llm.py`
+        - `backend/app/services/rewrite_strategies/executor.py`
+        - `backend/app/services/dedup_strategies/executor.py`
+        - `backend/app/services/processing_engine.py`
+      - 删除旧维普策略文件：
+        - `backend/app/services/vip_w4_prompt.py`
+        - `backend/app/services/vip_w4_runtime.py`
+    - 验证结果
+      - 旧 `vip_w4` 残留引用已清理完成
+      - 新增 / 修改维普链路文件已通过 `python -m py_compile`
+
+- 2026-04-26 21:18:44
+  - 知网 / 维普提示词后台可配置化
+    - 改造目标
+      - 将知网降AIGC、知网降重、维普降AIGC、维普降重的提示词从代码常量升级为后台配置项
+      - 运营后续可直接在管理后台修改提示词，不再每次改代码发版
+    - 代码调整
+      - 后台配置中心新增分类：
+        - `rewrite_strategy`
+        - `dedup_strategy`
+      - 后端配置暴露与就绪校验：
+        - `backend/app/api/admin.py`
+      - 前端配置页新增两个运营板块：
+        - `frontend/src/lib/adminConfig.js`
+        - `frontend/src/views/admin/AdminConfigPage.vue`
+    - 页面形态
+      - 仅保留平台启用开关 + 提示词正文输入框
+      - 隐藏复杂 runtime 参数，不让运营接触技术细节
+      - 自动兜底补全 `{{paragraph}}` 占位符，避免误配后运行时失效
+    - 验证结果
+      - 后端相关文件已通过 `python -m py_compile`
+      - 前端管理后台已通过 `npm run build`

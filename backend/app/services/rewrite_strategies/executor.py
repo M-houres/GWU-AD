@@ -29,7 +29,7 @@ def execute_rewrite_strategy(
         output = str(rewrite_result.get("text") or "") if isinstance(rewrite_result, dict) else str(rewrite_result or "")
         rule_trace = rewrite_result.get("rule_trace") if isinstance(rewrite_result, dict) else {}
         if not output.strip():
-            raise BizError(code=4611, message="知网降AIGC率 V20 输出为空")
+            raise BizError(code=4611, message="知网降AIGC输出为空")
         length_before = count_billable_chars(str(text or ""))
         length_after = count_billable_chars(output)
         return {
@@ -41,7 +41,7 @@ def execute_rewrite_strategy(
             "length_after": length_after,
             "change_ratio": round(((length_after - length_before) / max(length_before, 1)), 4),
             "quality_score": 1.0,
-            "quality_flags": {"strict_cnki_v20_passed": True},
+            "quality_flags": {"cnki_rewrite_pipeline_applied": True},
             "warnings": [],
             "rule_trace": dict(rule_trace or {}),
         }
@@ -52,7 +52,7 @@ def execute_rewrite_strategy(
         output = str(rewrite_result.get("text") or "") if isinstance(rewrite_result, dict) else str(rewrite_result or "")
         rule_trace = rewrite_result.get("rule_trace") if isinstance(rewrite_result, dict) else {}
         if not output.strip():
-            raise BizError(code=4611, message="维普降AIGC率 W4 输出为空")
+            raise BizError(code=4611, message="维普降AIGC输出为空")
         length_before = count_billable_chars(str(text or ""))
         length_after = count_billable_chars(output)
         return {
@@ -64,7 +64,7 @@ def execute_rewrite_strategy(
             "length_after": length_after,
             "change_ratio": round(((length_after - length_before) / max(length_before, 1)), 4),
             "quality_score": 1.0,
-            "quality_flags": {"strict_vip_w4_passed": True},
+            "quality_flags": {"vip_rewrite_pipeline_applied": True},
             "warnings": [],
             "rule_trace": dict(rule_trace or {}),
         }

@@ -263,6 +263,94 @@
             </section>
           </template>
 
+          <template v-else-if="activeTab === 'rewrite_strategy'">
+            <section class="rounded-2xl border border-[#dce4eb] bg-[#fbfcfd] p-4">
+              <div class="text-sm font-semibold text-[#1f2c35]">运行说明</div>
+              <div class="mt-1 text-xs leading-5 text-[#5f6d79]">
+                知网和维普降AIGC率都固定走大模型主策略。这里不再暴露运行时细节，只保留平台启停和提示词正文，保存后新任务直接读取最新配置。
+              </div>
+            </section>
+
+            <section class="space-y-3">
+              <article
+                v-for="platform in rewriteStrategyPlatforms"
+                :key="platform.key"
+                class="rounded-2xl border border-[#dce4eb] bg-white p-4"
+              >
+                <div class="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <div class="text-sm font-semibold text-[#1f2c35]">{{ platform.label }}</div>
+                    <div class="mt-1 text-xs leading-5 text-[#5f6d79]">{{ platform.desc }}</div>
+                  </div>
+                  <label class="inline-flex items-center gap-2 rounded-xl border border-[#d6dee6] bg-[#fbfcfd] px-3 py-2 text-sm text-[#30404d]">
+                    <input v-model="forms.rewrite_strategy[platform.key].rewrite.enabled" type="checkbox" />
+                    启用该平台
+                  </label>
+                </div>
+
+                <div class="mt-4 grid gap-3 lg:grid-cols-[220px_minmax(0,1fr)]">
+                  <div class="rounded-xl border border-[#dce4eb] bg-[#fbfcfd] px-3 py-3 text-sm leading-6 text-[#4f5d69]">
+                    固定执行：大模型主策略
+                    <div class="mt-2 text-xs text-[#6a7783]">运行时会自动把待处理段落注入到 <code>{{ paragraphPlaceholder }}</code> 占位符。</div>
+                  </div>
+                  <label class="space-y-1 text-sm">
+                    <span>提示词正文</span>
+                    <textarea
+                      v-model="forms.rewrite_strategy[platform.key].rewrite.prompt_template"
+                      rows="14"
+                      class="w-full rounded-2xl border border-[#ccd5dd] px-3 py-3 font-mono text-sm leading-6"
+                      :placeholder="`请填写该平台的大模型提示词，并保留 ${paragraphPlaceholder} 占位符`"
+                    ></textarea>
+                  </label>
+                </div>
+              </article>
+            </section>
+          </template>
+
+          <template v-else-if="activeTab === 'dedup_strategy'">
+            <section class="rounded-2xl border border-[#dce4eb] bg-[#fbfcfd] p-4">
+              <div class="text-sm font-semibold text-[#1f2c35]">运行说明</div>
+              <div class="mt-1 text-xs leading-5 text-[#5f6d79]">
+                知网和维普降重复率都固定走大模型主策略。这里仅维护是否启用和提示词内容，保存后新任务会直接读取后台最新文案。
+              </div>
+            </section>
+
+            <section class="space-y-3">
+              <article
+                v-for="platform in dedupStrategyPlatforms"
+                :key="platform.key"
+                class="rounded-2xl border border-[#dce4eb] bg-white p-4"
+              >
+                <div class="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <div class="text-sm font-semibold text-[#1f2c35]">{{ platform.label }}</div>
+                    <div class="mt-1 text-xs leading-5 text-[#5f6d79]">{{ platform.desc }}</div>
+                  </div>
+                  <label class="inline-flex items-center gap-2 rounded-xl border border-[#d6dee6] bg-[#fbfcfd] px-3 py-2 text-sm text-[#30404d]">
+                    <input v-model="forms.dedup_strategy[platform.key].dedup.enabled" type="checkbox" />
+                    启用该平台
+                  </label>
+                </div>
+
+                <div class="mt-4 grid gap-3 lg:grid-cols-[220px_minmax(0,1fr)]">
+                  <div class="rounded-xl border border-[#dce4eb] bg-[#fbfcfd] px-3 py-3 text-sm leading-6 text-[#4f5d69]">
+                    固定执行：大模型主策略
+                    <div class="mt-2 text-xs text-[#6a7783]">运行时会自动把待处理段落注入到 <code>{{ paragraphPlaceholder }}</code> 占位符。</div>
+                  </div>
+                  <label class="space-y-1 text-sm">
+                    <span>提示词正文</span>
+                    <textarea
+                      v-model="forms.dedup_strategy[platform.key].dedup.prompt_template"
+                      rows="14"
+                      class="w-full rounded-2xl border border-[#ccd5dd] px-3 py-3 font-mono text-sm leading-6"
+                      :placeholder="`请填写该平台的大模型提示词，并保留 ${paragraphPlaceholder} 占位符`"
+                    ></textarea>
+                  </label>
+                </div>
+              </article>
+            </section>
+          </template>
+
           <template v-else-if="activeTab === 'login'">
             <div class="grid gap-3 md:grid-cols-4">
               <button
@@ -977,23 +1065,29 @@ import AdminShell from "../../components/AdminShell.vue"
 import {
   AIGC_DETECT_STRATEGY_PLATFORMS,
   ADMIN_CONFIG_GUIDES,
+  DEDUP_STRATEGY_PLATFORMS,
   buildAdminConfigPayload,
   CONFIG_TABS,
+  DEFAULT_DEDUP_STRATEGY_CONFIG,
   DEFAULT_MINIAPP_CONFIG,
   DEFAULT_PROMO_CENTER_CONFIG,
+  DEFAULT_REWRITE_STRATEGY_CONFIG,
   LLM_PRESETS,
   LLM_PROVIDERS,
   PAYMENT_PROVIDERS,
+  REWRITE_STRATEGY_PLATFORMS,
   SMS_PROVIDERS,
   adminConfigReadinessChipClass,
   adminConfigReadinessLabel,
   applyLlmProviderPreset,
   cloneBillingPackages,
   createBillingPackage,
+  normalizeDedupStrategyConfig,
   normalizeBillingForm,
   normalizeAigcDetectStrategyConfig,
   normalizeMiniappConfig,
   normalizePromotionCenterConfig,
+  normalizeRewriteStrategyConfig,
   reorderAdminConfigItems,
   resolvePaymentNotifyPreview as resolvePaymentNotifyPreviewText,
   validateAdminConfigCategory,
@@ -1008,10 +1102,13 @@ const llmPresets = LLM_PRESETS
 const paymentProviders = PAYMENT_PROVIDERS
 const smsProviders = SMS_PROVIDERS
 const aigcDetectStrategyPlatforms = AIGC_DETECT_STRATEGY_PLATFORMS
+const rewriteStrategyPlatforms = REWRITE_STRATEGY_PLATFORMS
+const dedupStrategyPlatforms = DEDUP_STRATEGY_PLATFORMS
 const guideMap = ADMIN_CONFIG_GUIDES
 const activeTab = ref("login")
 const route = useRoute()
 const router = useRouter()
+const paragraphPlaceholder = "{{paragraph}}"
 const forms = ref({
   llm: {
     enabled: false,
@@ -1053,6 +1150,8 @@ const forms = ref({
   promo_center: normalizePromotionCenterConfig(DEFAULT_PROMO_CENTER_CONFIG),
   miniapp: normalizeMiniappConfig(DEFAULT_MINIAPP_CONFIG),
   aigc_detect_strategy: normalizeAigcDetectStrategyConfig(),
+  rewrite_strategy: normalizeRewriteStrategyConfig(DEFAULT_REWRITE_STRATEGY_CONFIG),
+  dedup_strategy: normalizeDedupStrategyConfig(DEFAULT_DEDUP_STRATEGY_CONFIG),
 })
 
 const readinessMap = ref({})
@@ -1141,6 +1240,12 @@ async function loadTab(category) {
   }
   if (category === "aigc_detect_strategy") {
     forms.value.aigc_detect_strategy = normalizeAigcDetectStrategyConfig(forms.value.aigc_detect_strategy)
+  }
+  if (category === "rewrite_strategy") {
+    forms.value.rewrite_strategy = normalizeRewriteStrategyConfig(forms.value.rewrite_strategy)
+  }
+  if (category === "dedup_strategy") {
+    forms.value.dedup_strategy = normalizeDedupStrategyConfig(forms.value.dedup_strategy)
   }
   if (category === "user_navigation") {
     forms.value.user_navigation = normalizeUserNavigationConfig(forms.value.user_navigation)

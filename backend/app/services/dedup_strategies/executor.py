@@ -35,7 +35,7 @@ def execute_dedup_strategy(
         output = str(rewrite_result.get("text") or "") if isinstance(rewrite_result, dict) else str(rewrite_result or "")
         rule_trace = rewrite_result.get("rule_trace") if isinstance(rewrite_result, dict) else {}
         if not output.strip():
-            raise BizError(code=4621, message="知网降重复率 V20 输出为空")
+            raise BizError(code=4621, message="知网降重复输出为空")
         length_before = count_billable_chars(str(text or ""))
         length_after = count_billable_chars(output)
         similarity_ratio = SequenceMatcher(None, str(text or "")[:4000], output[:4000]).ratio()
@@ -50,7 +50,7 @@ def execute_dedup_strategy(
             "similarity_ratio": round(similarity_ratio, 4),
             "change_ratio": round((1 - similarity_ratio) * 100, 2),
             "quality_score": 1.0,
-            "quality_flags": {"strict_cnki_v20_passed": True},
+            "quality_flags": {"cnki_dedup_pipeline_applied": True},
             "warnings": [],
             "rule_trace": dict(rule_trace or {}),
         }
@@ -61,7 +61,7 @@ def execute_dedup_strategy(
         output = str(rewrite_result.get("text") or "") if isinstance(rewrite_result, dict) else str(rewrite_result or "")
         rule_trace = rewrite_result.get("rule_trace") if isinstance(rewrite_result, dict) else {}
         if not output.strip():
-            raise BizError(code=4621, message="维普降重复率 W4 输出为空")
+            raise BizError(code=4621, message="维普降重复输出为空")
         length_before = count_billable_chars(str(text or ""))
         length_after = count_billable_chars(output)
         similarity_ratio = SequenceMatcher(None, str(text or "")[:4000], output[:4000]).ratio()
@@ -76,7 +76,7 @@ def execute_dedup_strategy(
             "similarity_ratio": round(similarity_ratio, 4),
             "change_ratio": round((1 - similarity_ratio) * 100, 2),
             "quality_score": 1.0,
-            "quality_flags": {"strict_vip_w4_passed": True},
+            "quality_flags": {"vip_dedup_pipeline_applied": True},
             "warnings": [],
             "rule_trace": dict(rule_trace or {}),
         }

@@ -2,11 +2,11 @@ from __future__ import annotations
 
 from app.models import TaskType
 from app.models import Task
-from app.services.vip_w4_runtime import execute_vip_w4_text
+from app.services.vip_dedup_runtime import execute_vip_dedup_text
 
 
 def rewrite(db, *, task: Task | None, text: str, report_summary: dict | None = None) -> dict:
-    result = execute_vip_w4_text(
+    result = execute_vip_dedup_text(
         db,
         task_type=task.task_type if task is not None else TaskType.DEDUP,
         source_text=text,
@@ -14,22 +14,12 @@ def rewrite(db, *, task: Task | None, text: str, report_summary: dict | None = N
     return {
         "text": result.text,
         "rule_trace": {
-            "mode": "vip_w4_strict_runtime",
-            "applied_rules": ["llm:vip_w4:full_text_runtime"],
+            "mode": "vip_dedup_style_transfer",
+            "applied_rules": ["llm:vip:dedup:paragraph_style_transfer"],
             "protected_hits": [],
-            "strategy_version": "vip_w4",
-            "chunk_count": 1,
-            "technical_chunking": False,
-            "reported_total_rewrites": result.run.reported_total_rewrites,
-            "plan": {
-                "total_chars": result.run.plan.total_chars,
-                "total_quota": result.run.plan.total_quota,
-                "paragraph_count": result.run.plan.paragraph_count,
-                "paragraph_quotas": [
-                    {"index": item.index, "char_count": item.char_count, "quota": item.quota}
-                    for item in result.run.plan.paragraphs
-                ],
-            },
+            "strategy_version": "vip_dedup_v1",
+            "paragraph_count": result.run.paragraph_count,
+            "total_chars": result.run.total_chars,
             "llm_provider": result.run.llm_provider,
             "llm_model": result.run.llm_model,
         },

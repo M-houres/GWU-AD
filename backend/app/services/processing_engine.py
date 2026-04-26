@@ -455,11 +455,11 @@ class ProcessingEngine:
     ) -> None:
         doc = Document(str(input_path))
         if platform == "cnki" and task_type in {TaskType.REWRITE, TaskType.DEDUP}:
-            self._transform_docx_cnki_v20(doc, task_type)
+            self._transform_docx_cnki_pipeline(doc, task_type)
             doc.save(str(output_path))
             return
         if platform == "vip" and task_type in {TaskType.REWRITE, TaskType.DEDUP}:
-            self._transform_docx_vip_w4(doc, task_type)
+            self._transform_docx_vip_pipeline(doc, task_type)
             doc.save(str(output_path))
             return
         summary = report_summary or {}
@@ -543,18 +543,27 @@ class ProcessingEngine:
             previous_kind = kind
         return target_paragraphs, source_paragraphs, target_kinds, preserved_prefixes
 
-    def _transform_docx_cnki_v20(self, doc: Document, task_type: TaskType) -> None:
-        from app.services.cnki_v20_runtime import execute_cnki_v20
+    def _transform_docx_cnki_pipeline(self, doc: Document, task_type: TaskType) -> None:
+        if task_type == TaskType.REWRITE:
+            from app.services.cnki_rewrite_runtime import execute_cnki_rewrite as execute_cnki_pipeline
+            quality_flags = {"cnki_rewrite_pipeline_applied": True}
+            strategy_version = "cnki_rewrite_v1"
+            mode = "cnki_rewrite_style_transfer"
+        else:
+            from app.services.cnki_dedup_runtime import execute_cnki_dedup as execute_cnki_pipeline
+            quality_flags = {"cnki_dedup_pipeline_applied": True}
+            strategy_version = "cnki_dedup_v1"
+            mode = "cnki_dedup_style_transfer"
 
         target_paragraphs, source_paragraphs, _target_kinds, preserved_prefixes = self._collect_full_docx_rewrite_targets(doc)
         if not source_paragraphs:
             return
-        run = execute_cnki_v20(self.db, task_type=task_type, paragraphs=source_paragraphs)
+        run = execute_cnki_pipeline(self.db, task_type=task_type, paragraphs=source_paragraphs)
         rewritten_paragraphs = [item.strip() for item in re.split(r"\n\s*\n", str(run.text or "").strip()) if item.strip()]
         if len(rewritten_paragraphs) != len(target_paragraphs):
             rewritten_paragraphs = [line.strip() for line in str(run.text or "").splitlines() if line.strip()]
         if len(rewritten_paragraphs) != len(target_paragraphs):
-            raise BizError(code=4626, message="知网 V20 DOCX 输出段落数不匹配")
+            raise BizError(code=4626, message="知网 DOCX 输出段落数不匹配")
         for paragraph, rewritten_text, source_text, target_kind, preserved_prefix in zip(
             target_paragraphs, rewritten_paragraphs, source_paragraphs, _target_kinds, preserved_prefixes
         ):
@@ -569,24 +578,16 @@ class ProcessingEngine:
             "strategy": "llm",
             "platform": "cnki",
             "task_type": task_type.value,
-            "length_before": run.plan.total_chars,
+            "length_before": run.total_chars,
             "length_after": count_billable_chars(run.text),
             "quality_score": 1.0,
-            "quality_flags": {"strict_cnki_v20_passed": True},
+            "quality_flags": quality_flags,
             "warnings": [],
             "rule_trace": {
-                "mode": "cnki_v20_strict_runtime",
-                "strategy_version": "cnki_v20",
-                "reported_total_rewrites": run.reported_total_rewrites,
-                "plan": {
-                    "total_chars": run.plan.total_chars,
-                    "total_quota": run.plan.total_quota,
-                    "paragraph_count": run.plan.paragraph_count,
-                    "paragraph_quotas": [
-                        {"index": item.index, "char_count": item.char_count, "quota": item.quota}
-                        for item in run.plan.paragraphs
-                    ],
-                },
+                "mode": mode,
+                "strategy_version": strategy_version,
+                "paragraph_count": run.paragraph_count,
+                "total_chars": run.total_chars,
                 "llm_provider": run.llm_provider,
                 "llm_model": run.llm_model,
             },
@@ -602,18 +603,27 @@ class ProcessingEngine:
             self._dedup_strategy_meta = meta
         self._pipeline_usage["llm_used"] = True
 
-    def _transform_docx_vip_w4(self, doc: Document, task_type: TaskType) -> None:
-        from app.services.vip_w4_runtime import execute_vip_w4
+    def _transform_docx_vip_pipeline(self, doc: Document, task_type: TaskType) -> None:
+        if task_type == TaskType.REWRITE:
+            from app.services.vip_rewrite_runtime import execute_vip_rewrite as execute_vip_pipeline
+            quality_flags = {"vip_rewrite_pipeline_applied": True}
+            strategy_version = "vip_rewrite_v1"
+            mode = "vip_rewrite_style_transfer"
+        else:
+            from app.services.vip_dedup_runtime import execute_vip_dedup as execute_vip_pipeline
+            quality_flags = {"vip_dedup_pipeline_applied": True}
+            strategy_version = "vip_dedup_v1"
+            mode = "vip_dedup_style_transfer"
 
         target_paragraphs, source_paragraphs, _target_kinds, preserved_prefixes = self._collect_full_docx_rewrite_targets(doc)
         if not source_paragraphs:
             return
-        run = execute_vip_w4(self.db, task_type=task_type, paragraphs=source_paragraphs)
+        run = execute_vip_pipeline(self.db, task_type=task_type, paragraphs=source_paragraphs)
         rewritten_paragraphs = [item.strip() for item in re.split(r"\n\s*\n", str(run.text or "").strip()) if item.strip()]
         if len(rewritten_paragraphs) != len(target_paragraphs):
             rewritten_paragraphs = [line.strip() for line in str(run.text or "").splitlines() if line.strip()]
         if len(rewritten_paragraphs) != len(target_paragraphs):
-            raise BizError(code=4636, message="维普 W4 DOCX 输出段落数不匹配")
+            raise BizError(code=4636, message="维普 DOCX 输出段落数不匹配")
         for paragraph, rewritten_text, source_text, target_kind, preserved_prefix in zip(
             target_paragraphs, rewritten_paragraphs, source_paragraphs, _target_kinds, preserved_prefixes
         ):
@@ -628,24 +638,16 @@ class ProcessingEngine:
             "strategy": "llm",
             "platform": "vip",
             "task_type": task_type.value,
-            "length_before": run.plan.total_chars,
+            "length_before": run.total_chars,
             "length_after": count_billable_chars(run.text),
             "quality_score": 1.0,
-            "quality_flags": {"strict_vip_w4_passed": True},
+            "quality_flags": quality_flags,
             "warnings": [],
             "rule_trace": {
-                "mode": "vip_w4_strict_runtime",
-                "strategy_version": "vip_w4",
-                "reported_total_rewrites": run.reported_total_rewrites,
-                "plan": {
-                    "total_chars": run.plan.total_chars,
-                    "total_quota": run.plan.total_quota,
-                    "paragraph_count": run.plan.paragraph_count,
-                    "paragraph_quotas": [
-                        {"index": item.index, "char_count": item.char_count, "quota": item.quota}
-                        for item in run.plan.paragraphs
-                    ],
-                },
+                "mode": mode,
+                "strategy_version": strategy_version,
+                "paragraph_count": run.paragraph_count,
+                "total_chars": run.total_chars,
                 "llm_provider": run.llm_provider,
                 "llm_model": run.llm_model,
             },

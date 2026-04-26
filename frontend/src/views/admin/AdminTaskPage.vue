@@ -222,7 +222,7 @@
 </template>
 
 <script setup>
-import { onMounted, reactive, ref, watch } from "vue"
+import { computed, onMounted, reactive, ref, watch } from "vue"
 import { useRoute, useRouter } from "vue-router"
 
 import AdminShell from "../../components/AdminShell.vue"

@@ -384,6 +384,86 @@ def test_rewrite_docx_preserves_inline_frontmatter_when_label_and_body_are_split
     assert paragraphs[7] == "参考文献"
 
 
+def test_rewrite_docx_repairs_adjacent_paragraph_drift_when_model_keeps_count_but_shifts_sentences(
+    tmp_path: Path, db_session: Session, monkeypatch
+) -> None:
+    source_path = tmp_path / "docx_drift_source.docx"
+    output_path = tmp_path / "docx_drift_output.docx"
+    _write_docx(
+        source_path,
+        [
+            "融合教育支持路径研究",
+            "【摘要】摘要第一句。摘要第二句。摘要第三句。",
+            "【关键词】融合教育；支持路径",
+            "引言",
+            "正文第一句。正文第二句。",
+            "一、路径设计",
+            "正文第三句。",
+            "参考文献",
+            "[1] 示例文献",
+        ],
+    )
+
+    def _fake_generate(_db, *, task_type, text: str):
+        return (
+            "=== 改写完成 总改写次数：9 次 ===\n"
+            "摘要甲句。摘要乙句。\n\n"
+            "摘要丙句。正文甲句。\n\n"
+            "正文乙句。正文丙句。"
+        )
+
+    monkeypatch.setattr("app.services.cnki_v20_runtime.generate_with_llm", _fake_generate)
+
+    engine = ProcessingEngine(db_session)
+    engine.process(TaskType.REWRITE, "cnki", source_path, output_path, task_id=304)
+
+    paragraphs = [paragraph.text for paragraph in Document(str(output_path)).paragraphs]
+
+    assert paragraphs[1] == "【摘要】摘要甲句。摘要乙句。摘要丙句。"
+    assert paragraphs[4] == "正文甲句。正文乙句。"
+    assert paragraphs[6] == "正文丙句。"
+
+
+def test_vip_docx_repairs_adjacent_paragraph_drift_when_model_keeps_count_but_shifts_sentences(
+    tmp_path: Path, db_session: Session, monkeypatch
+) -> None:
+    source_path = tmp_path / "vip_docx_drift_source.docx"
+    output_path = tmp_path / "vip_docx_drift_output.docx"
+    _write_docx(
+        source_path,
+        [
+            "融合教育支持路径研究",
+            "【摘要】摘要第一句。摘要第二句。摘要第三句。",
+            "【关键词】融合教育；支持路径",
+            "引言",
+            "正文第一句。正文第二句。",
+            "一、路径设计",
+            "正文第三句。",
+            "参考文献",
+            "[1] 示例文献",
+        ],
+    )
+
+    def _fake_generate(_db, *, task_type, text: str):
+        return (
+            "=== 改写完成 总改写次数：6 次 ===\n"
+            "摘要甲句。摘要乙句。\n\n"
+            "摘要丙句。正文甲句。\n\n"
+            "正文乙句。正文丙句。"
+        )
+
+    monkeypatch.setattr("app.services.vip_w4_runtime.generate_with_llm", _fake_generate)
+
+    engine = ProcessingEngine(db_session)
+    engine.process(TaskType.REWRITE, "vip", source_path, output_path, task_id=305)
+
+    paragraphs = [paragraph.text for paragraph in Document(str(output_path)).paragraphs]
+
+    assert paragraphs[1] == "【摘要】摘要甲句。摘要乙句。摘要丙句。"
+    assert paragraphs[4] == "正文甲句。正文乙句。"
+    assert paragraphs[6] == "正文丙句。"
+
+
 def test_aigc_detect_returns_structured_result(tmp_path: Path, db_session: Session, monkeypatch) -> None:
     source_path = tmp_path / "paper.txt"
     output_path = tmp_path / "result.pdf"
