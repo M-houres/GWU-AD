@@ -36,24 +36,40 @@ def upgrade() -> None:
     bind = op.get_bind()
     dialect = bind.dialect.name
 
-    op.execute(
-        """
-        UPDATE partner_channels
-        SET root_channel_id = COALESCE(
-            NULLIF(root_channel_id, id),
-            (
-                SELECT COALESCE(
-                    NULLIF(parent.root_channel_id, partner_channels.id),
-                    NULLIF(parent.id, partner_channels.id)
-                )
-                FROM partner_channels AS parent
-                WHERE parent.id = partner_channels.parent_channel_id
-            ),
-            id
+    if dialect == "mysql":
+        op.execute(
+            """
+            UPDATE partner_channels
+            LEFT JOIN partner_channels AS parent
+              ON parent.id = partner_channels.parent_channel_id
+            SET partner_channels.root_channel_id = COALESCE(
+                NULLIF(partner_channels.root_channel_id, partner_channels.id),
+                NULLIF(parent.root_channel_id, partner_channels.id),
+                NULLIF(parent.id, partner_channels.id),
+                partner_channels.id
+            )
+            WHERE COALESCE(partner_channels.level, 1) > 2
+            """
         )
-        WHERE COALESCE(level, 1) > 2
-        """
-    )
+    else:
+        op.execute(
+            """
+            UPDATE partner_channels
+            SET root_channel_id = COALESCE(
+                NULLIF(root_channel_id, id),
+                (
+                    SELECT COALESCE(
+                        NULLIF(parent.root_channel_id, partner_channels.id),
+                        NULLIF(parent.id, partner_channels.id)
+                    )
+                    FROM partner_channels AS parent
+                    WHERE parent.id = partner_channels.parent_channel_id
+                ),
+                id
+            )
+            WHERE COALESCE(level, 1) > 2
+            """
+        )
     op.execute(
         """
         UPDATE partner_channels
@@ -86,24 +102,42 @@ def upgrade() -> None:
         WHERE level = 1
         """
     )
-    op.execute(
-        """
-        UPDATE partner_channels
-        SET root_channel_id = COALESCE(
-                (
-                    SELECT CASE
-                        WHEN parent.level = 1 THEN parent.id
-                        ELSE COALESCE(NULLIF(parent.root_channel_id, partner_channels.id), parent.id)
-                    END
-                    FROM partner_channels AS parent
-                    WHERE parent.id = partner_channels.parent_channel_id
-                ),
-                NULLIF(root_channel_id, id),
-                id
+    if dialect == "mysql":
+        op.execute(
+            """
+            UPDATE partner_channels
+            LEFT JOIN partner_channels AS parent
+              ON parent.id = partner_channels.parent_channel_id
+            SET partner_channels.root_channel_id = COALESCE(
+                CASE
+                    WHEN parent.level = 1 THEN parent.id
+                    ELSE COALESCE(NULLIF(parent.root_channel_id, partner_channels.id), parent.id)
+                END,
+                NULLIF(partner_channels.root_channel_id, partner_channels.id),
+                partner_channels.id
             )
-        WHERE level = 2
-        """
-    )
+            WHERE partner_channels.level = 2
+            """
+        )
+    else:
+        op.execute(
+            """
+            UPDATE partner_channels
+            SET root_channel_id = COALESCE(
+                    (
+                        SELECT CASE
+                            WHEN parent.level = 1 THEN parent.id
+                            ELSE COALESCE(NULLIF(parent.root_channel_id, partner_channels.id), parent.id)
+                        END
+                        FROM partner_channels AS parent
+                        WHERE parent.id = partner_channels.parent_channel_id
+                    ),
+                    NULLIF(root_channel_id, id),
+                    id
+                )
+            WHERE level = 2
+            """
+        )
     op.execute(
         """
         UPDATE partner_channels
