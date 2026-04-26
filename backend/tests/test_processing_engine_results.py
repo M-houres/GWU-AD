@@ -62,11 +62,9 @@ def test_cnki_v20_recovers_final_text_when_final_header_is_missing(db_session: S
 
     def _fake_generate(_db, *, task_type, text: str):
         return (
-            "【初始化】正文约432字，全文配额48次，共1段，各段配额：P1=48\n"
-            "【P_1 改写计划 共48条】\n"
-            "1. 将→把（触发问1）\n"
             "【P_1 改写结果】\n"
-            "这是改写后的正文内容，能够体现知网 V20 的严格执行结果。\n"
+            + ("因此，本文在方法层面开展系统分析并提出改进途径，" * 24)
+            + "\n"
             "【P_1 验证】实际完成 48 处改写，配额要求 48 处。\n"
         )
 
@@ -74,7 +72,7 @@ def test_cnki_v20_recovers_final_text_when_final_header_is_missing(db_session: S
 
     result = cnki_llm.rewrite(db_session, task=None, text=text, report_summary={})
     trace = result.get("rule_trace") or {}
-    assert "这是改写后的正文内容" in result.get("text", "")
+    assert "开展系统分析并提出改进途径" in result.get("text", "")
     assert trace.get("reported_total_rewrites") == 48
 
 
@@ -127,6 +125,41 @@ def test_vip_w4_allows_plain_body_output_without_control_blocks(db_session: Sess
 
     result = vip_llm.rewrite(db_session, task=None, text=text, report_summary={})
     assert "优化途径" in result.get("text", "")
+
+
+def test_cnki_v20_strips_leaked_process_markers_from_final_text(db_session: Session, monkeypatch) -> None:
+    from app.services.rewrite_strategies import cnki_llm
+
+    text = "因此，本研究在方法层面进行系统分析并提出改进路径，研究结论具有稳定的解释力。"
+
+    def _fake_generate(_db, *, task_type, text: str):
+        return (
+            "=== 改写完成 总改写次数：8 次 ===\n"
+            "本研究在方法层面开展系统分析，并提出了改进途径，相关结论也保持了稳定的解释力。"
+            "→ 通过，继续处理下一段"
+        )
+
+    monkeypatch.setattr("app.services.cnki_v20_runtime.generate_with_llm", _fake_generate)
+
+    result = cnki_llm.rewrite(db_session, task=None, text=text, report_summary={})
+    output = result.get("text", "")
+    assert "改进途径" in output
+    assert "继续处理下一段" not in output
+    assert "改写完成" not in output
+
+
+def test_vip_w4_rejects_abnormally_short_output(db_session: Session, monkeypatch) -> None:
+    from app.services.rewrite_strategies import vip_llm
+
+    text = "当前机制较为重要，因此需要优化路径，并保持研究过程的整体稳定。" * 8
+
+    def _fake_generate(_db, *, task_type, text: str):
+        return "=== 改写完成 总改写次数：5 次 ===\n这是摘要。"
+
+    monkeypatch.setattr("app.services.vip_w4_runtime.generate_with_llm", _fake_generate)
+
+    with pytest.raises(BizError, match="维普 W4 最终正文长度异常缩水"):
+        vip_llm.rewrite(db_session, task=None, text=text, report_summary={})
 
 
 def test_rewrite_process_uses_report_summary(tmp_path: Path, db_session: Session, monkeypatch) -> None:
@@ -485,7 +518,7 @@ def test_rewrite_cnki_freezes_algorithm_config_to_strict_v20_llm(
     assert trace["plan"]["paragraph_count"] == 1
 
 
-def test_rewrite_cnki_v20_retries_when_output_missing_final_header_once(
+def test_rewrite_cnki_v20_accepts_plain_body_output_without_retry(
     tmp_path: Path, db_session: Session, monkeypatch
 ) -> None:
     source_path = tmp_path / "rewrite_cnki_retry.txt"
@@ -515,7 +548,7 @@ def test_rewrite_cnki_v20_retries_when_output_missing_final_header_once(
     result = engine.process(TaskType.REWRITE, "cnki", source_path, output_path, task_id=110)
 
     assert result.result_json["rewrite_strategy"]["rule_trace"]["reported_total_rewrites"] == 8
-    assert calls["count"] == 2
+    assert calls["count"] == 1
 
 
 def test_vip_dedup_w4_strategy_is_enabled(db_session: Session) -> None:

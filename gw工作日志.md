@@ -7689,6 +7689,25 @@
       - 新增 `_transform_docx_vip_w4`
       - 维普 DOCX 改写 / 降重改为整篇执行 W4 后再按段回填
     - 测试收口
-      - `backend/tests/test_process_strategies.py`
+    - `backend/tests/test_process_strategies.py`
+    - `backend/tests/test_processing_engine_results.py`
+    - 把维普原 blocked 用例改为 W4 已启用断言，并新增维普文本 / DOCX 运行覆盖
+
+- 2026-04-26 20:35:00
+  - 知网 V20 / 维普 W4 收简为“内部执行策略，外部仅输出最终正文”
+    - 重写 `backend/app/services/cnki_v20_prompt.py`
+      - 保留 V20 核心规则、配额、保护词、替换原则
+      - 去掉对显式输出 `初始化 / 改写计划 / 改写结果 / 验证 / 汇总头` 的依赖
+      - 明确要求模型内部执行完整流程，但最终只输出正文
+    - 重写 `backend/app/services/vip_w4_prompt.py`
+      - 保留 W4 核心规则、配额、风格降书面化要求
+      - 改为隐藏执行，不允许输出过程控制文本
+    - 加强运行时结果清洗
+      - `backend/app/services/cnki_v20_runtime.py`
+      - `backend/app/services/vip_w4_runtime.py`
+      - 追加过程脏文本剥离：`通过，继续处理下一段 / 改写计划 / 改写结果 / 验证 / 改写完成`
+      - 增加整体字数保底，拦截明显缩水成稿
+      - 若段落中仍含过程标记，直接判失败重试，不再把半成品放行
+    - 测试补强
       - `backend/tests/test_processing_engine_results.py`
-      - 把维普原 blocked 用例改为 W4 已启用断言，并新增维普文本 / DOCX 运行覆盖
+      - 新增“过程文本剥离”和“异常缩水拦截”回归用例

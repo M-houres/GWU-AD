@@ -16,6 +16,16 @@ _REFERENCE_HEADINGS = {"参考文献", "参考文献:", "参考文献：", "refe
 _KEYWORD_PREFIXES = ("关键词：", "关键词:", "关键字：", "关键字:")
 _STYLE_FLOOR_FORBIDDEN = ("拿", "搞", "弄", "蛮好", "挺好", "非常棒", "很厉害")
 _PROTECTED_TITLE_HEADINGS = {"摘要", "引言", "结论", "结语", "致谢", "参考文献", "Abstract", "ABSTRACT"}
+_MIN_OUTPUT_LENGTH_RATIO = 0.75
+_PROCESS_MARKER_PATTERNS = (
+    r"→\s*通过，继续处理下一段",
+    r"通过，继续处理下一段",
+    r"【初始化】.*",
+    r"【P[_\s]?\d+\s*改写计划[^】]*】",
+    r"【P[_\s]?\d+\s*改写结果(?:（修订版）)?】",
+    r"【P[_\s]?\d+\s*验证】.*",
+    r"===\s*改写完成.*?===",
+)
 
 
 @dataclass
@@ -169,24 +179,23 @@ def build_vip_w4_text_layout(source_text: str) -> VipW4TextLayout:
 
 def _build_runtime_context(plan: VipW4Plan) -> str:
     return (
-        "系统预计算校验值如下，你在步骤一和步骤四中必须与这些值保持一致：\n"
+        "系统预计算校验值如下，你必须在内部执行时遵守，但不得把这些校验值输出到最终成稿：\n"
         f"{plan.init_line}\n"
         "额外硬约束：\n"
         f"1. 本次输入仅包含允许改写的正文段，共 {plan.paragraph_count} 段。\n"
         "2. 段落顺序不得调整，不得合并，不得拆分。\n"
-        "3. 每段最终字数变化必须控制在原段字数的 ±5% 内。\n"
-        "4. 最终 `=== 改写完成 总改写次数：R_total 次 ===` 后面只允许输出改写后的正文段落，不得夹带计划、验证或说明。\n"
-        "5. 段落之间保留一个空行。"
+        "3. 你必须在内部完成配额、自检和字数控制，但最终只输出改写后的正文段落，不得输出计划、验证、统计或说明。\n"
+        "4. 段落之间保留一个空行。"
     )
 
 
 def _build_retry_prompt(*, plan: VipW4Plan, previous_output: str, issues: list[str]) -> str:
     issue_text = "；".join(item for item in issues if item) or "最终输出未通过系统校验"
     return (
-        "你上一轮的维普 W4 输出未通过系统校验，必须完整重新执行四个步骤并修正错误。\n"
+        "你上一轮的维普 W4 输出未通过系统校验，必须重新执行内部改写流程并修正错误。\n"
         f"错误原因：{issue_text}\n"
         f"必须继续满足：{plan.init_line}\n"
-        "最终段落数必须与原文正文段数完全一致，且每段字数变化不超过 ±5%。最终正文不得混入计划、验证或说明。\n"
+        "最终段落数必须与原文正文段数完全一致，只允许输出干净正文，不得混入计划、验证、通过提示或任何说明。\n"
         "以下是你上一轮的原始输出，仅供修正参考：\n"
         f"{previous_output}"
     )
@@ -264,7 +273,9 @@ def _clean_runtime_output_text(raw_output: str) -> str:
             continue
         if line.startswith("===") and "改写完成" in line:
             continue
-        lines.append(raw_line.rstrip())
+        cleaned_line = _strip_process_markers(raw_line.rstrip())
+        if cleaned_line:
+            lines.append(cleaned_line)
     cleaned = clean_llm_user_facing_text("\n".join(lines))
     return cleaned.strip()
 
@@ -316,7 +327,7 @@ def _sum_validation_rewrites(raw_output: str) -> int:
 
 
 def _repair_vip_w4_paragraph(text: str) -> str:
-    output = str(text or "").strip()
+    output = _strip_process_markers(str(text or "").strip())
     output = output.replace("重要的", "主要的")
     output = output.replace("重要作用", "主要作用")
     output = output.replace("重要意义", "主要意义")
@@ -336,9 +347,15 @@ def _validate_vip_w4_output(
 ) -> None:
     if len(rewritten_paragraphs) != plan.paragraph_count:
         raise BizError(code=4636, message="维普 W4 最终正文为空或无法按段恢复")
+    original_total = sum(count_billable_chars(item) for item in original_paragraphs)
+    rewritten_total = sum(count_billable_chars(item) for item in rewritten_paragraphs)
+    if original_total > 0 and rewritten_total < original_total * _MIN_OUTPUT_LENGTH_RATIO:
+        raise BizError(code=4636, message="维普 W4 最终正文长度异常缩水")
     for original, rewritten, quota in zip(original_paragraphs, rewritten_paragraphs, plan.paragraphs):
         if count_billable_chars(rewritten) <= 0:
             raise BizError(code=4636, message=f"维普 W4 P{quota.index} 输出为空")
+        if _contains_process_markers(rewritten):
+            raise BizError(code=4636, message=f"维普 W4 P{quota.index} 混入过程控制文本")
         if original == rewritten:
             continue
 
@@ -394,3 +411,16 @@ def _is_preserved_text_block(text: str, *, index: int) -> bool:
             if re.match(r"^([一二三四五六七八九十]+[、.．]|第[一二三四五六七八九十百零0-9]+[章节部分篇]|[（(][一二三四五六七八九十百零0-9]+[)）])", content):
                 return True
     return False
+
+
+def _strip_process_markers(text: str) -> str:
+    output = str(text or "")
+    for pattern in _PROCESS_MARKER_PATTERNS:
+        output = re.sub(pattern, "", output, flags=re.IGNORECASE)
+    output = re.sub(r"\s*→\s*$", "", output)
+    return clean_llm_user_facing_text(output).strip()
+
+
+def _contains_process_markers(text: str) -> bool:
+    content = str(text or "")
+    return any(re.search(pattern, content, flags=re.IGNORECASE) for pattern in _PROCESS_MARKER_PATTERNS)
