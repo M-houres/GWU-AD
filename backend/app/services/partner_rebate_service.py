@@ -32,7 +32,7 @@ settings = get_settings()
 
 _CHANNEL_CODE_RE = re.compile(r"^[A-Z][A-Z0-9_-]{2,31}$")
 _STATEMENT_MONTH_RE = re.compile(r"^\d{4}-\d{2}$")
-MAX_PARTNER_LEVEL = 3
+MAX_PARTNER_LEVEL = 2
 
 
 def _normalize_channel_code(value: str | None) -> str:
@@ -147,7 +147,7 @@ def _ensure_valid_parent(
     parent_level = int(parent.level or 1)
     level = parent_level + 1
     if level > MAX_PARTNER_LEVEL:
-        raise BizError(code=4477, message="分销层级最多支持 3 级")
+        raise BizError(code=4477, message="分销层级最多支持 2 级")
     root_channel_id = int(parent.root_channel_id or parent.id)
     return parent, level, root_channel_id
 

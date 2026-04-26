@@ -1,600 +1,523 @@
 <template>
-  <div class="partner-portal-page">
-    <section class="partner-portal-shell">
-      <header class="partner-portal-head">
+  <div class="partner-page">
+    <section class="partner-shell">
+      <header class="partner-head">
         <div>
-          <p class="partner-portal-head__eyebrow">渠道返佣专属门户</p>
-          <h1 class="partner-portal-head__title">渠道后台</h1>
-          <p class="partner-portal-head__desc">收益、链接和下级管理都在这里。</p>
+          <p class="partner-head__eyebrow">渠道返佣门户</p>
+          <h1>{{ pageTitle }}</h1>
+          <p>{{ pageSubtitle }}</p>
         </div>
-        <div class="partner-portal-head__actions">
-          <button type="button" class="partner-portal-head__refresh" :disabled="loading" @click="loadPortalData">
-            {{ loading ? "加载中..." : "刷新数据" }}
+        <div class="partner-head__actions">
+          <button type="button" class="partner-button partner-button--ghost" :disabled="loading" @click="loadPortalData">
+            {{ loading ? "刷新中..." : "刷新数据" }}
           </button>
-          <button v-if="hasPortalSession" type="button" class="partner-btn--ghost" @click="logoutPortal">
+          <button v-if="hasPortalSession" type="button" class="partner-button partner-button--ghost" @click="logoutPortal">
             退出登录
           </button>
         </div>
       </header>
 
-      <p v-if="errorText" class="partner-alert partner-alert--danger">{{ errorText }}</p>
-      <p v-if="successText" class="partner-alert partner-alert--success">{{ successText }}</p>
+      <p v-if="errorText" class="partner-message partner-message--danger">{{ errorText }}</p>
+      <p v-if="successText" class="partner-message partner-message--success">{{ successText }}</p>
 
-      <section v-if="hasPortalSession && overview" class="partner-overview">
-        <div class="partner-overview__meta">
-          <span>渠道：{{ overview.channel_name || "-" }}</span>
-          <span>当前层级：{{ formatLevel(overview.level) }}</span>
-          <span>上级：{{ overview.parent_channel_name || "平台直营" }}</span>
-        </div>
-        <div class="partner-overview__cards">
-          <article class="partner-card">
-            <p>本月净返佣</p>
-            <strong>{{ formatFenToCny(overview.month_rebate_fen) }}</strong>
-          </article>
-          <article class="partner-card">
-            <p>待结算返佣</p>
-            <strong>{{ formatFenToCny(overview.pending_rebate_fen) }}</strong>
-          </article>
-          <article class="partner-card">
-            <p>可提现余额</p>
-            <strong>{{ formatFenToCny(overview.withdrawable_fen) }}</strong>
-          </article>
-          <article class="partner-card">
-            <p>我的客户</p>
-            <strong>{{ Number(overview.user_count || 0) }}</strong>
-          </article>
-          <article class="partner-card">
-            <p>团队客户</p>
-            <strong>{{ Math.max(Number(overview.team_subtree?.user_count || 0) - Number(overview.user_count || 0), 0) }}</strong>
-          </article>
-          <article class="partner-card">
-            <p>直属下级</p>
-            <strong>{{ Number(overview.child_count || 0) }}</strong>
-          </article>
-        </div>
+      <section v-if="hasPortalSession && overview" class="partner-stat-grid">
+        <article v-for="item in summaryCards" :key="item.label" class="partner-stat-card" :class="{ 'partner-stat-card--primary': item.primary }">
+          <span>{{ item.label }}</span>
+          <strong>{{ item.value }}</strong>
+          <p>{{ item.hint }}</p>
+        </article>
       </section>
 
-      <section v-if="hasPortalSession && overview" class="partner-data-grid">
-        <article class="partner-data-card partner-workbench-card">
-          <header class="partner-data-card__head">
-            <h2>先做这几步</h2>
-            <span>打开就能直接做</span>
-          </header>
-          <div class="partner-workbench-grid">
-            <div class="partner-task-grid partner-task-grid--compact">
-              <article class="partner-task-card">
-                <strong>{{ taskItems[0].title }}</strong>
-                <span>{{ taskItems[0].desc }}</span>
-                <button type="button" class="partner-btn--ghost" @click="taskItems[0].action()">{{ taskItems[0].cta }}</button>
-              </article>
-              <article class="partner-task-card">
-                <strong>{{ taskItems[1].title }}</strong>
-                <span>{{ taskItems[1].desc }}</span>
-                <button type="button" class="partner-btn--ghost" @click="taskItems[1].action()">{{ taskItems[1].cta }}</button>
-              </article>
-              <article class="partner-task-card">
-                <strong>{{ taskItems[2].title }}</strong>
-                <span>{{ taskItems[2].desc }}</span>
-                <button type="button" class="partner-btn--ghost" @click="taskItems[2].action()">{{ taskItems[2].cta }}</button>
-              </article>
+      <section v-if="hasPortalSession && overview" class="partner-workbench">
+        <article class="partner-panel">
+          <div class="partner-section-head">
+            <div>
+              <div class="partner-kicker">快捷动作</div>
+              <h2>打开就能做的事</h2>
             </div>
-            <div class="partner-quick-grid partner-quick-grid--compact">
-              <button type="button" class="partner-quick-action partner-quick-action--primary" @click="copyCustomerShareText">
-                <strong>发给客户</strong>
-                <span>复制客户分发信息</span>
-              </button>
-              <button type="button" class="partner-quick-action" @click="copyRecruitmentBundle">
-                <strong>发给下级</strong>
-                <span>复制招募信息</span>
-              </button>
-              <button type="button" class="partner-quick-action" @click="scrollToSection('child-form')">
-                <strong>新建直属下级</strong>
-                <span>跳到创建区</span>
-              </button>
-              <button type="button" class="partner-quick-action" @click="scrollToSection('withdraw-panel')">
-                <strong>提交提现</strong>
-                <span>跳到提现区</span>
-              </button>
+          </div>
+          <div class="partner-action-grid">
+            <button type="button" class="partner-action-card partner-action-card--primary" @click="copyCustomerShareText">
+              <strong>发给客户</strong>
+              <span>复制客户推广文案</span>
+            </button>
+            <button v-if="isLevelOne" type="button" class="partner-action-card" @click="copyRecruitmentBundle">
+              <strong>发给二级</strong>
+              <span>复制招募信息</span>
+            </button>
+            <button v-if="isLevelOne" type="button" class="partner-action-card" @click="scrollToSection('subchannel-form')">
+              <strong>新建二级</strong>
+              <span>直接跳到创建区</span>
+            </button>
+            <button type="button" class="partner-action-card" @click="scrollToSection('withdraw-panel')">
+              <strong>提现</strong>
+              <span>进入提现区</span>
+            </button>
+          </div>
+        </article>
+
+        <article class="partner-panel">
+          <div class="partner-section-head">
+            <div>
+              <div class="partner-kicker">经营提醒</div>
+              <h2>{{ isLevelOne ? `今天先看${analyticsScopeLabel}` : "今天先看自己" }}</h2>
+            </div>
+          </div>
+          <div class="partner-alert-list">
+            <div v-for="item in actionTips" :key="item.title" class="partner-alert-item">
+              <strong>{{ item.title }}</strong>
+              <p>{{ item.desc }}</p>
             </div>
           </div>
         </article>
-        <article class='partner-data-card'>
-          <header class="partner-data-card__head">
-            <h2>分发与下级</h2>
-            <span>先分发，再发展下级。</span>
-          </header>
+      </section>
 
-          <div class="partner-share-strip">
-            <article class="partner-share-card partner-share-card--primary">
-              <div class="partner-share-card__head">
-                <strong>我的分发信息</strong>
-                <span>客户和下级分开发。</span>
-              </div>
-              <div class="partner-share-card__meta">
-                <span>门户链接：{{ overview.portal_link || overview.portal_login_link || "-" }}</span>
-                <span>推广链接：{{ overview.order_link || "-" }}</span>
-              </div>
-              <div class="partner-share-card__actions">
-                <button type="button" @click="copyCustomerShareText">复制客户分发文案</button>
-                <button type="button" class="partner-btn--ghost" @click="copyRecruitmentBundle">复制下级招募信息</button>
-                <button type="button" class="partner-btn--ghost" @click="copyText(overview.order_link, '已复制推广链接')">只复制推广链接</button>
-                <button type="button" class="partner-btn--ghost" @click="copyText(overview.portal_link || overview.portal_login_link, '已复制渠道门户链接')">只复制门户链接</button>
-                <button type="button" class="partner-btn--ghost" @click="copyText(overview.miniapp_order_path, '已复制小程序推广路径')">复制小程序路径</button>
-              </div>
-            </article>
-          </div>
-
-          <div class="partner-manage-grid">
-            <section class="partner-block">
-              <div id="child-form" class="partner-section-anchor"></div>
-              <div class="partner-block__head">
-                <strong>{{ editingChildId ? "编辑直属下级" : "新建直属下级" }}</strong>
-                <span v-if="overview.can_create_child">最多到三级，下级返佣比例不能高于你当前的比例。</span>
-                <span v-else>当前已到三级，不能继续新增。</span>
-              </div>
-              <div class="partner-child-summary">
-                <article class="partner-child-summary__card">
-                  <span>当前查看</span>
-                  <strong>{{ selectedTreeNode?.name || overview.channel_name || "-" }}</strong>
-                </article>
-                <article class="partner-child-summary__card">
-                  <span>直属下级数</span>
-                  <strong>{{ subchannels.length }}</strong>
-                </article>
-                <article class="partner-child-summary__card">
-                  <span>当前默认返佣</span>
-                  <strong>{{ formatRate(overview.default_rebate_rate_bp) }}</strong>
-                </article>
-              </div>
-              <div class="partner-subchannel-grid">
-                <label class="partner-field">
-                  <span>渠道名称</span>
-                  <input v-model.trim="childForm.name" type="text" maxlength="40" placeholder="例如：杭州高校二级渠道" :disabled="!overview.can_create_child && !editingChildId" />
-                </label>
-                <label class="partner-field">
-                  <span>渠道编码</span>
-                  <input v-model.trim="childForm.channel_code" type="text" maxlength="32" placeholder="可留空自动生成" :disabled="Boolean(editingChildId)" />
-                </label>
-                <label class="partner-field">
-                  <span>联系人</span>
-                  <input v-model.trim="childForm.contact_name" type="text" maxlength="30" placeholder="联系人姓名" />
-                </label>
-                <label class="partner-field">
-                  <span>联系电话</span>
-                  <input v-model.trim="childForm.contact_phone" type="text" maxlength="30" placeholder="联系电话" />
-                </label>
-                <label class="partner-field">
-                  <span>默认返佣比例（%）</span>
-                  <input v-model.number="childForm.rebate_rate_pct" type="number" min="0" max="100" step="0.01" />
-                </label>
-                <label v-if="editingChildId" class="partner-field">
-                  <span>渠道状态</span>
-                  <select v-model="childForm.status">
-                    <option value="active">启用</option>
-                    <option value="disabled">停用</option>
-                  </select>
-                </label>
-              </div>
-              <div class="partner-subchannel-actions">
-                <button type="button" :disabled="childSubmitting || (!overview.can_create_child && !editingChildId)" @click="submitChildForm">
-                  {{ childSubmitting ? "提交中..." : editingChildId ? "保存下级" : "创建下级" }}
-                </button>
-                <button v-if="editingChildId" type="button" class="partner-btn--ghost" @click="resetChildForm">取消编辑</button>
-                <button type="button" class="partner-btn--ghost" @click="copyRecruitmentBundle">复制当前招募信息</button>
-              </div>
-            </section>
-          </div>
-
-          <div class="partner-tree-board">
-            <div class="partner-tree-board__head">
-              <div class="partner-block__head">
-                <strong>渠道树</strong>
-                <span>按层级查看团队结构。</span>
-              </div>
-              <div class="partner-tree-board__actions">
-                <span v-if="selectedTreeNode">当前查看：{{ selectedTreeNode.name || "-" }}</span>
-                <button
-                  v-if="selectedTreeNode && Number(selectedTreeNode.id || 0) !== Number(channelTree?.id || 0)"
-                  type="button"
-                  class="partner-btn--ghost"
-                  @click="resetTreeSelection"
-                >
-                  回到当前渠道
-                </button>
-              </div>
+      <section v-if="hasPortalSession && overview" class="partner-chart-grid">
+        <article class="partner-panel">
+          <div class="partner-section-head">
+            <div>
+              <div class="partner-kicker">经营趋势</div>
+              <h2>{{ isLevelOne ? `近 14 天${analyticsScopeLabel}经营趋势` : "近 14 天个人经营趋势" }}</h2>
             </div>
-            <PartnerChannelTreeNode
-              v-if="channelTree"
-              :clickable="true"
-              :node="channelTree"
-              @select="selectTreeChannel"
-            />
-            <div v-else class="partner-subchannel-empty">当前暂无渠道树数据。</div>
-          </div>
-
-          <div class="partner-subchannel-board">
-            <div class="partner-subchannel-board__head">
-              <div class="partner-block__head">
-                <strong>直属下级列表</strong>
-                <span>查看直属下级和链接。</span>
-              </div>
-              <div class="partner-subchannel-board__actions">
-                <span v-if="selectedTreeNode">当前视角：{{ selectedTreeNode.name || "-" }}</span>
-                <button v-if="subchannels.length" type="button" class="partner-btn--ghost" @click="scrollToSection('child-form')">继续新增下级</button>
-              </div>
+            <div v-if="isLevelOne" class="partner-filter-row">
+              <select v-model="scopeFilters.analytics" @change="loadAnalytics">
+                <option value="self">仅自己</option>
+                <option value="team">仅二级</option>
+                <option value="subtree">自己 + 二级</option>
+              </select>
             </div>
-            <div v-if="subchannels.length > 0" class="partner-subchannel-items">
-              <article v-for="item in subchannels" :key="item.id" class="partner-subchannel-item">
-                <div class="partner-subchannel-item__top">
-                  <div>
+          </div>
+          <div ref="activityChartEl" class="partner-chart"></div>
+        </article>
+
+        <article class="partner-panel">
+          <div class="partner-section-head">
+            <div>
+              <div class="partner-kicker">{{ isLevelOne ? "二级贡献" : "订单结构" }}</div>
+              <h2>{{ isLevelOne ? "哪个二级最有产出" : "当前订单主要来自哪些套餐" }}</h2>
+            </div>
+          </div>
+          <div ref="mixChartEl" class="partner-chart"></div>
+        </article>
+      </section>
+
+      <section v-if="hasPortalSession && overview && isLevelOne" class="partner-panel">
+        <div class="partner-section-head">
+          <div>
+            <div class="partner-kicker">二级管理</div>
+            <h2>一级重点看二级表现</h2>
+          </div>
+          <button type="button" class="partner-button partner-button--ghost" @click="copyRecruitmentBundle">复制当前招募信息</button>
+        </div>
+
+        <div class="partner-table-wrap">
+          <table class="partner-table">
+            <thead>
+              <tr>
+                <th>二级渠道</th>
+                <th>状态</th>
+                <th>客户 / 返佣</th>
+                <th>门户 / 推广</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="item in subchannels" :key="item.id">
+                <td>
+                  <div class="partner-stack">
                     <strong>{{ item.name }}</strong>
                     <span>{{ item.channel_code }}</span>
+                    <span>{{ item.contact_name || "-" }} / {{ item.contact_phone || "-" }}</span>
                   </div>
-                  <b>{{ Number(item.default_rebate_rate_pct || 0).toFixed(2) }}%</b>
-                </div>
-                <div class="partner-subchannel-item__meta">
-                  <span>{{ formatLevel(item.level) }}</span>
-                  <span>{{ item.status === "active" ? "启用中" : "已停用" }}</span>
-                  <span>客户 {{ Number(item.user_count || 0) }}</span>
-                  <span>{{ item.contact_name || "-" }} / {{ item.contact_phone || "-" }}</span>
-                </div>
-                <div class="partner-subchannel-share">
-                  <span>门户链接：{{ item.portal_link || item.portal_login_link || "-" }}</span>
-                  <span>推广链接：{{ item.order_link || "-" }}</span>
-                </div>
-                <div class="partner-subchannel-item__links">
-                  <button type="button" @click="copyChildBundle(item)">刷新并复制下级门户信息</button>
-                  <button type="button" @click="copyChildCustomerShare(item)">复制该渠道客户分发文案</button>
-                  <button type="button" @click="copyText(item.order_link, `已复制 ${item.name} 的推广链接`)">只复制推广链接</button>
-                  <button type="button" @click="copyText(item.portal_link || item.portal_login_link, `已复制 ${item.name} 的渠道门户链接`)">只复制门户链接</button>
-                  <button type="button" @click="copyText(item.miniapp_order_path, `已复制 ${item.name} 的小程序推广路径`)">复制小程序推广路径</button>
-                  <button type="button" @click="copyText(item.miniapp_portal_path, `已复制 ${item.name} 的小程序后台路径`)">复制小程序后台路径</button>
-                </div>
-                <div class="partner-subchannel-item__actions">
-                  <button type="button" class="partner-btn--ghost" @click="startEditChild(item)">编辑</button>
-                  <button type="button" class="partner-btn--ghost" @click="openPolicyPanel(item)">不同套餐返佣</button>
-                  <button type="button" class="partner-btn--ghost" @click="toggleChildStatus(item)">
-                    {{ item.status === "active" ? "停用" : "启用" }}
-                  </button>
-                </div>
-              </article>
-            </div>
-            <div v-else class="partner-subchannel-empty">当前还没有直属下级渠道。</div>
-          </div>
-        </article>
+                </td>
+                <td>
+                  <div class="partner-stack">
+                    <span :class="['partner-pill', `partner-pill--${subchannelHealth(item).tone}`]">{{ subchannelHealth(item).label }}</span>
+                    <span>{{ item.status === "active" ? "启用中" : "已停用" }}</span>
+                    <span>默认返佣 {{ Number(item.default_rebate_rate_pct || 0).toFixed(2) }}%</span>
+                  </div>
+                </td>
+                <td>
+                  <div class="partner-stack">
+                    <span>客户 {{ Number(item.user_count || 0) }}</span>
+                    <span>待结算 {{ formatFenToCny(item.pending_rebate_fen) }}</span>
+                    <span>已结算 {{ formatFenToCny(item.settled_rebate_fen) }}</span>
+                  </div>
+                </td>
+                <td>
+                  <div class="partner-stack">
+                    <span>{{ item.portal_link || item.portal_login_link || "-" }}</span>
+                    <span>{{ item.order_link || "-" }}</span>
+                  </div>
+                </td>
+                <td>
+                  <div class="partner-row-actions">
+                    <button type="button" class="partner-button partner-button--ghost" @click="startEditChild(item)">编辑</button>
+                    <button type="button" class="partner-button partner-button--ghost" @click="openPolicyPanel(item)">返佣设置</button>
+                    <button type="button" class="partner-button partner-button--ghost" @click="copyChildBundle(item)">复制门户</button>
+                    <button type="button" class="partner-button partner-button--ghost" @click="copyActivationNudge(item)">催活文案</button>
+                    <button type="button" class="partner-button partner-button--ghost" @click="toggleChildStatus(item)">
+                      {{ item.status === "active" ? "停用" : "启用" }}
+                    </button>
+                  </div>
+                </td>
+              </tr>
+              <tr v-if="subchannels.length === 0">
+                <td colspan="5" class="partner-empty">当前还没有直属二级渠道。</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
 
-        <article v-if="policyPanel.visible" class="partner-data-card">
-          <header class="partner-data-card__head">
-            <h2>{{ policyPanel.channel?.name || "-" }} 的商品单独返佣</h2>
-            <button type="button" class="partner-btn--ghost" @click="closePolicyPanel">关闭</button>
-          </header>
-          <div class="partner-policy-shell">
-            <div class="partner-subchannel-grid">
-              <label class="partner-field">
-                <span>套餐名</span>
-                <select v-model="policyForm.package_name">
-                  <option value="">按默认返佣走</option>
-                  <option v-for="item in packageOptions" :key="item.name" :value="item.name">
-                    {{ item.name }}{{ item.priceLabel ? ` · ${item.priceLabel}` : "" }}{{ item.creditsLabel ? ` · ${item.creditsLabel}` : "" }}
-                  </option>
-                </select>
-              </label>
-              <label class="partner-field">
-                <span>返佣比例（%）</span>
-                <input v-model.number="policyForm.rebate_rate_pct" type="number" min="0" max="100" step="0.01" />
-              </label>
-              <label class="partner-field">
-                <span>状态</span>
-                <select v-model="policyForm.is_active">
-                  <option :value="true">启用</option>
-                  <option :value="false">停用</option>
-                </select>
-              </label>
-            </div>
-            <div class="partner-subchannel-actions">
-              <button type="button" :disabled="policySubmitting" @click="savePolicy">
-                {{ policySubmitting ? "保存中..." : "保存返佣设置" }}
-              </button>
-            </div>
-            <div class="partner-table-wrap">
-              <table class="partner-table">
-                <thead>
-                  <tr>
-                    <th>套餐</th>
-                    <th>比例</th>
-                    <th>状态</th>
-                    <th>更新时间</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr v-for="item in policyPanel.items" :key="item.id">
-                    <td>{{ item.package_name }}</td>
-                    <td>{{ Number(item.rebate_rate_pct || 0).toFixed(2) }}%</td>
-                    <td>{{ item.is_active ? "启用" : "停用" }}</td>
-                    <td>{{ formatDateTime(item.updated_at || item.created_at) }}</td>
-                  </tr>
-                  <tr v-if="policyPanel.items.length === 0">
-                    <td colspan="4" class="partner-table__empty">暂无套餐返佣设置</td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </article>
-
-        <article id="withdraw-panel" class="partner-data-card">
-          <header class="partner-data-card__head">
-            <h2>提现</h2>
-            <span>门槛 ¥100.00</span>
-          </header>
-          <div class="partner-withdraw-shell">
+        <details class="partner-detail-box">
+          <summary id="subchannel-form">新建 / 编辑二级渠道</summary>
+          <div class="partner-form-grid">
             <label class="partner-field">
-              <span>提现金额（元）</span>
-              <input v-model.number="withdrawAmountCny" type="number" min="100" step="0.01" />
+              <span>渠道名称</span>
+              <input v-model.trim="childForm.name" type="text" maxlength="40" placeholder="例如：杭州高校二级渠道" :disabled="!overview.can_create_child && !editingChildId" />
             </label>
-            <label class="partner-field partner-field--wide">
-              <span>备注（可选）</span>
-              <input v-model.trim="withdrawNote" type="text" maxlength="120" placeholder="例如：4月结算提现" />
+            <label class="partner-field">
+              <span>渠道编码</span>
+              <input v-model.trim="childForm.channel_code" type="text" maxlength="32" placeholder="可留空自动生成" :disabled="Boolean(editingChildId)" />
             </label>
-            <div class="partner-subchannel-actions">
-              <button type="button" :disabled="withdrawSubmitting" @click="submitWithdrawApply">
-                {{ withdrawSubmitting ? "提交中..." : "提交提现申请" }}
-              </button>
-              <span>当前可提：{{ formatFenToCny(overview.withdrawable_fen) }}</span>
-            </div>
+            <label class="partner-field">
+              <span>联系人</span>
+              <input v-model.trim="childForm.contact_name" type="text" maxlength="30" placeholder="联系人姓名" />
+            </label>
+            <label class="partner-field">
+              <span>联系电话</span>
+              <input v-model.trim="childForm.contact_phone" type="text" maxlength="30" placeholder="联系电话" />
+            </label>
+            <label class="partner-field">
+              <span>默认返佣比例（%）</span>
+              <input v-model.number="childForm.rebate_rate_pct" type="number" min="0" max="100" step="0.01" />
+            </label>
+            <label v-if="editingChildId" class="partner-field">
+              <span>渠道状态</span>
+              <select v-model="childForm.status">
+                <option value="active">启用</option>
+                <option value="disabled">停用</option>
+              </select>
+            </label>
           </div>
-        </article>
-
-        <details class="partner-data-card partner-fold-card">
-          <summary class="partner-fold-card__summary">
-            <div>
-              <h2>查看更多明细</h2>
-              <span>订单、返佣和客户明细</span>
-            </div>
-          </summary>
-
-          <div class="partner-fold-card__body">
-            <article class="partner-inline-panel">
-              <header class="partner-data-card__head">
-                <h2>订单列表</h2>
-                <div class="partner-head-actions">
-                  <select v-model="scopeFilters.orders" @change="loadOrders">
-                    <option value="self">我的订单</option>
-                    <option value="team">团队订单</option>
-                    <option value="subtree">全部订单</option>
-                  </select>
-                  <button type="button" class="partner-btn--ghost" @click="exportRows('orders')">导出当前结果</button>
-                  <span>{{ ordersPagination.total }} 条</span>
-                </div>
-              </header>
-              <div class="partner-filter-row">
-                <label class="partner-filter-field">
-                  <span>开始日期</span>
-                  <input v-model="dateFilters.orders_from" type="date" />
-                </label>
-                <label class="partner-filter-field">
-                  <span>结束日期</span>
-                  <input v-model="dateFilters.orders_to" type="date" />
-                </label>
-                <button type="button" class="partner-btn--ghost" @click="applyListFilter('orders')">筛选</button>
-              </div>
-              <div class="partner-table-wrap">
-                <table class="partner-table">
-                  <thead>
-                    <tr>
-                      <th>订单号</th>
-                      <th>用户ID</th>
-                      <th>收益渠道</th>
-                      <th>来源渠道</th>
-                      <th>套餐</th>
-                      <th>订单金额</th>
-                      <th>返佣比例</th>
-                      <th>净返佣</th>
-                      <th>状态</th>
-                      <th>创建时间</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr v-for="item in orders" :key="item.order_no">
-                      <td>{{ item.order_no }}</td>
-                      <td>{{ item.user_id }}</td>
-                      <td>{{ item.channel_name || item.channel_code || "-" }}</td>
-                      <td>{{ item.source_channel_code || "-" }}</td>
-                      <td>{{ item.package_name || "-" }}</td>
-                      <td>{{ formatFenToCny(item.amount_fen) }}</td>
-                      <td>{{ formatRate(item.rebate_rate_bp) }}</td>
-                      <td>{{ formatFenToCny(item.net_rebate_fen) }}</td>
-                      <td>{{ formatStatus(item.order_status) }}</td>
-                      <td>{{ formatDateTime(item.created_at) }}</td>
-                    </tr>
-                    <tr v-if="orders.length === 0">
-                      <td colspan="10" class="partner-table__empty">暂无订单数据</td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-              <div class="partner-pagination">
-                <button type="button" class="partner-btn--ghost" :disabled="ordersPagination.page <= 1" @click="changePage('orders', -1)">上一页</button>
-                <span>第 {{ ordersPagination.page }} / {{ Math.max(ordersPagination.pages, 1) }} 页</span>
-                <button type="button" class="partner-btn--ghost" :disabled="ordersPagination.page >= Math.max(ordersPagination.pages, 1)" @click="changePage('orders', 1)">下一页</button>
-              </div>
-            </article>
-
-            <article class="partner-inline-panel">
-              <header class="partner-data-card__head">
-                <h2>返佣流水</h2>
-                <div class="partner-head-actions">
-                  <select v-model="scopeFilters.ledger" @change="loadLedger">
-                    <option value="self">我的返佣</option>
-                    <option value="team">团队返佣</option>
-                    <option value="subtree">全部返佣</option>
-                  </select>
-                  <button type="button" class="partner-btn--ghost" @click="exportRows('ledger')">导出当前结果</button>
-                  <span>{{ ledgerPagination.total }} 条</span>
-                </div>
-              </header>
-              <div class="partner-filter-row">
-                <label class="partner-filter-field">
-                  <span>开始日期</span>
-                  <input v-model="dateFilters.ledger_from" type="date" />
-                </label>
-                <label class="partner-filter-field">
-                  <span>结束日期</span>
-                  <input v-model="dateFilters.ledger_to" type="date" />
-                </label>
-                <button type="button" class="partner-btn--ghost" @click="applyListFilter('ledger')">筛选</button>
-              </div>
-              <div class="partner-table-wrap">
-                <table class="partner-table">
-                  <thead>
-                    <tr>
-                      <th>流水ID</th>
-                      <th>订单号</th>
-                      <th>收益渠道</th>
-                      <th>来源渠道</th>
-                      <th>类型</th>
-                      <th>返佣比例</th>
-                      <th>返佣金额</th>
-                      <th>状态</th>
-                      <th>结算月</th>
-                      <th>创建时间</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr v-for="item in ledger" :key="item.id">
-                      <td>{{ item.id }}</td>
-                      <td>{{ item.order_no || "-" }}</td>
-                      <td>{{ item.channel_name || item.channel_code || "-" }}</td>
-                      <td>{{ item.source_channel_code || "-" }}</td>
-                      <td>{{ formatEntryType(item.entry_type) }}</td>
-                      <td>{{ formatRate(item.rebate_rate_bp) }}</td>
-                      <td>{{ formatFenToCny(item.rebate_amount_fen) }}</td>
-                      <td>{{ formatStatus(item.status) }}</td>
-                      <td>{{ item.statement_month || "-" }}</td>
-                      <td>{{ formatDateTime(item.created_at) }}</td>
-                    </tr>
-                    <tr v-if="ledger.length === 0">
-                      <td colspan="10" class="partner-table__empty">暂无返佣流水</td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-              <div class="partner-pagination">
-                <button type="button" class="partner-btn--ghost" :disabled="ledgerPagination.page <= 1" @click="changePage('ledger', -1)">上一页</button>
-                <span>第 {{ ledgerPagination.page }} / {{ Math.max(ledgerPagination.pages, 1) }} 页</span>
-                <button type="button" class="partner-btn--ghost" :disabled="ledgerPagination.page >= Math.max(ledgerPagination.pages, 1)" @click="changePage('ledger', 1)">下一页</button>
-              </div>
-            </article>
-
-            <article id="customer-panel" class="partner-inline-panel">
-              <header class="partner-data-card__head">
-                <h2>客户归属</h2>
-                <div class="partner-head-actions">
-                  <select v-model="scopeFilters.customers" @change="loadCustomers">
-                    <option value="self">仅本渠道</option>
-                    <option value="team">团队客户</option>
-                    <option value="subtree">全部客户</option>
-                  </select>
-                  <button type="button" class="partner-btn--ghost" @click="exportRows('customers')">导出当前结果</button>
-                  <span>{{ customersPagination.total }} 条</span>
-                </div>
-              </header>
-              <div class="partner-filter-row partner-filter-row--wide">
-                <label class="partner-filter-field">
-                  <span>关键词</span>
-                  <input v-model.trim="dateFilters.customers_keyword" type="text" placeholder="昵称 / 渠道名 / 渠道编码" />
-                </label>
-                <label class="partner-filter-field">
-                  <span>开始日期</span>
-                  <input v-model="dateFilters.customers_from" type="date" />
-                </label>
-                <label class="partner-filter-field">
-                  <span>结束日期</span>
-                  <input v-model="dateFilters.customers_to" type="date" />
-                </label>
-                <button type="button" class="partner-btn--ghost" @click="applyListFilter('customers')">筛选</button>
-              </div>
-              <div class="partner-table-wrap">
-                <table class="partner-table">
-                  <thead>
-                    <tr>
-                      <th>用户ID</th>
-                      <th>昵称</th>
-                      <th>手机号</th>
-                      <th>归属渠道</th>
-                      <th>归属来源</th>
-                      <th>历史订单</th>
-                      <th>锁定时间</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr v-for="item in customers" :key="item.binding_id">
-                      <td>{{ item.user_id }}</td>
-                      <td>{{ item.nickname }}</td>
-                      <td>{{ item.phone_masked || "-" }}</td>
-                      <td>{{ item.channel_name || item.channel_code || "-" }}</td>
-                      <td>{{ item.bind_source || "-" }}</td>
-                      <td>{{ Number(item.order_count || 0) }}</td>
-                      <td>{{ formatDateTime(item.locked_at || item.updated_at || item.created_at) }}</td>
-                    </tr>
-                    <tr v-if="customers.length === 0">
-                      <td colspan="7" class="partner-table__empty">暂无客户归属数据</td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-              <div class="partner-pagination">
-                <button type="button" class="partner-btn--ghost" :disabled="customersPagination.page <= 1" @click="changePage('customers', -1)">上一页</button>
-                <span>第 {{ customersPagination.page }} / {{ Math.max(customersPagination.pages, 1) }} 页</span>
-                <button type="button" class="partner-btn--ghost" :disabled="customersPagination.page >= Math.max(customersPagination.pages, 1)" @click="changePage('customers', 1)">下一页</button>
-              </div>
-            </article>
+          <div class="partner-row-actions partner-row-actions--top">
+            <button type="button" class="partner-button" :disabled="childSubmitting || (!overview.can_create_child && !editingChildId)" @click="submitChildForm">
+              {{ childSubmitting ? "提交中..." : editingChildId ? "保存二级渠道" : "创建二级渠道" }}
+            </button>
+            <button v-if="editingChildId" type="button" class="partner-button partner-button--ghost" @click="resetChildForm">取消编辑</button>
           </div>
         </details>
       </section>
 
-      <section v-if="!hasPortalSession && !loading" class="partner-empty">
-        <h2>请先登录渠道门户</h2>
-        <p>渠道门户统一使用正式登录态，进入后直接查看团队、客户和返佣数据。</p>
-        <div class="partner-subchannel-actions">
-          <button type="button" @click="goLogin">前往登录</button>
+      <section v-if="hasPortalSession && overview && !isLevelOne" class="partner-panel">
+        <div class="partner-section-head">
+          <div>
+            <div class="partner-kicker">我的分发信息</div>
+            <h2>二级更重要的是持续做客户</h2>
+          </div>
+          <button type="button" class="partner-button partner-button--ghost" @click="copyOwnBundle">复制整段信息</button>
         </div>
+        <div class="partner-share-box">
+          <span>推广链接：{{ overview.order_link || "-" }}</span>
+          <span>小程序路径：{{ overview.miniapp_order_path || "-" }}</span>
+          <span>门户链接：{{ overview.portal_link || overview.portal_login_link || "-" }}</span>
+        </div>
+      </section>
+
+      <section v-if="policyPanel.visible" class="partner-panel">
+        <div class="partner-section-head">
+          <div>
+            <div class="partner-kicker">返佣设置</div>
+            <h2>{{ policyPanel.channel?.name || "-" }} 的套餐返佣</h2>
+          </div>
+          <button type="button" class="partner-button partner-button--ghost" @click="closePolicyPanel">关闭</button>
+        </div>
+        <div class="partner-form-grid">
+          <label class="partner-field">
+            <span>套餐名</span>
+            <select v-model="policyForm.package_name">
+              <option value="">按默认返佣走</option>
+              <option v-for="item in packageOptions" :key="item.name" :value="item.name">
+                {{ item.name }}{{ item.priceLabel ? ` · ${item.priceLabel}` : "" }}{{ item.creditsLabel ? ` · ${item.creditsLabel}` : "" }}
+              </option>
+            </select>
+          </label>
+          <label class="partner-field">
+            <span>返佣比例（%）</span>
+            <input v-model.number="policyForm.rebate_rate_pct" type="number" min="0" max="100" step="0.01" />
+          </label>
+          <label class="partner-field">
+            <span>状态</span>
+            <select v-model="policyForm.is_active">
+              <option :value="true">启用</option>
+              <option :value="false">停用</option>
+            </select>
+          </label>
+        </div>
+        <div class="partner-row-actions partner-row-actions--top">
+          <button type="button" class="partner-button" :disabled="policySubmitting" @click="savePolicy">
+            {{ policySubmitting ? "保存中..." : "保存返佣设置" }}
+          </button>
+        </div>
+        <div class="partner-table-wrap">
+          <table class="partner-table">
+            <thead>
+              <tr>
+                <th>套餐</th>
+                <th>比例</th>
+                <th>状态</th>
+                <th>更新时间</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="item in policyPanel.items" :key="item.id">
+                <td>{{ item.package_name }}</td>
+                <td>{{ Number(item.rebate_rate_pct || 0).toFixed(2) }}%</td>
+                <td>{{ item.is_active ? "启用" : "停用" }}</td>
+                <td>{{ formatDateTime(item.updated_at || item.created_at) }}</td>
+              </tr>
+              <tr v-if="policyPanel.items.length === 0">
+                <td colspan="4" class="partner-empty">暂无套餐返佣设置</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section v-if="hasPortalSession && overview" id="withdraw-panel" class="partner-panel">
+        <div class="partner-section-head">
+          <div>
+            <div class="partner-kicker">提现</div>
+            <h2>当前可提 {{ formatFenToCny(overview.withdrawable_fen) }}</h2>
+          </div>
+          <span class="partner-head-note">门槛 ¥100.00</span>
+        </div>
+        <div class="partner-form-grid">
+          <label class="partner-field">
+            <span>提现金额（元）</span>
+            <input v-model.number="withdrawAmountCny" type="number" min="100" step="0.01" />
+          </label>
+          <label class="partner-field partner-field--wide">
+            <span>备注（可选）</span>
+            <input v-model.trim="withdrawNote" type="text" maxlength="120" placeholder="例如：4月结算提现" />
+          </label>
+        </div>
+        <div class="partner-row-actions partner-row-actions--top">
+          <button type="button" class="partner-button" :disabled="withdrawSubmitting" @click="submitWithdrawApply">
+            {{ withdrawSubmitting ? "提交中..." : "提交提现申请" }}
+          </button>
+        </div>
+      </section>
+
+      <details v-if="hasPortalSession && overview" class="partner-panel">
+        <summary class="partner-detail-summary">查看更多明细</summary>
+        <div class="partner-inline-section">
+          <div class="partner-section-head">
+            <div>
+              <div class="partner-kicker">订单列表</div>
+              <h2>{{ isLevelOne ? "团队订单" : "我的订单" }}</h2>
+            </div>
+            <div class="partner-filter-row">
+              <select v-model="scopeFilters.orders" @change="loadOrders">
+                <option value="self">仅自己</option>
+                <option v-if="isLevelOne" value="team">仅二级</option>
+                <option v-if="isLevelOne" value="subtree">自己 + 二级</option>
+              </select>
+              <button type="button" class="partner-button partner-button--ghost" @click="exportRows('orders')">导出</button>
+            </div>
+          </div>
+          <div class="partner-filter-row partner-filter-row--wide">
+            <label class="partner-field"><span>开始日期</span><input v-model="dateFilters.orders_from" type="date" /></label>
+            <label class="partner-field"><span>结束日期</span><input v-model="dateFilters.orders_to" type="date" /></label>
+            <button type="button" class="partner-button partner-button--ghost" @click="applyListFilter('orders')">筛选</button>
+          </div>
+          <div class="partner-table-wrap">
+            <table class="partner-table">
+              <thead>
+                <tr>
+                  <th>订单号</th>
+                  <th>用户ID</th>
+                  <th>收益渠道</th>
+                  <th>来源渠道</th>
+                  <th>套餐</th>
+                  <th>订单金额</th>
+                  <th>返佣比例</th>
+                  <th>净返佣</th>
+                  <th>状态</th>
+                  <th>创建时间</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="item in orders" :key="item.order_no">
+                  <td>{{ item.order_no }}</td>
+                  <td>{{ item.user_id }}</td>
+                  <td>{{ item.channel_name || item.channel_code || "-" }}</td>
+                  <td>{{ item.source_channel_code || "-" }}</td>
+                  <td>{{ item.package_name || "-" }}</td>
+                  <td>{{ formatFenToCny(item.amount_fen) }}</td>
+                  <td>{{ formatRate(item.rebate_rate_bp) }}</td>
+                  <td>{{ formatFenToCny(item.net_rebate_fen) }}</td>
+                  <td>{{ formatStatus(item.order_status) }}</td>
+                  <td>{{ formatDateTime(item.created_at) }}</td>
+                </tr>
+                <tr v-if="orders.length === 0"><td colspan="10" class="partner-empty">暂无订单数据</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="partner-inline-section">
+          <div class="partner-section-head">
+            <div>
+              <div class="partner-kicker">返佣流水</div>
+              <h2>{{ isLevelOne ? "团队返佣" : "我的返佣" }}</h2>
+            </div>
+            <div class="partner-filter-row">
+              <select v-model="scopeFilters.ledger" @change="loadLedger">
+                <option value="self">仅自己</option>
+                <option v-if="isLevelOne" value="team">仅二级</option>
+                <option v-if="isLevelOne" value="subtree">自己 + 二级</option>
+              </select>
+              <button type="button" class="partner-button partner-button--ghost" @click="exportRows('ledger')">导出</button>
+            </div>
+          </div>
+          <div class="partner-table-wrap">
+            <table class="partner-table">
+              <thead>
+                <tr>
+                  <th>流水ID</th>
+                  <th>订单号</th>
+                  <th>收益渠道</th>
+                  <th>来源渠道</th>
+                  <th>类型</th>
+                  <th>返佣比例</th>
+                  <th>返佣金额</th>
+                  <th>状态</th>
+                  <th>结算月</th>
+                  <th>创建时间</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="item in ledger" :key="item.id">
+                  <td>{{ item.id }}</td>
+                  <td>{{ item.order_no || "-" }}</td>
+                  <td>{{ item.channel_name || item.channel_code || "-" }}</td>
+                  <td>{{ item.source_channel_code || "-" }}</td>
+                  <td>{{ formatEntryType(item.entry_type) }}</td>
+                  <td>{{ formatRate(item.rebate_rate_bp) }}</td>
+                  <td>{{ formatFenToCny(item.rebate_amount_fen) }}</td>
+                  <td>{{ formatStatus(item.status) }}</td>
+                  <td>{{ item.statement_month || "-" }}</td>
+                  <td>{{ formatDateTime(item.created_at) }}</td>
+                </tr>
+                <tr v-if="ledger.length === 0"><td colspan="10" class="partner-empty">暂无返佣流水</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="partner-inline-section">
+          <div class="partner-section-head">
+            <div>
+              <div class="partner-kicker">客户归属</div>
+              <h2>{{ isLevelOne ? "自己和二级的客户" : "我的客户" }}</h2>
+            </div>
+            <div class="partner-filter-row">
+              <select v-model="scopeFilters.customers" @change="loadCustomers">
+                <option value="self">仅自己</option>
+                <option v-if="isLevelOne" value="team">仅二级</option>
+                <option v-if="isLevelOne" value="subtree">自己 + 二级</option>
+              </select>
+              <button type="button" class="partner-button partner-button--ghost" @click="exportRows('customers')">导出</button>
+            </div>
+          </div>
+          <div class="partner-filter-row partner-filter-row--wide">
+            <label class="partner-field"><span>关键词</span><input v-model.trim="dateFilters.customers_keyword" type="text" placeholder="昵称 / 渠道名 / 渠道编码" /></label>
+            <label class="partner-field"><span>开始日期</span><input v-model="dateFilters.customers_from" type="date" /></label>
+            <label class="partner-field"><span>结束日期</span><input v-model="dateFilters.customers_to" type="date" /></label>
+            <button type="button" class="partner-button partner-button--ghost" @click="applyListFilter('customers')">筛选</button>
+          </div>
+          <div class="partner-table-wrap">
+            <table class="partner-table">
+              <thead>
+                <tr>
+                  <th>用户ID</th>
+                  <th>昵称</th>
+                  <th>手机号</th>
+                  <th>归属渠道</th>
+                  <th>归属来源</th>
+                  <th>历史订单</th>
+                  <th>锁定时间</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="item in customers" :key="item.binding_id">
+                  <td>{{ item.user_id }}</td>
+                  <td>{{ item.nickname }}</td>
+                  <td>{{ item.phone_masked || "-" }}</td>
+                  <td>{{ item.channel_name || item.channel_code || "-" }}</td>
+                  <td>{{ item.bind_source || "-" }}</td>
+                  <td>{{ Number(item.order_count || 0) }}</td>
+                  <td>{{ formatDateTime(item.locked_at || item.updated_at || item.created_at) }}</td>
+                </tr>
+                <tr v-if="customers.length === 0"><td colspan="7" class="partner-empty">暂无客户归属数据</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </details>
+
+      <section v-if="!hasPortalSession && !loading" class="partner-panel partner-panel--center">
+        <h2>请先登录渠道门户</h2>
+        <p>登录后可直接查看客户、订单、返佣和分发信息。</p>
+        <button type="button" class="partner-button" @click="goLogin">前往登录</button>
       </section>
     </section>
   </div>
 </template>
 
 <script setup>
-import { computed, ref, watch } from "vue"
+import * as echarts from "echarts/core"
+import { BarChart, LineChart, PieChart } from "echarts/charts"
+import { GridComponent, LegendComponent, TooltipComponent } from "echarts/components"
+import { CanvasRenderer } from "echarts/renderers"
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue"
 import { useRouter } from "vue-router"
 
-import PartnerChannelTreeNode from "../../components/partner/PartnerChannelTreeNode.vue"
-import { partnerHttp } from "../../lib/http"
 import { triggerBlobDownload } from "../../lib/download"
+import { partnerHttp } from "../../lib/http"
 import { clearPartnerSession, getPartnerInfo } from "../../lib/session"
 
+echarts.use([LineChart, BarChart, PieChart, GridComponent, TooltipComponent, LegendComponent, CanvasRenderer])
+
 const router = useRouter()
+const activityChartEl = ref(null)
+const mixChartEl = ref(null)
+
+let activityChart = null
+let mixChart = null
+
 const loading = ref(false)
 const errorText = ref("")
 const successText = ref("")
 const overview = ref(null)
+const analytics = ref(null)
 const orders = ref([])
 const ledger = ref([])
 const withdrawals = ref([])
 const subchannels = ref([])
 const customers = ref([])
-const channelTree = ref(null)
-const selectedTreeNode = ref(null)
 const packageOptions = ref([])
-const ordersPagination = ref({ page: 1, page_size: 20, total: 0, pages: 0 })
-const ledgerPagination = ref({ page: 1, page_size: 20, total: 0, pages: 0 })
-const customersPagination = ref({ page: 1, page_size: 20, total: 0, pages: 0 })
+const ordersPagination = ref({ page: 1, page_size: 100, total: 0, pages: 0 })
+const ledgerPagination = ref({ page: 1, page_size: 100, total: 0, pages: 0 })
+const customersPagination = ref({ page: 1, page_size: 100, total: 0, pages: 0 })
 const withdrawAmountCny = ref(100)
 const withdrawNote = ref("")
 const withdrawSubmitting = ref(false)
 const childSubmitting = ref(false)
 const policySubmitting = ref(false)
 const editingChildId = ref(0)
+const scopeInitialized = ref(false)
 
 const childForm = ref(createEmptyChildForm())
 const policyPanel = ref({
@@ -608,6 +531,7 @@ const policyForm = ref({
   is_active: true,
 })
 const scopeFilters = ref({
+  analytics: "self",
   orders: "self",
   ledger: "self",
   customers: "self",
@@ -624,58 +548,73 @@ const dateFilters = ref({
 
 const partnerInfo = ref(getPartnerInfo())
 const hasPortalSession = computed(() => Boolean(partnerInfo.value?.id))
-const recruitmentMessage = computed(() => {
-  const name = String(overview.value?.channel_name || "").trim() || "当前渠道"
-  const portalLink = String(overview.value?.portal_link || overview.value?.portal_login_link || "").trim()
-  const orderLink = String(overview.value?.order_link || "").trim()
-  const lines = [
-    `你好，我是 ${name}。`,
-    "这是一套可直接使用的下级信息：",
-    portalLink ? `渠道门户链接：${portalLink}` : "",
-    orderLink ? `推广链接：${orderLink}` : "",
-    "打开后会直接进入渠道后台。",
-  ].filter(Boolean)
-  return lines.join("\n")
+const isLevelOne = computed(() => Number(overview.value?.level || 1) === 1)
+const analyticsScopeLabel = computed(() => {
+  const scope = String(scopeFilters.value.analytics || "self")
+  if (scope === "team") return "二级"
+  if (scope === "subtree") return "团队"
+  return "自己"
 })
-const customerShareText = computed(() => {
-  const name = String(overview.value?.channel_name || "").trim() || "当前渠道"
-  const orderLink = String(overview.value?.order_link || "").trim()
-  const miniappOrderPath = String(overview.value?.miniapp_order_path || "").trim()
-  const lines = [
-    `你好，我是 ${name}。`,
-    "这是我的专属入口：",
-    orderLink ? `推广链接：${orderLink}` : "",
-    miniappOrderPath ? `小程序路径：${miniappOrderPath}` : "",
-  ].filter(Boolean)
-  return lines.join("\n")
+const pageTitle = computed(() => {
+  if (!overview.value) return "渠道后台"
+  return isLevelOne.value ? "一级渠道后台" : "二级渠道后台"
 })
-const taskItems = computed(() => {
-  const canCreateChild = Boolean(overview.value?.can_create_child)
-  const childCount = Number(overview.value?.child_count || 0)
+const pageSubtitle = computed(() => {
+  if (!overview.value) return "收益、客户和分发信息都在这里。"
+  return isLevelOne.value ? "重点看二级表现、客户归属和返佣产出。" : "重点看自己的客户、订单和返佣。"
+})
+const summaryCards = computed(() => {
+  if (!overview.value) return []
+  return isLevelOne.value
+    ? [
+        { label: "本月净返佣", value: formatFenToCny(overview.value.month_rebate_fen), hint: "本月已入账返佣", primary: true },
+        { label: "待结算返佣", value: formatFenToCny(overview.value.pending_rebate_fen), hint: "需要继续跟进处理" },
+        { label: "直属二级", value: String(Number(overview.value.child_count || 0)), hint: "当前带着的二级数量" },
+        { label: "团队客户", value: String(Number(overview.value.team_subtree?.user_count || 0)), hint: "自己 + 二级带来的客户" },
+      ]
+    : [
+        { label: "本月净返佣", value: formatFenToCny(overview.value.month_rebate_fen), hint: "本月已入账返佣", primary: true },
+        { label: "可提现余额", value: formatFenToCny(overview.value.withdrawable_fen), hint: "达到门槛即可申请提现" },
+        { label: "我的客户", value: String(Number(overview.value.user_count || 0)), hint: "当前归属到你的客户数" },
+        { label: "待结算返佣", value: formatFenToCny(overview.value.pending_rebate_fen), hint: "需要继续跟进订单转化" },
+      ]
+})
+const actionTips = computed(() => {
+  if (!overview.value) return []
+  const trendSeries = Array.isArray(analytics.value?.trend_series) ? analytics.value.trend_series : []
+  if (isLevelOne.value) {
+    const childSummary = analytics.value?.child_summary || {}
+    const idleChildCount = Number(childSummary.idle_child_count || 0)
+    const totalRebateFen = Number(childSummary.total_rebate_fen || 0)
+    return [
+      {
+        title: Number(overview.value.child_count || 0) > 0 ? `先看${analyticsScopeLabel.value}排行` : "先建一个二级渠道",
+        desc: Number(overview.value.child_count || 0) > 0 ? `先看${analyticsScopeLabel.value}里谁最有产出，再决定后续扶持。` : "一级当前没有二级，先搭起二级渠道结构。",
+      },
+      {
+        title: idleChildCount > 0 ? `有 ${idleChildCount} 个二级待激活` : "二级活跃状态正常",
+        desc: idleChildCount > 0 ? "建议先发催活文案，推动二级开始分发客户。" : "当前二级基本都在正常经营。",
+      },
+      {
+        title: totalRebateFen > 0 ? `当前${analyticsScopeLabel.value}已有返佣产出` : "今天先继续分发客户入口",
+        desc: totalRebateFen > 0 ? `返佣已经开始积累，优先跟进${analyticsScopeLabel.value}里的高产出渠道。` : "当前返佣不高，优先继续做客户。",
+      },
+    ]
+  }
+  const recentOrderCount = trendSeries.slice(-7).reduce((sum, item) => sum + Number(item.order_count || 0), 0)
+  const recentCustomerCount = trendSeries.slice(-7).reduce((sum, item) => sum + Number(item.new_customers || 0), 0)
   return [
     {
-      title: "先把推广信息发出去",
-      desc: "先把专属链接发出去。",
-      cta: "发给客户",
-      action: () => copyCustomerShareText(),
+      title: recentOrderCount > 0 ? "近 7 天已有订单" : "近 7 天还没有新订单",
+      desc: recentOrderCount > 0 ? "继续保持当前分发节奏即可。" : "建议今天优先转发客户入口，先拉回新增。",
     },
     {
-      title: canCreateChild ? (childCount > 0 ? "继续发展直属下级" : "先建一个直属下级") : "当前已到三级",
-      desc: canCreateChild ? "先把直属下级建起来。" : "当前只保留维护能力。",
-      cta: canCreateChild ? "去创建下级" : "去提现区",
-      action: () => scrollToSection(canCreateChild ? "child-form" : "withdraw-panel"),
+      title: recentCustomerCount > 0 || Number(overview.value.user_count || 0) > 0 ? "当前已有客户沉淀" : "还没有客户沉淀",
+      desc: recentCustomerCount > 0 || Number(overview.value.user_count || 0) > 0 ? "下一步重点看客户转单和返佣增长。" : "先把专属推广链接持续发出去。",
     },
     {
-      title: Number(overview.value?.pending_rebate_fen || 0) > 0 ? "跟进返佣与提现" : "查看客户归属",
-      desc: Number(overview.value?.pending_rebate_fen || 0) > 0 ? "当前有待结算返佣。" : "直接看客户归属。",
-      cta: Number(overview.value?.pending_rebate_fen || 0) > 0 ? "去提现区" : "看客户列表",
-      action: () => {
-        if (Number(overview.value?.pending_rebate_fen || 0) > 0) {
-          scrollToSection("withdraw-panel")
-          return
-        }
-        scrollToSection("customer-panel")
-      },
+      title: Number(overview.value.pending_rebate_fen || 0) > 0 ? "待结算返佣正在累积" : "返佣还在起量阶段",
+      desc: Number(overview.value.pending_rebate_fen || 0) > 0 ? "可以同步关注到账和提现节奏。" : "继续做客户，不需要复杂操作。",
     },
   ]
 })
@@ -688,6 +627,24 @@ watch(
   { immediate: true }
 )
 
+watch(
+  () => [overview.value, analytics.value],
+  async () => {
+    await nextTick()
+    renderCharts()
+  },
+  { deep: true }
+)
+
+onMounted(() => {
+  window.addEventListener("resize", handleResize)
+})
+
+onUnmounted(() => {
+  window.removeEventListener("resize", handleResize)
+  disposeCharts()
+})
+
 function createEmptyChildForm() {
   return {
     name: "",
@@ -699,33 +656,44 @@ function createEmptyChildForm() {
   }
 }
 
+function initScopes() {
+  if (!overview.value || scopeInitialized.value) return
+  const baseScope = isLevelOne.value ? "subtree" : "self"
+  scopeFilters.value = {
+    analytics: baseScope,
+    orders: baseScope,
+    ledger: baseScope,
+    customers: baseScope,
+  }
+  scopeInitialized.value = true
+}
+
 async function loadPortalData() {
   errorText.value = ""
   if (!hasPortalSession.value) {
     overview.value = null
+    analytics.value = null
     orders.value = []
     ledger.value = []
     withdrawals.value = []
     subchannels.value = []
     customers.value = []
-    channelTree.value = null
-    selectedTreeNode.value = null
     successText.value = ""
     return
   }
   loading.value = true
   try {
-    const [overviewResp, withdrawalResp, subchannelResp, channelTreeResp] = await Promise.all([
-      partnerHttp.get("/partners/portal/overview", { timeout: 30000 }),
+    const overviewResp = await partnerHttp.get("/partners/portal/overview", { timeout: 30000 })
+    overview.value = overviewResp || null
+    initScopes()
+    const [analyticsResp, withdrawalResp, subchannelResp] = await Promise.all([
+      partnerHttp.get("/partners/portal/analytics", { params: { days: 14, scope: scopeFilters.value.analytics }, timeout: 30000 }),
       partnerHttp.get("/partners/portal/withdrawals", { params: { page: 1, page_size: 20 }, timeout: 30000 }),
       partnerHttp.get("/partners/portal/subchannels", { timeout: 30000 }),
-      partnerHttp.get("/partners/portal/channel-tree", { timeout: 30000 }),
     ])
-    overview.value = overviewResp || null
+    analytics.value = analyticsResp || null
     withdrawals.value = Array.isArray(withdrawalResp?.items) ? withdrawalResp.items : []
     subchannels.value = Array.isArray(subchannelResp?.items) ? subchannelResp.items : []
-    channelTree.value = channelTreeResp?.item || null
-    selectedTreeNode.value = channelTreeResp?.item || null
     if (!editingChildId.value && overviewResp) {
       childForm.value.rebate_rate_pct = Number(overviewResp.default_rebate_rate_bp || 0) / 100
     }
@@ -771,6 +739,19 @@ async function loadOrders() {
   }
 }
 
+async function loadAnalytics() {
+  if (!hasPortalSession.value) return
+  try {
+    const resp = await partnerHttp.get("/partners/portal/analytics", {
+      params: { days: 14, scope: scopeFilters.value.analytics || "self" },
+      timeout: 30000,
+    })
+    analytics.value = resp || null
+  } catch (error) {
+    errorText.value = String(error?.message || "加载经营分析失败")
+  }
+}
+
 async function loadLedger() {
   if (!hasPortalSession.value) return
   try {
@@ -791,20 +772,119 @@ async function loadLedger() {
   }
 }
 
+async function loadCustomers() {
+  if (!hasPortalSession.value) return
+  try {
+    const resp = await partnerHttp.get("/partners/portal/customers", {
+      params: {
+        scope: scopeFilters.value.customers,
+        page: customersPagination.value.page,
+        page_size: customersPagination.value.page_size,
+        keyword: dateFilters.value.customers_keyword || undefined,
+        created_from: dateFilters.value.customers_from || undefined,
+        created_to: dateFilters.value.customers_to || undefined,
+      },
+      timeout: 30000,
+    })
+    customers.value = Array.isArray(resp?.items) ? resp.items : []
+    customersPagination.value = { ...(resp?.pagination || customersPagination.value) }
+  } catch (error) {
+    errorText.value = String(error?.message || "加载客户归属失败")
+  }
+}
+
+function renderCharts() {
+  if (!overview.value) return
+  const trendSeries = Array.isArray(analytics.value?.trend_series) ? analytics.value.trend_series : []
+  const xLabels = trendSeries.map((item) => String(item.date || "").slice(5) || "-")
+
+  activityChart = initChart(activityChartEl.value, activityChart)
+  mixChart = initChart(mixChartEl.value, mixChart)
+
+  if (activityChart) {
+    activityChart.setOption({
+      grid: { left: 30, right: 18, top: 18, bottom: 26 },
+      legend: { bottom: 0, textStyle: { color: "#617793" } },
+      tooltip: { trigger: "axis" },
+      xAxis: { type: "category", data: xLabels, axisLine: { show: false }, axisTick: { show: false }, axisLabel: { color: "#617793" } },
+      yAxis: [
+        { type: "value", axisLine: { show: false }, axisTick: { show: false }, splitLine: { lineStyle: { color: "rgba(72, 96, 132, 0.12)" } }, axisLabel: { color: "#617793" } },
+        { type: "value", axisLine: { show: false }, axisTick: { show: false }, splitLine: { show: false }, axisLabel: { color: "#617793", formatter: (value) => `¥${value}` } },
+      ],
+      series: [
+        { name: "新增客户", type: "line", smooth: true, data: trendSeries.map((item) => Number(item.new_customers || 0)), lineStyle: { width: 3, color: "#1e5bdf" }, symbolSize: 6, itemStyle: { color: "#1e5bdf" } },
+        { name: "订单数", type: "line", smooth: true, data: trendSeries.map((item) => Number(item.order_count || 0)), lineStyle: { width: 3, color: "#6aa3ff" }, symbolSize: 6, itemStyle: { color: "#6aa3ff" } },
+        { name: "返佣额", type: "bar", yAxisIndex: 1, data: trendSeries.map((item) => Number(Number(item.rebate_amount_cny || 0).toFixed(2))), itemStyle: { color: "#c8dafd", borderRadius: [8, 8, 0, 0] } },
+      ],
+    })
+  }
+
+  if (mixChart) {
+    if (isLevelOne.value) {
+      const rows = [...(Array.isArray(analytics.value?.subchannel_rank) ? analytics.value.subchannel_rank : [])]
+        .slice(0, 8)
+        .map((item) => ({
+          name: String(item.name || ""),
+          users: Number(item.user_count || 0),
+          rebate: Number(item.rebate_amount_fen || 0),
+        }))
+        .reverse()
+      mixChart.setOption({
+        grid: { left: 90, right: 18, top: 18, bottom: 18 },
+        legend: { bottom: 0, textStyle: { color: "#617793" } },
+        tooltip: { trigger: "axis", axisPointer: { type: "shadow" } },
+        xAxis: { type: "value", axisLine: { show: false }, axisTick: { show: false }, splitLine: { lineStyle: { color: "rgba(72, 96, 132, 0.12)" } }, axisLabel: { color: "#617793" } },
+        yAxis: { type: "category", data: rows.map((item) => item.name), axisLine: { show: false }, axisTick: { show: false }, axisLabel: { color: "#244165" } },
+        series: [
+          { name: "客户数", type: "bar", data: rows.map((item) => item.users), barWidth: 14, itemStyle: { color: "#8eb7ff", borderRadius: 8 } },
+          { name: "返佣(元)", type: "bar", data: rows.map((item) => Number((item.rebate / 100).toFixed(2))), barWidth: 14, itemStyle: { color: "#1e5bdf", borderRadius: 8 } },
+        ],
+      })
+    } else {
+      const pieRows = Array.isArray(analytics.value?.package_mix) ? analytics.value.package_mix : []
+      mixChart.setOption({
+        tooltip: { trigger: "item" },
+        legend: { bottom: 0, textStyle: { color: "#617793" } },
+        series: [
+          {
+            type: "pie",
+            radius: ["46%", "72%"],
+            center: ["50%", "42%"],
+            label: { color: "#244165", formatter: "{b}\n{d}%" },
+            data: pieRows.length ? pieRows : [{ name: "暂无订单", value: 1, itemStyle: { color: "#d9e5fb" }, label: { color: "#7b8da8" } }],
+          },
+        ],
+      })
+    }
+  }
+}
+
+function initChart(el, existing) {
+  if (!el) return null
+  return existing || echarts.init(el)
+}
+
+function disposeCharts() {
+  for (const chart of [activityChart, mixChart]) {
+    if (chart) chart.dispose()
+  }
+  activityChart = null
+  mixChart = null
+}
+
+function handleResize() {
+  for (const chart of [activityChart, mixChart]) {
+    if (chart) chart.resize()
+  }
+}
+
 async function submitWithdrawApply() {
   if (!hasPortalSession.value || !overview.value) return
   withdrawSubmitting.value = true
   errorText.value = ""
   successText.value = ""
   try {
-    await partnerHttp.post(
-      "/partners/portal/withdraw-apply",
-      {
-        apply_amount_cny: Number(withdrawAmountCny.value || 0),
-        note: String(withdrawNote.value || "").trim(),
-      },
-      { timeout: 30000 }
-    )
+    await partnerHttp.post("/partners/portal/withdraw-apply", { apply_amount_cny: Number(withdrawAmountCny.value || 0), note: String(withdrawNote.value || "").trim() }, { timeout: 30000 })
     withdrawNote.value = ""
     await loadPortalData()
     successText.value = "提现申请已提交"
@@ -858,18 +938,16 @@ async function submitChildForm() {
       payload.channel_code = String(childForm.value.channel_code || "").trim() || undefined
       const data = await partnerHttp.post("/partners/portal/subchannels", payload, { timeout: 30000 })
       const bundle = buildChannelBundle(data)
-      if (bundle) {
-        await copyText(bundle, "下级渠道整段信息已复制")
-      }
-      successText.value = bundle ? "下级渠道已创建，整段信息已复制" : "下级渠道已创建"
+      if (bundle) await copyText(bundle, "二级渠道整段信息已复制")
+      successText.value = bundle ? "二级渠道已创建并复制信息" : "二级渠道已创建"
     } else {
       await partnerHttp.patch(`/partners/portal/subchannels/${editingChildId.value}`, payload, { timeout: 30000 })
-      successText.value = "下级渠道已更新"
+      successText.value = "二级渠道已更新"
     }
     resetChildForm()
     await loadPortalData()
   } catch (error) {
-    errorText.value = String(error?.message || "保存下级渠道失败")
+    errorText.value = String(error?.message || "保存二级渠道失败")
   } finally {
     childSubmitting.value = false
   }
@@ -900,16 +978,21 @@ function resetChildForm() {
 async function toggleChildStatus(item) {
   const nextStatus = item.status === "active" ? "disabled" : "active"
   try {
-    await partnerHttp.patch(
-      `/partners/portal/subchannels/${item.id}`,
-      { status: nextStatus },
-      { timeout: 30000 }
-    )
+    await partnerHttp.patch(`/partners/portal/subchannels/${item.id}`, { status: nextStatus }, { timeout: 30000 })
     await loadPortalData()
-    successText.value = nextStatus === "active" ? "下级渠道已启用" : "下级渠道已停用"
+    successText.value = nextStatus === "active" ? "二级渠道已启用" : "二级渠道已停用"
   } catch (error) {
     errorText.value = String(error?.message || "更新渠道状态失败")
   }
+}
+
+function subchannelHealth(item) {
+  const userCount = Number(item.user_count || 0)
+  const totalFen = Number(item.pending_rebate_fen || 0) + Number(item.settled_rebate_fen || 0)
+  if (String(item.status || "") !== "active") return { label: "已停用", tone: "muted" }
+  if (totalFen > 0) return { label: "活跃", tone: "success" }
+  if (userCount > 0) return { label: "一般", tone: "warning" }
+  return { label: "待激活", tone: "danger" }
 }
 
 async function openPolicyPanel(item) {
@@ -928,11 +1011,7 @@ async function openPolicyPanel(item) {
 }
 
 function closePolicyPanel() {
-  policyPanel.value = {
-    visible: false,
-    channel: null,
-    items: [],
-  }
+  policyPanel.value = { visible: false, channel: null, items: [] }
 }
 
 async function savePolicy() {
@@ -946,15 +1025,7 @@ async function savePolicy() {
   errorText.value = ""
   successText.value = ""
   try {
-    await partnerHttp.post(
-      `/partners/portal/subchannels/${policyPanel.value.channel.id}/policy`,
-      {
-        package_name: String(policyForm.value.package_name || "").trim() || null,
-        rebate_rate_bp: Math.round(rebateRatePct * 100),
-        is_active: Boolean(policyForm.value.is_active),
-      },
-      { timeout: 30000 }
-    )
+    await partnerHttp.post(`/partners/portal/subchannels/${policyPanel.value.channel.id}/policy`, { package_name: String(policyForm.value.package_name || "").trim() || null, rebate_rate_bp: Math.round(rebateRatePct * 100), is_active: Boolean(policyForm.value.is_active) }, { timeout: 30000 })
     successText.value = "返佣设置已保存"
     await openPolicyPanel(policyPanel.value.channel)
     await loadPortalData()
@@ -1000,34 +1071,18 @@ function buildChannelBundle(item) {
   const orderLink = String(item?.order_link || "").trim()
   const miniappOrderPath = String(item?.miniapp_order_path || "").trim()
   const miniappPortalPath = String(item?.miniapp_portal_path || "").trim()
-  const lines = [
-    name ? `渠道名称：${name}` : "",
-    portalLink ? `门户链接：${portalLink}` : "",
-    orderLink ? `推广链接：${orderLink}` : "",
-    miniappOrderPath ? `小程序推广路径：${miniappOrderPath}` : "",
-    miniappPortalPath ? `小程序后台路径：${miniappPortalPath}` : "",
-  ].filter(Boolean)
-  return lines.join("\n")
+  return [name ? `渠道名称：${name}` : "", portalLink ? `门户链接：${portalLink}` : "", orderLink ? `推广链接：${orderLink}` : "", miniappOrderPath ? `小程序推广路径：${miniappOrderPath}` : "", miniappPortalPath ? `小程序后台路径：${miniappPortalPath}` : ""].filter(Boolean).join("\n")
 }
 
 function buildCustomerShareBundle(item) {
   const name = String(item?.name || item?.channel_name || "").trim() || "当前渠道"
   const orderLink = String(item?.order_link || "").trim()
   const miniappOrderPath = String(item?.miniapp_order_path || "").trim()
-  const lines = [
-    `你好，我是 ${name}。`,
-    "这是我的专属办理入口，直接从这里进入即可：",
-    orderLink ? `推广链接：${orderLink}` : "",
-    miniappOrderPath ? `小程序路径：${miniappOrderPath}` : "",
-  ].filter(Boolean)
-  return lines.join("\n")
+  return [`你好，我是 ${name}。`, "这是我的专属办理入口：", orderLink ? `推广链接：${orderLink}` : "", miniappOrderPath ? `小程序路径：${miniappOrderPath}` : ""].filter(Boolean).join("\n")
 }
 
 async function copyOwnBundle() {
-  const bundle = buildChannelBundle({
-    ...overview.value,
-    name: overview.value?.channel_name || "",
-  })
+  const bundle = buildChannelBundle({ ...overview.value, name: overview.value?.channel_name || "" })
   if (!bundle) {
     errorText.value = "暂无可复制的分发信息"
     successText.value = ""
@@ -1037,20 +1092,19 @@ async function copyOwnBundle() {
 }
 
 async function copyCustomerShareText() {
-  await copyText(customerShareText.value, "客户分发文案已复制")
+  await copyText(buildCustomerShareBundle({ ...overview.value, name: overview.value?.channel_name || "" }), "客户分发文案已复制")
 }
 
 async function copyRecruitmentBundle() {
-  const bundle = buildChannelBundle({
-    ...overview.value,
-    name: overview.value?.channel_name || "",
-  })
+  const name = String(overview.value?.channel_name || "").trim() || "当前渠道"
+  const bundle = buildChannelBundle({ ...overview.value, name })
   if (!bundle) {
-    errorText.value = "暂无可复制的下级招募信息"
+    errorText.value = "暂无可复制的二级招募信息"
     successText.value = ""
     return
   }
-  await copyText([recruitmentMessage.value, "", bundle].filter(Boolean).join("\n"), "下级招募信息已复制")
+  const text = [`你好，我是 ${name}。`, "这是给二级渠道的整段分发信息：", bundle, "打开后即可直接进入渠道后台。"].filter(Boolean).join("\n")
+  await copyText(text, "二级招募信息已复制")
 }
 
 async function copyChildBundle(item) {
@@ -1058,35 +1112,23 @@ async function copyChildBundle(item) {
   errorText.value = ""
   successText.value = ""
   try {
-    const data = await partnerHttp.post(
-      `/partners/portal/subchannels/${item.id}/portal-link/refresh`,
-      {},
-      { timeout: 30000 }
-    )
+    const data = await partnerHttp.post(`/partners/portal/subchannels/${item.id}/portal-link/refresh`, {}, { timeout: 30000 })
     const bundle = buildChannelBundle({ ...item, ...data })
     if (!bundle) {
-      errorText.value = "暂无可复制的下级门户信息"
+      errorText.value = "暂无可复制的二级门户信息"
       return
     }
-    await copyText(
-      [`你好，这是 ${String(item?.name || "该渠道")} 的下级门户信息：`, bundle].filter(Boolean).join("\n"),
-      `已复制 ${item.name} 的下级门户信息`
-    )
+    await copyText([`你好，这是 ${String(item?.name || "该渠道")} 的二级门户信息：`, bundle].filter(Boolean).join("\n"), `已复制 ${item.name} 的门户信息`)
     successText.value = `已刷新 ${item.name} 的门户链接并复制完整信息`
     await loadPortalData()
   } catch (error) {
-    errorText.value = String(error?.message || "复制下级门户信息失败")
+    errorText.value = String(error?.message || "复制二级门户信息失败")
   }
 }
 
-async function copyChildCustomerShare(item) {
-  const bundle = buildCustomerShareBundle(item)
-  if (!bundle) {
-    errorText.value = "暂无可复制的客户分发文案"
-    successText.value = ""
-    return
-  }
-  await copyText(bundle, `已复制 ${item.name} 的客户分发文案`)
+async function copyActivationNudge(item) {
+  const text = [`你好，${String(item?.name || "当前二级渠道")} 这边可以先把专属推广链接发出去。`, "建议今天先完成一次客户分发，先把新增客户做起来。", String(item?.order_link || "").trim() ? `推广链接：${item.order_link}` : "", String(item?.portal_link || item?.portal_login_link || "").trim() ? `门户链接：${item.portal_link || item?.portal_login_link}` : ""].filter(Boolean).join("\n")
+  await copyText(text, `已复制 ${item?.name || "该渠道"} 的催活文案`)
 }
 
 function formatFenToCny(value) {
@@ -1097,30 +1139,6 @@ function formatFenToCny(value) {
 function formatRate(value) {
   const bp = Number(value || 0)
   return Number.isFinite(bp) ? `${(bp / 100).toFixed(2)}%` : "-"
-}
-
-function formatLevel(value) {
-  const level = Number(value || 1)
-  if (level === 1) return "一级渠道"
-  if (level === 2) return "二级渠道"
-  if (level === 3) return "三级渠道"
-  return `L${level}`
-}
-
-function selectTreeChannel(node) {
-  if (!node) return
-  selectedTreeNode.value = node
-  const children = Array.isArray(node.children) ? node.children : []
-  subchannels.value = children
-  successText.value = `已切换查看 ${String(node.name || "该渠道")} 的直属下级`
-  errorText.value = ""
-}
-
-function resetTreeSelection() {
-  selectedTreeNode.value = channelTree.value || null
-  subchannels.value = Array.isArray(channelTree.value?.children) ? channelTree.value.children : []
-  successText.value = "已切回当前渠道视角"
-  errorText.value = ""
 }
 
 function formatDateTime(value) {
@@ -1157,27 +1175,6 @@ function formatStatus(value) {
   return statusMap[normalized] || normalized || "-"
 }
 
-async function loadCustomers() {
-  if (!hasPortalSession.value) return
-  try {
-    const resp = await partnerHttp.get("/partners/portal/customers", {
-      params: {
-        scope: scopeFilters.value.customers,
-        page: customersPagination.value.page,
-        page_size: customersPagination.value.page_size,
-        keyword: dateFilters.value.customers_keyword || undefined,
-        created_from: dateFilters.value.customers_from || undefined,
-        created_to: dateFilters.value.customers_to || undefined,
-      },
-      timeout: 30000,
-    })
-    customers.value = Array.isArray(resp?.items) ? resp.items : []
-    customersPagination.value = { ...(resp?.pagination || customersPagination.value) }
-  } catch (error) {
-    errorText.value = String(error?.message || "加载客户归属失败")
-  }
-}
-
 async function logoutPortal() {
   try {
     await partnerHttp.post("/partners/portal/auth/logout")
@@ -1207,627 +1204,360 @@ function applyListFilter(type) {
   loadCustomers()
 }
 
-function changePage(type, delta) {
-  if (type === "orders") {
-    ordersPagination.value.page = Math.max(1, Number(ordersPagination.value.page || 1) + delta)
-    loadOrders()
-    return
-  }
-  if (type === "ledger") {
-    ledgerPagination.value.page = Math.max(1, Number(ledgerPagination.value.page || 1) + delta)
-    loadLedger()
-    return
-  }
-  customersPagination.value.page = Math.max(1, Number(customersPagination.value.page || 1) + delta)
-  loadCustomers()
-}
-
 function exportRows(type) {
   let rows = []
   let headers = []
   if (type === "orders") {
     headers = ["订单号", "用户ID", "收益渠道", "来源渠道", "套餐", "订单金额", "返佣比例", "净返佣", "状态", "创建时间"]
-    rows = orders.value.map((item) => [
-      item.order_no,
-      item.user_id,
-      item.channel_name || item.channel_code || "",
-      item.source_channel_code || "",
-      item.package_name || "",
-      formatFenToCny(item.amount_fen),
-      formatRate(item.rebate_rate_bp),
-      formatFenToCny(item.net_rebate_fen),
-      formatStatus(item.order_status),
-      formatDateTime(item.created_at),
-    ])
+    rows = orders.value.map((item) => [item.order_no, item.user_id, item.channel_name || item.channel_code || "", item.source_channel_code || "", item.package_name || "", formatFenToCny(item.amount_fen), formatRate(item.rebate_rate_bp), formatFenToCny(item.net_rebate_fen), formatStatus(item.order_status), formatDateTime(item.created_at)])
   } else if (type === "ledger") {
     headers = ["流水ID", "订单号", "收益渠道", "来源渠道", "类型", "返佣比例", "返佣金额", "状态", "结算月", "创建时间"]
-    rows = ledger.value.map((item) => [
-      item.id,
-      item.order_no || "",
-      item.channel_name || item.channel_code || "",
-      item.source_channel_code || "",
-      formatEntryType(item.entry_type),
-      formatRate(item.rebate_rate_bp),
-      formatFenToCny(item.rebate_amount_fen),
-      formatStatus(item.status),
-      item.statement_month || "",
-      formatDateTime(item.created_at),
-    ])
+    rows = ledger.value.map((item) => [item.id, item.order_no || "", item.channel_name || item.channel_code || "", item.source_channel_code || "", formatEntryType(item.entry_type), formatRate(item.rebate_rate_bp), formatFenToCny(item.rebate_amount_fen), formatStatus(item.status), item.statement_month || "", formatDateTime(item.created_at)])
   } else {
     headers = ["用户ID", "昵称", "手机号", "归属渠道", "归属来源", "历史订单", "锁定时间"]
-    rows = customers.value.map((item) => [
-      item.user_id,
-      item.nickname,
-      item.phone_masked || "",
-      item.channel_name || item.channel_code || "",
-      item.bind_source || "",
-      Number(item.order_count || 0),
-      formatDateTime(item.locked_at || item.updated_at || item.created_at),
-    ])
+    rows = customers.value.map((item) => [item.user_id, item.nickname, item.phone_masked || "", item.channel_name || item.channel_code || "", item.bind_source || "", Number(item.order_count || 0), formatDateTime(item.locked_at || item.updated_at || item.created_at)])
   }
-  const csv = [headers, ...rows]
-    .map((line) => line.map((cell) => `"${String(cell ?? "").replaceAll("\"", "\"\"")}"`).join(","))
-    .join("\n")
+  const csv = [headers, ...rows].map((line) => line.map((cell) => `"${String(cell ?? "").replaceAll("\"", "\"\"")}"`).join(",")).join("\n")
   const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" })
   triggerBlobDownload(blob, `partner_${type}_${new Date().toISOString().slice(0, 10)}.csv`)
 }
 </script>
 
 <style scoped>
-.partner-portal-page {
+.partner-page {
   min-height: 100vh;
   padding: 22px;
   background:
-    radial-gradient(circle at 15% 12%, rgba(30, 91, 223, 0.14), transparent 32%),
-    radial-gradient(circle at 88% 18%, rgba(93, 145, 255, 0.12), transparent 24%),
-    linear-gradient(180deg, #eef5ff 0%, #f6f9ff 24%, #ffffff 54%, #ffffff 100%);
+    radial-gradient(circle at 10% 14%, rgba(30, 91, 223, 0.14), transparent 30%),
+    radial-gradient(circle at 90% 18%, rgba(93, 145, 255, 0.12), transparent 24%),
+    linear-gradient(180deg, #eef5ff 0%, #f7faff 30%, #ffffff 60%, #ffffff 100%);
 }
 
-.partner-portal-shell {
-  width: min(1380px, 100%);
+.partner-shell {
+  width: min(1360px, 100%);
   margin: 0 auto;
   display: grid;
   gap: 18px;
 }
 
-.partner-portal-head {
+.partner-head {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: 16px;
   padding: 22px 24px;
   border-radius: 24px;
-  background:
-    radial-gradient(circle at 100% 0%, rgba(255, 255, 255, 0.16), transparent 26%),
-    linear-gradient(135deg, #133f82 0%, #1e5bdf 54%, #4b89fb 100%);
+  background: linear-gradient(135deg, #153d80 0%, #1e5bdf 56%, #4b89fb 100%);
   color: #fff;
   box-shadow: 0 24px 44px rgba(13, 42, 88, 0.22);
 }
 
-.partner-portal-head__actions {
+.partner-head__eyebrow {
+  margin: 0;
+  font-size: 12px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  opacity: 0.88;
+}
+
+.partner-head h1 {
+  margin: 8px 0 6px;
+  font-size: 34px;
+  line-height: 1.1;
+}
+
+.partner-head p:last-child {
+  margin: 0;
+  color: rgba(255, 255, 255, 0.82);
+}
+
+.partner-head__actions {
   display: flex;
-  align-items: center;
   gap: 10px;
   flex-wrap: wrap;
 }
 
-.partner-portal-head__eyebrow {
-  margin: 0;
-  opacity: 0.9;
-  font-size: 12px;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-}
-
-.partner-portal-head__title {
-  margin: 6px 0;
-  font-size: 32px;
-  line-height: 1.08;
-}
-
-.partner-portal-head__desc {
-  margin: 0;
-  font-size: 14px;
-  opacity: 0.9;
-}
-
-.partner-portal-head__refresh,
-.partner-subchannel-actions button,
-.partner-btn--ghost,
-.partner-subchannel-item__links button,
-.partner-subchannel-item__actions button {
-  min-height: 38px;
-  padding: 0 15px;
-  border-radius: 12px;
-  border: 1px solid transparent;
-  cursor: pointer;
-  font-weight: 700;
-  transition:
-    transform var(--motion-fast) var(--ease-standard),
-    box-shadow var(--motion-fast) var(--ease-standard),
-    background-color var(--motion-fast) var(--ease-standard),
-    border-color var(--motion-fast) var(--ease-standard);
-}
-
-.partner-portal-head__refresh,
-.partner-subchannel-actions button {
-  background: linear-gradient(135deg, #1f6ee9 0%, #1457cc 56%, #0c73d6 100%);
-  color: #fff;
-  box-shadow: 0 12px 22px rgba(20, 87, 204, 0.18);
-}
-
-.partner-btn--ghost,
-.partner-subchannel-item__links button,
-.partner-subchannel-item__actions button {
-  background: linear-gradient(180deg, #f7fbff 0%, #ffffff 100%);
-  border: 1px solid #cfddf3;
-  color: #1457cc;
-}
-
-.partner-portal-head__refresh:hover,
-.partner-subchannel-actions button:hover,
-.partner-btn--ghost:hover,
-.partner-subchannel-item__links button:hover,
-.partner-subchannel-item__actions button:hover {
-  transform: translateY(-1px);
-}
-
-.partner-alert {
+.partner-message {
   margin: 0;
   padding: 12px 14px;
   border-radius: 12px;
   font-size: 13px;
-  line-height: 1.65;
 }
 
-.partner-alert--danger {
-  border: 1px solid #f1c7c3;
-  background: #fff1ef;
-  color: #a83f35;
+.partner-message--danger {
+  background: #ffe9e9;
+  color: #b33636;
 }
 
-.partner-alert--success {
-  border: 1px solid #c6eadf;
-  background: #effdf7;
-  color: #0d7c5e;
+.partner-message--success {
+  background: #eaf8ef;
+  color: #126942;
 }
 
-.partner-overview,
-.partner-data-card,
-.partner-empty {
-  border-radius: 20px;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.99) 0%, rgba(248, 251, 255, 0.99) 100%);
-  border: 1px solid rgba(213, 224, 242, 0.96);
-  box-shadow: 0 18px 34px rgba(19, 40, 72, 0.08);
-}
-
-.partner-fold-card {
-  overflow: hidden;
-}
-
-.partner-fold-card[open] {
-  padding-bottom: 8px;
-}
-
-.partner-fold-card__summary {
-  list-style: none;
-  cursor: pointer;
-  padding: 16px;
-}
-
-.partner-fold-card__summary::-webkit-details-marker {
-  display: none;
-}
-
-.partner-fold-card__summary h2 {
-  margin: 0;
-  color: #14345f;
-  font-size: 18px;
-}
-
-.partner-fold-card__summary span {
-  display: block;
-  margin-top: 4px;
-  color: #617391;
-  font-size: 12px;
-}
-
-.partner-fold-card__body {
+.partner-stat-grid,
+.partner-workbench,
+.partner-chart-grid {
   display: grid;
-  gap: 14px;
-  padding: 0 0 8px;
+  gap: 16px;
 }
 
-.partner-inline-panel {
-  border-top: 1px solid #e6edf7;
+.partner-stat-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
-.partner-overview {
-  padding: 18px;
+.partner-workbench,
+.partner-chart-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.partner-stat-card,
+.partner-panel {
+  border: 1px solid rgba(214, 225, 242, 0.96);
+  border-radius: 22px;
+  background: #fff;
+  padding: 18px 20px;
+  box-shadow: 0 14px 28px rgba(20, 64, 146, 0.08);
+}
+
+.partner-stat-card {
   display: grid;
-  gap: 14px;
+  gap: 8px;
 }
 
-.partner-overview__meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  color: #4f6181;
+.partner-stat-card--primary {
+  border-color: rgba(82, 131, 255, 0.45);
+  background: linear-gradient(135deg, #1f56cc 0%, #2f77ff 100%);
+  color: #fff;
+}
+
+.partner-stat-card span {
+  color: #6d7f99;
   font-size: 13px;
 }
 
-.partner-overview__cards {
-  display: grid;
-  gap: 12px;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
+.partner-stat-card--primary span,
+.partner-stat-card--primary p {
+  color: rgba(255, 255, 255, 0.84);
 }
 
-.partner-card {
-  padding: 15px 16px;
-  border-radius: 16px;
-  background: linear-gradient(180deg, #f7fbff 0%, #ffffff 100%);
-  border: 1px solid rgba(216, 227, 243, 0.96);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.88);
+.partner-stat-card strong {
+  color: #163862;
+  font-size: 30px;
+  line-height: 1;
 }
 
-.partner-card p {
+.partner-stat-card--primary strong {
+  color: #fff;
+}
+
+.partner-stat-card p {
   margin: 0;
-  color: #617391;
+  color: #7c8ea8;
   font-size: 12px;
 }
 
-.partner-card strong {
-  display: block;
-  margin-top: 8px;
-  color: #0f2849;
-  font-size: 26px;
-  line-height: 1.1;
-}
-
-.partner-data-grid {
-  display: grid;
-  gap: 14px;
-}
-
-.partner-workbench-card {
-  overflow: hidden;
-}
-
-.partner-workbench-grid {
-  display: grid;
-  gap: 16px;
-  grid-template-columns: minmax(0, 1.05fr) minmax(360px, 0.95fr);
-  padding: 16px 18px 18px;
-}
-
-.partner-task-grid {
-  display: grid;
+.partner-section-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
   gap: 12px;
-  padding: 14px 16px 16px;
+  flex-wrap: wrap;
 }
 
-.partner-task-grid {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-}
-
-.partner-task-grid--compact,
-.partner-quick-grid--compact {
-  padding: 0;
-}
-
-.partner-task-card {
-  border: 1px solid rgba(215, 228, 246, 0.96);
-  border-radius: 18px;
-  padding: 15px;
-  background: linear-gradient(180deg, #f8fbff 0%, #ffffff 100%);
-  display: grid;
-  gap: 8px;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.88);
-}
-
-.partner-task-card strong {
-  color: #14345f;
-  font-size: 15px;
-}
-
-.partner-task-card button {
-  width: fit-content;
-}
-
-.partner-task-card span {
-  color: #617391;
+.partner-kicker {
+  color: #1d5ce0;
   font-size: 12px;
-  line-height: 1.7;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
 }
 
-.partner-quick-card {
-  overflow: hidden;
+.partner-section-head h2 {
+  margin: 4px 0 0;
+  color: #17365f;
+  font-size: 20px;
 }
 
-.partner-quick-grid {
+.partner-head-note {
+  color: #7991b2;
+  font-size: 12px;
+}
+
+.partner-action-grid {
   display: grid;
   gap: 12px;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  padding: 14px 16px 16px;
-}
-
-.partner-quick-grid--compact {
   grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-top: 14px;
 }
 
-.partner-quick-action {
-  border: 1px solid rgba(214, 226, 244, 0.96);
-  border-radius: 18px;
-  background: linear-gradient(180deg, #f7fbff 0%, #ffffff 100%);
-  padding: 15px;
+.partner-action-card {
+  border: 1px solid #dbe7fb;
+  border-radius: 16px;
+  background: #f8fbff;
+  padding: 14px 16px;
   text-align: left;
   display: grid;
   gap: 6px;
-  cursor: pointer;
-  transition:
-    transform var(--motion-fast) var(--ease-standard),
-    box-shadow var(--motion-fast) var(--ease-standard),
-    border-color var(--motion-fast) var(--ease-standard);
 }
 
-.partner-quick-action:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 14px 26px rgba(30, 91, 223, 0.08);
+.partner-action-card--primary {
+  background: linear-gradient(135deg, #1e5bdf 0%, #4586ff 100%);
+  border-color: transparent;
+  color: #fff;
 }
 
-.partner-quick-action strong {
-  color: #14345f;
+.partner-action-card strong {
   font-size: 15px;
 }
 
-.partner-quick-action span {
-  color: #617391;
+.partner-action-card span {
+  font-size: 12px;
+  color: inherit;
+  opacity: 0.85;
+}
+
+.partner-alert-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.partner-alert-item {
+  border: 1px solid #deebff;
+  border-radius: 16px;
+  background: #f7fbff;
+  padding: 14px 16px;
+}
+
+.partner-alert-item strong {
+  display: block;
+  color: #17365f;
+  font-size: 14px;
+}
+
+.partner-alert-item p {
+  margin: 6px 0 0;
+  color: #6f819b;
   font-size: 12px;
   line-height: 1.6;
 }
 
-.partner-quick-action--primary {
-  background: linear-gradient(135deg, rgba(20, 87, 204, 0.1) 0%, rgba(12, 115, 214, 0.03) 100%);
-  border-color: #c9daf6;
+.partner-chart {
+  width: 100%;
+  height: 280px;
+  margin-top: 14px;
 }
 
-.partner-share-strip {
-  display: grid;
-  gap: 14px;
-  grid-template-columns: 1fr;
-  padding: 14px 16px 0;
+.partner-table-wrap {
+  margin-top: 14px;
+  overflow-x: auto;
 }
 
-.partner-share-card {
-  border: 1px solid rgba(215, 228, 246, 0.96);
-  border-radius: 18px;
-  padding: 15px;
-  background: linear-gradient(180deg, #f8fbff 0%, #ffffff 100%);
-  display: grid;
-  gap: 12px;
+.partner-table {
+  width: 100%;
+  min-width: 980px;
+  border-collapse: collapse;
 }
 
-.partner-share-card--primary {
-  background: linear-gradient(135deg, rgba(20, 87, 204, 0.08) 0%, rgba(12, 115, 214, 0.03) 100%);
+.partner-table th,
+.partner-table td {
+  padding: 12px 10px;
+  border-bottom: 1px solid #e6eef9;
+  text-align: left;
+  vertical-align: top;
 }
 
-.partner-share-card__head {
-  display: grid;
-  gap: 4px;
-}
-
-.partner-share-card__head strong {
-  color: #14345f;
-  font-size: 15px;
-}
-
-.partner-share-card__head span,
-.partner-share-card__meta span {
-  color: #5d7090;
+.partner-table th {
+  color: #5f7697;
   font-size: 12px;
-  line-height: 1.6;
+  font-weight: 600;
 }
 
-.partner-share-card__meta {
+.partner-stack {
   display: grid;
   gap: 6px;
 }
 
-.partner-share-card__actions {
+.partner-stack strong {
+  color: #17365f;
+}
+
+.partner-stack span {
+  color: #6d809d;
+  font-size: 12px;
+}
+
+.partner-pill {
+  display: inline-flex;
+  width: fit-content;
+  padding: 5px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+}
+
+.partner-pill--success {
+  background: #e8f7ef;
+  color: #127246;
+}
+
+.partner-pill--warning {
+  background: #fff4dd;
+  color: #9a6a00;
+}
+
+.partner-pill--danger {
+  background: #ffe7e7;
+  color: #b33636;
+}
+
+.partner-pill--muted {
+  background: #eef3fb;
+  color: #60738f;
+}
+
+.partner-row-actions {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
 }
 
-.partner-data-card__head {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 12px;
-  padding: 18px 18px 0;
+.partner-row-actions--top {
+  margin-top: 14px;
 }
 
-.partner-data-card__head h2 {
-  margin: 0;
-  color: #14345f;
-  font-size: 18px;
-}
-
-.partner-data-card__head span {
-  color: #617391;
-  font-size: 12px;
-}
-
-.partner-head-actions {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.partner-filter-row {
-  display: flex;
-  align-items: end;
-  gap: 10px;
-  flex-wrap: wrap;
-  padding: 0 16px 14px;
-}
-
-.partner-filter-row--wide {
-  display: grid;
-  grid-template-columns: minmax(220px, 1.2fr) repeat(2, minmax(160px, 0.9fr)) auto;
-}
-
-.partner-filter-field {
-  display: grid;
-  gap: 6px;
-  min-width: 140px;
-}
-
-.partner-filter-field span {
-  color: #5d7090;
-  font-size: 12px;
-}
-
-.partner-filter-field input {
-  min-height: 34px;
-  padding: 0 10px;
-  border-radius: 10px;
-  border: 1px solid #cfdbec;
-  color: #12345c;
-  background: #fff;
-}
-
-.partner-pagination {
-  display: flex;
-  justify-content: flex-end;
-  align-items: center;
-  gap: 10px;
-  padding: 0 16px 16px;
-  color: #617391;
-  font-size: 12px;
-}
-
-.partner-head-actions select {
-  min-height: 34px;
-  padding: 0 10px;
-  border-radius: 10px;
-  border: 1px solid #cfdbec;
-  color: #12345c;
-  background: #fff;
-}
-
-.partner-manage-grid {
-  display: grid;
-  gap: 16px;
-  grid-template-columns: 1fr;
-  padding: 16px 18px 0;
-}
-
-.partner-block,
-.partner-policy-shell,
-.partner-withdraw-shell,
-.partner-table-wrap,
-.partner-subchannel-board,
-.partner-tree-board {
-  padding: 16px 18px 18px;
-}
-
-.partner-tree-board__head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-
-.partner-tree-board__actions {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-  color: #5d7090;
-  font-size: 12px;
-}
-
-.partner-child-summary {
-  display: grid;
-  gap: 10px;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  margin-bottom: 12px;
-}
-
-.partner-child-summary__card {
+.partner-button {
+  min-height: 40px;
+  border: none;
   border-radius: 12px;
-  background: #f4f8ff;
-  border: 1px solid #dde7f5;
-  padding: 12px;
+  padding: 0 14px;
+  background: #1e5bdf;
+  color: #fff;
 }
 
-.partner-child-summary__card span {
-  display: block;
-  color: #627492;
-  font-size: 12px;
+.partner-button--ghost {
+  background: #eef4ff;
+  color: #1d4ea1;
 }
 
-.partner-child-summary__card strong {
-  display: block;
-  margin-top: 6px;
-  color: #14345f;
-  font-size: 18px;
+.partner-detail-box {
+  margin-top: 14px;
+  border: 1px dashed #d6e2f8;
+  border-radius: 16px;
+  padding: 14px;
+  background: #fbfdff;
 }
 
-.partner-subchannel-board__head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
+.partner-detail-box summary,
+.partner-detail-summary {
+  cursor: pointer;
+  color: #1d4ea1;
+  font-weight: 600;
+}
+
+.partner-form-grid {
+  display: grid;
   gap: 12px;
-  flex-wrap: wrap;
-}
-
-.partner-subchannel-board__actions {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-  color: #5d7090;
-  font-size: 12px;
-}
-
-.partner-block {
-  border-radius: 18px;
-  background: linear-gradient(180deg, #f7fbff 0%, #ffffff 100%);
-  border: 1px solid rgba(221, 231, 245, 0.96);
-}
-
-.partner-block__head {
-  display: grid;
-  gap: 4px;
-  margin-bottom: 12px;
-}
-
-.partner-block__head strong {
-  color: #14345f;
-  font-size: 15px;
-}
-
-.partner-block__head span {
-  color: #617391;
-  font-size: 12px;
-  line-height: 1.6;
-}
-
-.partner-section-anchor {
-  position: relative;
-  top: -8px;
-}
-
-.partner-subchannel-items {
-  display: grid;
-  gap: 10px;
-}
-
-.partner-subchannel-items {
   grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-top: 14px;
 }
 
 .partner-field {
@@ -1836,220 +1566,95 @@ function exportRows(type) {
 }
 
 .partner-field span {
-  color: #5d7090;
-  font-size: 12px;
+  color: #627694;
+  font-size: 13px;
 }
 
 .partner-field input,
 .partner-field select {
-  min-height: 38px;
-  padding: 0 12px;
-  border-radius: 10px;
-  border: 1px solid #cfdbec;
-  background: #fff;
-  color: #12345c;
   width: 100%;
+  min-height: 42px;
+  border: 1px solid #d7e2f4;
+  border-radius: 12px;
+  padding: 0 12px;
+  color: #1a365e;
+  background: #fff;
 }
 
-.partner-subchannel-grid {
+.partner-field--wide {
+  grid-column: 1 / -1;
+}
+
+.partner-share-box {
   display: grid;
-  gap: 10px;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 14px;
+  padding: 14px 16px;
+  border-radius: 16px;
+  background: #f8fbff;
 }
 
-.partner-subchannel-actions {
+.partner-share-box span {
+  color: #5f7593;
+  font-size: 13px;
+}
+
+.partner-inline-section + .partner-inline-section {
+  margin-top: 22px;
+}
+
+.partner-filter-row {
   display: flex;
   align-items: center;
-  justify-content: flex-start;
   gap: 10px;
   flex-wrap: wrap;
   margin-top: 12px;
 }
 
-.partner-subchannel-actions span {
-  color: #4d6283;
-  font-size: 13px;
-}
-
-.partner-subchannel-item {
-  display: grid;
-  gap: 10px;
-  padding: 14px;
-  border-radius: 16px;
-  background: linear-gradient(180deg, #f7faff 0%, #ffffff 100%);
-  border: 1px solid rgba(221, 231, 245, 0.96);
-}
-
-.partner-subchannel-item__top {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.partner-subchannel-item__top strong {
-  display: block;
-  color: #12345c;
-  font-size: 15px;
-}
-
-.partner-subchannel-item__top span {
-  display: block;
-  margin-top: 4px;
-  color: #6b7d97;
-  font-size: 12px;
-}
-
-.partner-subchannel-item__top b {
-  color: #1558cb;
-  font-size: 18px;
-}
-
-.partner-subchannel-item__meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.partner-subchannel-share {
-  display: grid;
-  gap: 4px;
-  padding: 10px 12px;
-  border-radius: 12px;
-  background: #f5f9ff;
-  border: 1px solid #dde7f5;
-}
-
-.partner-subchannel-share span {
-  color: #536883;
-  font-size: 12px;
-  line-height: 1.6;
-}
-
-.partner-subchannel-item__meta span {
-  padding: 4px 8px;
-  border-radius: 999px;
-  background: #eef4ff;
-  color: #4f6691;
-  font-size: 12px;
-}
-
-.partner-subchannel-item__links,
-.partner-subchannel-item__actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.partner-subchannel-empty,
-.partner-table__empty {
-  color: #647481;
-  text-align: center;
-  padding: 18px 12px;
-}
-
-.partner-table {
-  width: 100%;
-  min-width: 980px;
-  border-collapse: collapse;
-  font-size: 13px;
-}
-
-.partner-table th,
-.partner-table td {
-  padding: 12px 10px;
-  border-bottom: 1px solid #e5edf7;
-  text-align: left;
-  vertical-align: top;
-}
-
-.partner-table th {
-  color: #647481;
-  font-weight: 700;
+.partner-filter-row--wide {
+  align-items: flex-end;
 }
 
 .partner-empty {
-  padding: 28px;
+  padding: 20px 0;
+  text-align: center;
+  color: #7b8da8;
+}
+
+.partner-panel--center {
   text-align: center;
 }
 
-.partner-empty h2 {
-  margin: 0 0 8px;
-}
-
-.partner-empty p {
-  margin: 0;
-  color: #647481;
-}
-
-@media (max-width: 1180px) {
-  .partner-workbench-grid,
-  .partner-task-grid,
-  .partner-quick-grid,
-  .partner-overview__cards {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-
-  .partner-manage-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .partner-share-strip {
-    grid-template-columns: 1fr;
-  }
-
-  .partner-workbench-grid,
-  .partner-filter-row--wide {
-    grid-template-columns: 1fr 1fr;
-  }
-
-  .partner-subchannel-items {
+@media (max-width: 1100px) {
+  .partner-stat-grid,
+  .partner-workbench,
+  .partner-chart-grid {
     grid-template-columns: 1fr;
   }
 }
 
 @media (max-width: 720px) {
-  .partner-portal-page {
+  .partner-page {
     padding: 14px;
   }
 
-  .partner-portal-head {
-    flex-direction: column;
-    padding: 18px 18px 20px;
-  }
-
-  .partner-workbench-grid,
-  .partner-task-grid,
-  .partner-quick-grid,
-  .partner-overview__cards {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .partner-subchannel-grid,
-  .partner-tree-board {
-    grid-template-columns: 1fr;
-  }
-
-  .partner-filter-row,
-  .partner-pagination,
-  .partner-head-actions,
-  .partner-share-card__actions,
-  .partner-tree-board__actions,
-  .partner-subchannel-board__actions {
-    flex-direction: column;
+  .partner-head,
+  .partner-section-head,
+  .partner-filter-row {
     align-items: stretch;
   }
 
-  .partner-filter-row--wide {
+  .partner-action-grid,
+  .partner-form-grid {
     grid-template-columns: 1fr;
   }
 
-  .partner-workbench-grid,
-  .partner-manage-grid,
-  .partner-subchannel-items,
-  .partner-child-summary {
-    grid-template-columns: 1fr;
+  .partner-chart {
+    height: 240px;
+  }
+
+  .partner-head h1 {
+    font-size: 28px;
   }
 }
 </style>
-

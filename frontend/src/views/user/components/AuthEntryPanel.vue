@@ -1,30 +1,6 @@
 <template>
   <div class="gw-auth-page">
     <main class="gw-auth-page__main">
-      <aside class="gw-auth-side" aria-label="品牌介绍">
-        <div class="gw-auth-side__eyebrow">格物学术</div>
-        <h1 class="gw-auth-side__title">{{ heroTitle }}</h1>
-        <p class="gw-auth-side__desc">{{ heroDesc }}</p>
-
-        <div class="gw-auth-side__grid">
-          <article v-for="item in heroStats" :key="item.label" class="gw-auth-side__stat">
-            <span>{{ item.label }}</span>
-            <strong>{{ item.value }}</strong>
-            <em>{{ item.desc }}</em>
-          </article>
-        </div>
-
-        <div class="gw-auth-side__list">
-          <div v-for="item in heroBullets" :key="item.title" class="gw-auth-side__item">
-            <div class="gw-auth-side__dot">{{ item.tag }}</div>
-            <div>
-              <h3>{{ item.title }}</h3>
-              <p>{{ item.desc }}</p>
-            </div>
-          </div>
-        </div>
-      </aside>
-
       <section class="gw-auth-card" aria-label="登录面板">
         <header class="gw-auth-card__head">
           <div class="gw-auth-card__brand" role="img" aria-label="格物学术">
@@ -162,22 +138,6 @@ const wxStatusText = computed(() => {
 })
 const showLoginTypeTabs = computed(() => phoneLoginEnabled.value && wechatLoginEnabled.value)
 const hasWechatEntry = computed(() => wechatLoginEnabled.value)
-const heroTitle = computed(() => (isRegister.value ? "几步完成注册，直接开始使用" : "更快进入工作台，继续处理任务"))
-const heroDesc = computed(() =>
-  isRegister.value
-    ? "统一入口支持手机号验证码和微信扫码，注册完成后即可直接使用检测、降重和改写服务。"
-    : "一个入口完成登录，进入后即可继续提交任务、查看记录和管理账户点数。"
-)
-const heroStats = computed(() => [
-  { label: "登录方式", value: hasWechatEntry.value ? "双通道" : "手机号", desc: hasWechatEntry.value ? "手机号 + 微信扫码" : "验证码快速进入" },
-  { label: "进入后可用", value: "全功能", desc: "检测、降重、改写统一管理" },
-  { label: "设备体验", value: "移动优先", desc: "手机和桌面端都能顺手操作" },
-])
-const heroBullets = computed(() => [
-  { tag: "01", title: "入口更直接", desc: "登录后直接进入主工作区，不绕路，不展示多余说明。" },
-  { tag: "02", title: "账号更统一", desc: "任务记录、点数和账户信息全部跟随当前账号集中管理。" },
-  { tag: "03", title: "操作更轻", desc: "验证码登录和扫码登录都保留，按你的使用习惯切换即可。" },
-])
 
 watch(
   () => route.fullPath,
@@ -423,116 +383,10 @@ function enterGuest() {
   min-height: 100svh;
   width: min(1120px, 100%);
   margin: 0 auto;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(380px, 420px);
+  display: flex;
   align-items: center;
-  gap: 24px;
+  justify-content: center;
   padding: 20px 16px;
-}
-
-.gw-auth-side {
-  padding: 28px 8px 28px 4px;
-  display: grid;
-  gap: 18px;
-}
-
-.gw-auth-side__eyebrow {
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-  color: #5e80b5;
-}
-
-.gw-auth-side__title {
-  margin: 0;
-  max-width: 520px;
-  font-size: clamp(34px, 4vw, 54px);
-  line-height: 1.04;
-  color: #143a73;
-}
-
-.gw-auth-side__desc {
-  margin: 0;
-  max-width: 560px;
-  font-size: 15px;
-  line-height: 1.85;
-  color: #52729f;
-}
-
-.gw-auth-side__grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px;
-}
-
-.gw-auth-side__stat {
-  padding: 16px 16px 14px;
-  border-radius: 18px;
-  border: 1px solid rgba(30, 91, 223, 0.12);
-  background: rgba(255, 255, 255, 0.74);
-  box-shadow: 0 16px 28px rgba(30, 91, 223, 0.08);
-  display: grid;
-  gap: 6px;
-}
-
-.gw-auth-side__stat span {
-  font-size: 12px;
-  color: #6483ad;
-}
-
-.gw-auth-side__stat strong {
-  font-size: 22px;
-  line-height: 1.08;
-  color: #1e5bdf;
-}
-
-.gw-auth-side__stat em {
-  font-style: normal;
-  font-size: 12px;
-  line-height: 1.6;
-  color: #6a84a5;
-}
-
-.gw-auth-side__list {
-  display: grid;
-  gap: 12px;
-}
-
-.gw-auth-side__item {
-  display: grid;
-  grid-template-columns: 42px minmax(0, 1fr);
-  gap: 12px;
-  align-items: start;
-  padding: 16px 18px;
-  border-radius: 18px;
-  border: 1px solid rgba(30, 91, 223, 0.1);
-  background: rgba(255, 255, 255, 0.64);
-}
-
-.gw-auth-side__dot {
-  width: 42px;
-  height: 42px;
-  border-radius: 14px;
-  display: grid;
-  place-items: center;
-  background: linear-gradient(135deg, #5d92ff, #1e5bdf);
-  color: #fff;
-  font-size: 12px;
-  font-weight: 700;
-}
-
-.gw-auth-side__item h3 {
-  margin: 0;
-  font-size: 16px;
-  color: #173b70;
-}
-
-.gw-auth-side__item p {
-  margin: 6px 0 0;
-  font-size: 13px;
-  line-height: 1.75;
-  color: #5978a3;
 }
 
 .gw-auth-card {
@@ -894,32 +748,6 @@ function enterGuest() {
 
   .gw-auth-card__tabs {
     gap: 6px;
-  }
-}
-
-@media (max-width: 980px) {
-  .gw-auth-page__main {
-    grid-template-columns: 1fr;
-    width: min(100%, 560px);
-    gap: 18px;
-  }
-
-  .gw-auth-side {
-    padding: 6px 0 0;
-  }
-
-  .gw-auth-side__grid {
-    grid-template-columns: 1fr;
-  }
-}
-
-@media (max-width: 640px) {
-  .gw-auth-side__title {
-    font-size: 30px;
-  }
-
-  .gw-auth-side__item {
-    padding: 14px;
   }
 }
 </style>

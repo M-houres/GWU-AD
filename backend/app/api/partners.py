@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-from datetime import datetime
+import json
+from datetime import datetime, time, timedelta, timezone
 
 from fastapi import APIRouter, Body, Depends, Query, Request, Response
-from sqlalchemy import desc, func
+from sqlalchemy import case, desc, func, text
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
@@ -49,6 +50,8 @@ router = APIRouter()
 settings = get_settings()
 PARTNER_ACCESS_COOKIE_NAME = "gw_partner_access"
 PARTNER_REFRESH_COOKIE_NAME = "gw_partner_refresh"
+ANALYTICS_TZ = timezone(timedelta(hours=8))
+ANALYTICS_CACHE_TTL_SECONDS = 20
 
 
 def _cookie_samesite() -> str:
@@ -146,17 +149,9 @@ def _scope_channel_ids(db: Session, *, channel: PartnerChannel, scope: str) -> l
     if normalized_scope == "direct":
         return direct_ids
     if normalized_scope == "subtree":
-        ids = [self_id, *direct_ids]
-        if direct_ids:
-            grand_rows = db.query(PartnerChannel.id).filter(PartnerChannel.parent_channel_id.in_(direct_ids)).all()
-            ids.extend(int(row[0]) for row in grand_rows if int(row[0] or 0) > 0)
-        return sorted({item for item in ids if int(item or 0) > 0})
+        return sorted({item for item in [self_id, *direct_ids] if int(item or 0) > 0})
     if normalized_scope == "team":
-        ids = list(direct_ids)
-        if direct_ids:
-            grand_rows = db.query(PartnerChannel.id).filter(PartnerChannel.parent_channel_id.in_(direct_ids)).all()
-            ids.extend(int(row[0]) for row in grand_rows if int(row[0] or 0) > 0)
-        return sorted({item for item in ids if int(item or 0) > 0})
+        return sorted({item for item in direct_ids if int(item or 0) > 0})
     return [self_id]
 
 
@@ -238,6 +233,415 @@ def _team_summary_payload(db: Session, *, channel_ids: list[int], scope: str) ->
         "pending_rebate_cny": _fen_to_cny_api(pending_rebate_fen),
         "settled_rebate_fen": int(settled_rebate_fen),
         "settled_rebate_cny": _fen_to_cny_api(settled_rebate_fen),
+    }
+
+
+def _normalize_analytics_days(days: int) -> int:
+    return max(1, min(int(days or 14), 60))
+
+
+def _analytics_now_local() -> datetime:
+    return datetime.now(ANALYTICS_TZ)
+
+
+def _analytics_window_start_utc(days: int) -> datetime:
+    total_days = _normalize_analytics_days(days)
+    start_date = _analytics_now_local().date() - timedelta(days=total_days - 1)
+    start_local = datetime.combine(start_date, time.min, tzinfo=ANALYTICS_TZ)
+    return start_local.astimezone(timezone.utc).replace(tzinfo=None)
+
+
+def _date_bucket_keys(days: int) -> list[str]:
+    total_days = _normalize_analytics_days(days)
+    start_date = _analytics_now_local().date() - timedelta(days=total_days - 1)
+    return [(start_date + timedelta(days=index)).isoformat() for index in range(total_days)]
+
+
+def _serialize_date_key(value) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, datetime):
+        current = value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+        return current.astimezone(ANALYTICS_TZ).date().isoformat()
+    if hasattr(value, "isoformat"):
+        return str(value.isoformat())[:10]
+    return str(value)[:10]
+
+
+def _analytics_date_bucket_expr(db: Session, column):
+    dialect_name = str(getattr(getattr(db, "bind", None), "dialect", None).name or "").lower() if getattr(db, "bind", None) else ""
+    if dialect_name.startswith("sqlite"):
+        return func.date(column, "+8 hours")
+    return func.date(func.timestampadd(text("HOUR"), 8, column))
+
+
+def _analytics_cache_key(scope: str, **params) -> str:
+    normalized = {key: params[key] for key in sorted(params)}
+    return f"partners:analytics:{scope}:{json.dumps(normalized, ensure_ascii=False, sort_keys=True, separators=(',', ':'))}"
+
+
+def _analytics_cache_get(redis_client, key: str):
+    try:
+        cached = str(redis_client.get(key) or "").strip()
+        if not cached:
+            return None
+        return json.loads(cached)
+    except Exception:
+        return None
+
+
+def _analytics_cache_set(redis_client, key: str, data) -> None:
+    try:
+        redis_client.setex(key, ANALYTICS_CACHE_TTL_SECONDS, json.dumps(data, ensure_ascii=False, default=str))
+    except Exception:
+        return None
+
+
+def _apply_admin_channel_filters(base_query, *, status: str | None = None, keyword: str | None = None):
+    normalized_status = str(status or "").strip().lower()
+    if normalized_status in {"active", "disabled"}:
+        base_query = base_query.filter(PartnerChannel.status == normalized_status)
+    normalized_keyword = str(keyword or "").strip()
+    if normalized_keyword:
+        like = f"%{normalized_keyword}%"
+        base_query = base_query.filter((PartnerChannel.channel_code.like(like)) | (PartnerChannel.name.like(like)))
+    return base_query
+
+
+def _admin_partner_analytics_payload(
+    db: Session,
+    *,
+    days: int = 14,
+    status: str | None = None,
+    keyword: str | None = None,
+) -> dict:
+    bucket_keys = _date_bucket_keys(days)
+    growth_map = {key: {"date": key, "level_one_new": 0, "level_two_new": 0} for key in bucket_keys}
+    start_dt = _analytics_window_start_utc(days)
+    growth_bucket = _analytics_date_bucket_expr(db, PartnerChannel.created_at)
+    growth_rows = (
+        _apply_admin_channel_filters(
+            db.query(growth_bucket.label("bucket_date"), PartnerChannel.level, func.count(PartnerChannel.id)),
+            status=status,
+            keyword=keyword,
+        )
+        .filter(PartnerChannel.created_at >= start_dt, PartnerChannel.level.in_([1, 2]))
+        .group_by(growth_bucket, PartnerChannel.level)
+        .all()
+    )
+    channels = _apply_admin_channel_filters(db.query(PartnerChannel), status=status, keyword=keyword).all()
+    channel_ids = [int(row.id) for row in channels if int(row.id or 0) > 0]
+    root_ids = [int(row.id) for row in channels if int(row.id or 0) > 0 and int(row.level or 1) == 1]
+
+    for raw_date, raw_level, raw_count in growth_rows:
+        key = _serialize_date_key(raw_date)
+        bucket = growth_map.get(key)
+        if bucket is None:
+            continue
+        level = int(raw_level or 1)
+        if level == 1:
+            bucket["level_one_new"] = int(raw_count or 0)
+        elif level == 2:
+            bucket["level_two_new"] = int(raw_count or 0)
+
+    child_counts = {
+        int(row[0]): int(row[1] or 0)
+        for row in (
+            db.query(PartnerChannel.parent_channel_id, func.count(PartnerChannel.id))
+            .filter(PartnerChannel.parent_channel_id.is_not(None))
+            .group_by(PartnerChannel.parent_channel_id)
+            .all()
+        )
+        if int(row[0] or 0) > 0
+    }
+    user_counts = {
+        int(row[0]): int(row[1] or 0)
+        for row in (
+            db.query(PartnerUserBinding.channel_id, func.count(PartnerUserBinding.id))
+            .filter(PartnerUserBinding.channel_id.in_(channel_ids or [0]))
+            .group_by(PartnerUserBinding.channel_id)
+            .all()
+        )
+        if int(row[0] or 0) > 0
+    }
+    pending_map: dict[int, int] = {}
+    settled_map: dict[int, int] = {}
+    rebate_rows = (
+        db.query(
+            PartnerRebateLedger.channel_id,
+            func.coalesce(func.sum(case((PartnerRebateLedger.status == PartnerLedgerStatus.PENDING, PartnerRebateLedger.rebate_amount_fen), else_=0)), 0),
+            func.coalesce(func.sum(case((PartnerRebateLedger.status == PartnerLedgerStatus.SETTLED, PartnerRebateLedger.rebate_amount_fen), else_=0)), 0),
+        )
+        .filter(PartnerRebateLedger.channel_id.in_(channel_ids or [0]))
+        .group_by(PartnerRebateLedger.channel_id)
+        .all()
+    )
+    for raw_channel_id, pending_amount, settled_amount in rebate_rows:
+        channel_id = int(raw_channel_id or 0)
+        if channel_id <= 0:
+            continue
+        pending_map[channel_id] = int(pending_amount or 0)
+        settled_map[channel_id] = int(settled_amount or 0)
+
+    customer_mix = []
+    level_one_customer_count = sum(user_counts.get(int(item.id), 0) for item in channels if int(item.level or 1) == 1)
+    level_two_customer_count = sum(user_counts.get(int(item.id), 0) for item in channels if int(item.level or 1) == 2)
+    if level_one_customer_count > 0:
+        customer_mix.append({"name": "一级归属", "value": int(level_one_customer_count)})
+    if level_two_customer_count > 0:
+        customer_mix.append({"name": "二级归属", "value": int(level_two_customer_count)})
+
+    root_rank = [
+        {
+            "channel_id": channel_id,
+            "name": str(row.name or "").strip() or f"渠道{channel_id}",
+            "total_rebate_fen": int(pending_map.get(channel_id, 0) + settled_map.get(channel_id, 0)),
+        }
+        for row in channels
+        for channel_id in [int(row.id or 0)]
+        if channel_id in root_ids
+    ]
+    root_rank.sort(key=lambda item: (item["total_rebate_fen"], -item["channel_id"]), reverse=True)
+    root_rank = root_rank[:8]
+
+    anomalies = []
+    now_ts = datetime.utcnow()
+    for channel in channels:
+        channel_id = int(channel.id or 0)
+        level = int(channel.level or 1)
+        status = str(channel.status or "")
+        user_count = int(user_counts.get(channel_id, 0))
+        child_count = int(child_counts.get(channel_id, 0))
+        pending_fen = int(pending_map.get(channel_id, 0))
+        stale_days = None
+        if channel.portal_last_login_at:
+            stale_days = int((now_ts - channel.portal_last_login_at).days)
+
+        if level == 1 and child_count == 0:
+            anomalies.append(
+                {
+                    "channel_id": channel_id,
+                    "title": f"{channel.name} 还没有二级",
+                    "desc": "一级渠道已建，但还没有开始发展二级渠道。",
+                    "severity": "warning",
+                    "level": "待扩张",
+                    "type": "no-child",
+                }
+            )
+        if level == 2 and user_count == 0 and pending_fen <= 0:
+            anomalies.append(
+                {
+                    "channel_id": channel_id,
+                    "title": f"{channel.name} 暂未起量",
+                    "desc": "当前没有客户沉淀，也没有返佣数据。",
+                    "severity": "danger",
+                    "level": "待激活",
+                    "type": "idle-second",
+                }
+            )
+        if status == "disabled" and user_count > 0:
+            anomalies.append(
+                {
+                    "channel_id": channel_id,
+                    "title": f"{channel.name} 已停用但仍有客户归属",
+                    "desc": "建议确认停用原因，避免客户归属长期挂起。",
+                    "severity": "danger",
+                    "level": "异常",
+                    "type": "disabled-with-users",
+                }
+            )
+        if pending_fen >= 50000:
+            anomalies.append(
+                {
+                    "channel_id": channel_id,
+                    "title": f"{channel.name} 待结算返佣偏高",
+                    "desc": f"当前待结算 {_fen_to_cny_api(pending_fen):.2f} 元，建议尽快处理月结或提现审核。",
+                    "severity": "warning",
+                    "level": "待处理",
+                    "type": "high-pending",
+                }
+            )
+        if stale_days is not None and stale_days >= 14 and status == "active":
+            anomalies.append(
+                {
+                    "channel_id": channel_id,
+                    "title": f"{channel.name} 近 {stale_days} 天未登录",
+                    "desc": "建议跟进渠道负责人，确认门户是否在持续使用。",
+                    "severity": "muted",
+                    "level": "待跟进",
+                    "type": "stale-login",
+                }
+            )
+
+    anomalies.sort(key=lambda item: ({"danger": 0, "warning": 1, "muted": 2}.get(item["severity"], 3), item["channel_id"]))
+
+    total_pending_fen = sum(pending_map.values())
+    total_settled_fen = sum(settled_map.values())
+    pending_withdrawal_count = (
+        db.query(func.count(PartnerWithdrawRequest.id))
+        .filter(
+            PartnerWithdrawRequest.channel_id.in_(channel_ids or [0]),
+            PartnerWithdrawRequest.status == PartnerWithdrawStatus.PENDING,
+        )
+        .scalar()
+        or 0
+    )
+
+    return {
+        "summary": {
+            "root_channel_count": len(root_ids),
+            "active_second_count": len([item for item in channels if int(item.level or 1) == 2 and str(item.status or "") == "active"]),
+            "pending_withdrawal_count": int(pending_withdrawal_count),
+            "total_pending_rebate_fen": int(total_pending_fen),
+            "total_rebate_pool_fen": int(total_pending_fen + int(total_settled_fen or 0)),
+        },
+        "growth_series": [growth_map[key] for key in bucket_keys],
+        "root_rank": root_rank,
+        "customer_mix": customer_mix,
+        "anomalies": anomalies[:8],
+    }
+
+
+def _portal_partner_analytics_payload(
+    db: Session,
+    *,
+    channel: PartnerChannel,
+    days: int = 14,
+    scope: str = "self",
+) -> dict:
+    bucket_keys = _date_bucket_keys(days)
+    resolved_scope = "self" if int(channel.level or 1) != 1 else _normalize_scope(scope or "subtree")
+    channel_ids = _scope_channel_ids(db, channel=channel, scope=resolved_scope)
+    start_dt = _analytics_window_start_utc(days)
+    customer_bucket = _analytics_date_bucket_expr(db, PartnerUserBinding.created_at)
+    order_bucket = _analytics_date_bucket_expr(db, PartnerOrderAttribution.created_at)
+    rebate_bucket = _analytics_date_bucket_expr(db, PartnerRebateLedger.created_at)
+    trend_map = {
+        key: {
+            "date": key,
+            "new_customers": 0,
+            "order_count": 0,
+            "rebate_amount_cny": 0.0,
+        }
+        for key in bucket_keys
+    }
+
+    customer_rows = (
+        db.query(customer_bucket.label("bucket_date"), func.count(PartnerUserBinding.id))
+        .filter(PartnerUserBinding.channel_id.in_(channel_ids or [0]), PartnerUserBinding.created_at >= start_dt)
+        .group_by(customer_bucket)
+        .all()
+    )
+    for raw_date, raw_count in customer_rows:
+        key = _serialize_date_key(raw_date)
+        if key in trend_map:
+            trend_map[key]["new_customers"] = int(raw_count or 0)
+
+    order_rows = (
+        db.query(order_bucket.label("bucket_date"), func.count(PartnerOrderAttribution.id))
+        .filter(PartnerOrderAttribution.channel_id.in_(channel_ids or [0]), PartnerOrderAttribution.created_at >= start_dt)
+        .group_by(order_bucket)
+        .all()
+    )
+    for raw_date, raw_count in order_rows:
+        key = _serialize_date_key(raw_date)
+        if key in trend_map:
+            trend_map[key]["order_count"] = int(raw_count or 0)
+
+    rebate_rows = (
+        db.query(rebate_bucket.label("bucket_date"), func.coalesce(func.sum(PartnerRebateLedger.rebate_amount_fen), 0))
+        .filter(
+            PartnerRebateLedger.channel_id.in_(channel_ids or [0]),
+            PartnerRebateLedger.created_at >= start_dt,
+            PartnerRebateLedger.entry_type == PartnerLedgerEntryType.ACCRUAL,
+        )
+        .group_by(rebate_bucket)
+        .all()
+    )
+    for raw_date, raw_amount in rebate_rows:
+        key = _serialize_date_key(raw_date)
+        if key in trend_map:
+            trend_map[key]["rebate_amount_cny"] = round(float(int(raw_amount or 0)) / 100.0, 2)
+
+    subchannel_rank = []
+    package_mix = []
+    child_summary = {
+        "child_count": 0,
+        "idle_child_count": 0,
+        "active_child_count": 0,
+        "total_rebate_fen": 0,
+    }
+    if int(channel.level or 1) == 1:
+        direct_rows = (
+            db.query(PartnerChannel)
+            .filter(PartnerChannel.parent_channel_id == int(channel.id))
+            .order_by(PartnerChannel.id.asc())
+            .all()
+        )
+        direct_ids = [int(row.id) for row in direct_rows]
+        user_map = {
+            int(row[0]): int(row[1] or 0)
+            for row in (
+                db.query(PartnerUserBinding.channel_id, func.count(PartnerUserBinding.id))
+                .filter(PartnerUserBinding.channel_id.in_(direct_ids or [0]))
+                .group_by(PartnerUserBinding.channel_id)
+                .all()
+            )
+            if int(row[0] or 0) > 0
+        }
+        rebate_map = {
+            int(row[0]): int(row[1] or 0)
+            for row in (
+                db.query(PartnerRebateLedger.channel_id, func.coalesce(func.sum(PartnerRebateLedger.rebate_amount_fen), 0))
+                .filter(
+                    PartnerRebateLedger.channel_id.in_(direct_ids or [0]),
+                    PartnerRebateLedger.status.in_([PartnerLedgerStatus.PENDING, PartnerLedgerStatus.SETTLED]),
+                )
+                .group_by(PartnerRebateLedger.channel_id)
+                .all()
+            )
+            if int(row[0] or 0) > 0
+        }
+        subchannel_rank = [
+            {
+                "channel_id": int(row.id),
+                "name": str(row.name or "").strip() or f"渠道{row.id}",
+                "user_count": int(user_map.get(int(row.id), 0)),
+                "rebate_amount_fen": int(rebate_map.get(int(row.id), 0)),
+            }
+            for row in direct_rows
+        ]
+        subchannel_rank.sort(key=lambda item: (item["rebate_amount_fen"], item["user_count"]), reverse=True)
+        child_summary = {
+            "child_count": len(direct_rows),
+            "idle_child_count": len([item for item in subchannel_rank if int(item["user_count"]) <= 0 and int(item["rebate_amount_fen"]) <= 0]),
+            "active_child_count": len([item for item in direct_rows if str(item.status or "") == "active"]),
+            "total_rebate_fen": int(sum(item["rebate_amount_fen"] for item in subchannel_rank)),
+        }
+    else:
+        package_rows = (
+            db.query(PartnerOrderAttribution.package_name, func.count(PartnerOrderAttribution.id))
+            .filter(PartnerOrderAttribution.channel_id == int(channel.id))
+            .group_by(PartnerOrderAttribution.package_name)
+            .order_by(desc(func.count(PartnerOrderAttribution.id)))
+            .limit(6)
+            .all()
+        )
+        package_mix = [
+            {
+                "name": str(row[0] or "").strip() or "未区分套餐",
+                "value": int(row[1] or 0),
+            }
+            for row in package_rows
+        ]
+
+    return {
+        "level": int(channel.level or 1),
+        "scope": resolved_scope,
+        "trend_series": [trend_map[key] for key in bucket_keys],
+        "subchannel_rank": subchannel_rank,
+        "package_mix": package_mix,
+        "child_summary": child_summary,
     }
 
 
@@ -463,14 +867,7 @@ def admin_list_partner_channels(
     _: AdminUser = Depends(require_admin_permission("orders:view")),
     db: Session = Depends(db_dep),
 ) -> APIResp:
-    base_query = db.query(PartnerChannel)
-    normalized_status = str(status or "").strip().lower()
-    if normalized_status in {"active", "disabled"}:
-        base_query = base_query.filter(PartnerChannel.status == normalized_status)
-    normalized_keyword = str(keyword or "").strip()
-    if normalized_keyword:
-        like = f"%{normalized_keyword}%"
-        base_query = base_query.filter((PartnerChannel.channel_code.like(like)) | (PartnerChannel.name.like(like)))
+    base_query = _apply_admin_channel_filters(db.query(PartnerChannel), status=status, keyword=keyword)
     total = base_query.count()
     rows = (
         base_query.order_by(PartnerChannel.level.asc(), desc(PartnerChannel.id))
@@ -694,6 +1091,24 @@ def admin_partner_customers(
             created_to=created_to,
         )
     )
+
+
+@router.get("/admin/analytics", response_model=APIResp)
+def admin_partner_analytics(
+    days: int = Query(default=14, ge=7, le=60),
+    status: str | None = Query(default=None),
+    keyword: str | None = Query(default=None),
+    _: AdminUser = Depends(require_admin_permission("orders:view")),
+    db: Session = Depends(db_dep),
+    redis_client=Depends(get_redis),
+) -> APIResp:
+    cache_key = _analytics_cache_key("admin", days=int(days), status=str(status or "").strip().lower(), keyword=str(keyword or "").strip())
+    cached = _analytics_cache_get(redis_client, cache_key)
+    if cached is not None:
+        return ok(data=cached)
+    data = _admin_partner_analytics_payload(db, days=days, status=status, keyword=keyword)
+    _analytics_cache_set(redis_client, cache_key, data)
+    return ok(data=data)
 
 
 @router.get("/admin/ledger", response_model=APIResp)
@@ -1056,7 +1471,7 @@ def portal_overview(
     overview["level"] = int(channel.level or 1)
     overview["parent_channel_id"] = channel.parent_channel_id
     overview["parent_channel_name"] = str(parent.name or "") if parent is not None else ""
-    overview["can_create_child"] = int(channel.level or 1) < 3
+    overview["can_create_child"] = int(channel.level or 1) < 2
     overview.update(links)
     overview["team_direct"] = _team_summary_payload(
         db,
@@ -1320,6 +1735,24 @@ def portal_team_summary(
     channel = _portal_channel(db, current_channel=current_channel)
     channel_ids = _scope_channel_ids(db, channel=channel, scope=scope)
     return ok(data=_team_summary_payload(db, channel_ids=channel_ids, scope=scope))
+
+
+@router.get("/portal/analytics", response_model=APIResp)
+def portal_analytics(
+    days: int = Query(default=14, ge=7, le=60),
+    scope: str = Query(default="self"),
+    db: Session = Depends(db_dep),
+    current_channel: PartnerChannel | None = Depends(optional_partner),
+    redis_client=Depends(get_redis),
+) -> APIResp:
+    channel = _portal_channel(db, current_channel=current_channel)
+    cache_key = _analytics_cache_key("portal", channel_id=int(channel.id), days=int(days), scope=_normalize_scope(scope))
+    cached = _analytics_cache_get(redis_client, cache_key)
+    if cached is not None:
+        return ok(data=cached)
+    data = _portal_partner_analytics_payload(db, channel=channel, days=days, scope=scope)
+    _analytics_cache_set(redis_client, cache_key, data)
+    return ok(data=data)
 
 
 @router.get("/portal/customers", response_model=APIResp)

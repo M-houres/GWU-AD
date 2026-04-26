@@ -107,7 +107,7 @@ function formatLevel(value) {
   const level = Number(value || 1)
   if (level === 1) return "一级渠道"
   if (level === 2) return "二级渠道"
-  if (level === 3) return "三级渠道"
+  if (level === 3) return "历史三级渠道"
   return `L${level}`
 }
 

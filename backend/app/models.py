@@ -231,7 +231,7 @@ class PartnerChannel(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
 
     __table_args__ = (
-        CheckConstraint("level >= 1 AND level <= 3", name="ck_partner_channels_level_range"),
+        CheckConstraint("level >= 1 AND level <= 2", name="ck_partner_channels_level_range"),
         CheckConstraint(
             "default_rebate_rate_bp >= 0 AND default_rebate_rate_bp <= 10000",
             name="ck_partner_channels_default_rate_range",
@@ -291,7 +291,7 @@ class PartnerOrderAttribution(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
 
     __table_args__ = (
-        CheckConstraint("channel_level >= 1 AND channel_level <= 3", name="ck_partner_order_attr_level_range"),
+        CheckConstraint("channel_level >= 1 AND channel_level <= 2", name="ck_partner_order_attr_level_range"),
         CheckConstraint("rebate_rate_bp >= 0 AND rebate_rate_bp <= 10000", name="ck_partner_order_attr_rate_range"),
     )
 

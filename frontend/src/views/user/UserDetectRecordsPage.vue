@@ -74,7 +74,7 @@
 
     <p class="aigc-record-retain">报告将保留 30 天，请及时下载与归档。</p>
 
-    <section v-if="loading" class="scholar-note">正在加载记录...</section>
+    <section v-if="initialLoading" class="scholar-note">正在加载记录...</section>
 
     <section v-else-if="pagedTasks.length === 0" class="aigc-empty">
       <div class="aigc-empty__icon">A</div>
@@ -84,6 +84,7 @@
     </section>
 
     <section v-else class="aigc-record-list">
+      <div v-if="refreshing" class="aigc-record-list__refreshing">正在同步最新进度...</div>
       <article
         v-for="item in pagedTasks"
         :id="`aigc-task-${item.id}`"
@@ -189,6 +190,8 @@ const router = useRouter()
 const route = useRoute()
 const showBuy = ref(false)
 const loading = ref(false)
+const initialLoading = ref(true)
+const refreshing = ref(false)
 const removingId = ref(null)
 const keyword = ref("")
 const statusFilter = ref("all")
@@ -296,10 +299,17 @@ onUnmounted(() => {
 async function loadTasks() {
   if (!getUserToken()) {
     tasks.value = []
+    initialLoading.value = false
     return
   }
   const token = ++loadToken
+  const hasExistingTasks = tasks.value.length > 0
   loading.value = true
+  if (hasExistingTasks) {
+    refreshing.value = true
+  } else {
+    initialLoading.value = true
+  }
   try {
     const { items, restPromise } = await fetchUserTasksFast(
       { task_type: "aigc_detect" },
@@ -314,6 +324,8 @@ async function loadTasks() {
   } finally {
     if (token === loadToken) {
       loading.value = false
+      initialLoading.value = false
+      refreshing.value = false
     }
   }
 }

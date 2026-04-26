@@ -19,7 +19,8 @@
         </article>
       </div>
 
-      <div v-if="loading" class="scholar-note">正在加载最近任务...</div>
+      <div v-if="initialLoading" class="scholar-note">正在加载最近任务...</div>
+      <div v-else-if="refreshing" class="workbench-feed__refreshing">正在同步最新任务...</div>
     </template>
   </section>
 </template>
@@ -42,6 +43,8 @@ const props = defineProps({
 const router = useRouter()
 const route = useRoute()
 const loading = ref(false)
+const initialLoading = ref(true)
+const refreshing = ref(false)
 const tasks = ref([])
 const hasUserToken = computed(() => Boolean(getUserToken()))
 let pollTimer = null
@@ -95,9 +98,16 @@ onUnmounted(() => stopPolling())
 async function loadTasks() {
   if (!hasUserToken.value) {
     tasks.value = []
+    initialLoading.value = false
     return
   }
+  const hasExistingTasks = tasks.value.length > 0
   loading.value = true
+  if (hasExistingTasks) {
+    refreshing.value = true
+  } else {
+    initialLoading.value = true
+  }
   try {
     const data = await userHttp.get("/tasks/my", {
       params: {
@@ -110,6 +120,8 @@ async function loadTasks() {
     tasks.value = [...items].sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))
   } finally {
     loading.value = false
+    initialLoading.value = false
+    refreshing.value = false
   }
 }
 
@@ -211,6 +223,12 @@ function goLogin() {
   font-size: 26px;
   line-height: 1;
   color: #14345d;
+}
+
+.workbench-feed__refreshing {
+  margin-top: 14px;
+  font-size: 12px;
+  color: #6a7f9f;
 }
 
 @media (max-width: 960px) {
