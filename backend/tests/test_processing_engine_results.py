@@ -22,6 +22,30 @@ def _write_docx(path: Path, paragraphs: list[str]) -> None:
     doc.save(path)
 
 
+def _write_docx_with_front_runs(path: Path) -> None:
+    doc = Document()
+    doc.add_paragraph("多元感官·同伴支持·环境调适：特殊幼儿融合教育的三维干预路径构建")
+
+    abstract = doc.add_paragraph()
+    abstract.add_run("【摘要】")
+    abstract.add_run(
+        "融合教育理念的深化推进使特殊幼儿的教育支持体系建构成为重要议题。"
+        "本文提出三维干预路径，并提供实践参考。"
+    )
+
+    keywords = doc.add_paragraph()
+    keywords.add_run("【关键词】")
+    keywords.add_run("特殊幼儿；融合教育；多元感官干预；同伴支持；环境调适")
+
+    doc.add_paragraph("引言")
+    doc.add_paragraph("融合教育自20世纪90年代以来逐步成为主导范式，因此需要持续优化支持路径。")
+    doc.add_paragraph("一、多元感官干预：构建幼儿感知整合的支持基础")
+    doc.add_paragraph("多元感官干预能够改善幼儿感觉处理效率，并支持其社会参与。")
+    doc.add_paragraph("参考文献")
+    doc.add_paragraph("[1] 示例文献")
+    doc.save(path)
+
+
 def test_cnki_llm_rewrite_uses_global_prompt_by_default(db_session: Session, monkeypatch) -> None:
     from app.services.rewrite_strategies import cnki_llm
 
@@ -275,6 +299,89 @@ def test_rewrite_docx_preserves_title_abstract_keyword_intro_structure(
     assert paragraphs[10] == "参考文献"
     assert "持续优化资源转化途径" in paragraphs[7]
     assert "提供更直接的在地素材" in paragraphs[9]
+
+
+def test_rewrite_docx_preserves_inline_abstract_and_keyword_labels(
+    tmp_path: Path, db_session: Session, monkeypatch
+) -> None:
+    source_path = tmp_path / "inline_frontmatter_source.docx"
+    output_path = tmp_path / "inline_frontmatter_output.docx"
+    _write_docx(
+        source_path,
+        [
+            "多元感官·同伴支持·环境调适：特殊幼儿融合教育的三维干预路径构建",
+            "【摘要】融合教育理念的深化推进使特殊幼儿教育支持体系建构成为重要议题。本文提出三维干预路径，并提供实践参考。",
+            "【关键词】特殊幼儿；融合教育；多元感官干预；同伴支持；环境调适",
+            "引言",
+            "融合教育自20世纪90年代以来逐步成为主导范式，因此需要持续优化支持路径。",
+            "一、多元感官干预：构建幼儿感知整合的支持基础",
+            "多元感官干预能够改善幼儿感觉处理效率，并支持其社会参与。",
+            "参考文献",
+            "[1] 示例文献",
+        ],
+    )
+
+    def _fake_generate(_db, *, task_type, text: str):
+        return (
+            "=== 改写完成 总改写次数：16 次 ===\n"
+            "融合教育理念的持续深化，使特殊幼儿教育支持体系建构成为重要议题。本文提出三维干预途径，并提供实践参考。\n\n"
+            "融合教育自20世纪90年代以来逐步成为主导范式，因此需要持续优化支持途径。\n\n"
+            "多元感官干预能够改善幼儿感觉处理效率，并进一步支持其社会参与。"
+        )
+
+    monkeypatch.setattr("app.services.cnki_v20_runtime.generate_with_llm", _fake_generate)
+
+    engine = ProcessingEngine(db_session)
+    engine.process(TaskType.REWRITE, "cnki", source_path, output_path, task_id=302)
+
+    output_doc = Document(str(output_path))
+    paragraphs = [paragraph.text for paragraph in output_doc.paragraphs]
+
+    assert paragraphs[0] == "多元感官·同伴支持·环境调适：特殊幼儿融合教育的三维干预路径构建"
+    assert paragraphs[1].startswith("【摘要】")
+    assert "三维干预途径" in paragraphs[1]
+    assert paragraphs[2] == "【关键词】特殊幼儿；融合教育；多元感官干预；同伴支持；环境调适"
+    assert paragraphs[3] == "引言"
+    assert "持续优化支持途径" in paragraphs[4]
+    assert paragraphs[5] == "一、多元感官干预：构建幼儿感知整合的支持基础"
+    assert "进一步支持其社会参与" in paragraphs[6]
+    assert paragraphs[7] == "参考文献"
+
+
+def test_rewrite_docx_preserves_inline_frontmatter_when_label_and_body_are_split_runs(
+    tmp_path: Path, db_session: Session, monkeypatch
+) -> None:
+    source_path = tmp_path / "inline_frontmatter_runs_source.docx"
+    output_path = tmp_path / "inline_frontmatter_runs_output.docx"
+    _write_docx_with_front_runs(source_path)
+
+    def _fake_generate(_db, *, task_type, text: str):
+        return (
+            "=== 改写完成 总改写次数：16 次 ===\n"
+            "融合教育理念的持续深化，使特殊幼儿的教育支持体系建构成为重要议题。本文提出三维干预途径，并提供实践参考。\n\n"
+            "融合教育自20世纪90年代以来逐步成为主导范式，因此需要持续优化支持途径。\n\n"
+            "多元感官干预能够改善幼儿感觉处理效率，并进一步支持其社会参与。"
+        )
+
+    monkeypatch.setattr("app.services.cnki_v20_runtime.generate_with_llm", _fake_generate)
+
+    engine = ProcessingEngine(db_session)
+    engine.process(TaskType.REWRITE, "cnki", source_path, output_path, task_id=303)
+
+    output_doc = Document(str(output_path))
+    paragraphs = [paragraph.text for paragraph in output_doc.paragraphs]
+
+    assert paragraphs[0] == "多元感官·同伴支持·环境调适：特殊幼儿融合教育的三维干预路径构建"
+    assert paragraphs[1] == (
+        "【摘要】融合教育理念的持续深化，使特殊幼儿的教育支持体系建构成为重要议题。"
+        "本文提出三维干预途径，并提供实践参考。"
+    )
+    assert paragraphs[2] == "【关键词】特殊幼儿；融合教育；多元感官干预；同伴支持；环境调适"
+    assert paragraphs[3] == "引言"
+    assert paragraphs[4] == "融合教育自20世纪90年代以来逐步成为主导范式，因此需要持续优化支持途径。"
+    assert paragraphs[5] == "一、多元感官干预：构建幼儿感知整合的支持基础"
+    assert paragraphs[6] == "多元感官干预能够改善幼儿感觉处理效率，并进一步支持其社会参与。"
+    assert paragraphs[7] == "参考文献"
 
 
 def test_aigc_detect_returns_structured_result(tmp_path: Path, db_session: Session, monkeypatch) -> None:

@@ -1,3 +1,4 @@
+import os
 from collections.abc import Generator
 from pathlib import Path
 from types import SimpleNamespace
@@ -7,6 +8,11 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
+
+os.environ.setdefault("APP_ENV", "test")
+os.environ.setdefault("DB_FALLBACK_SQLITE", "true")
+os.environ.setdefault("DB_STARTUP_RETRY_ATTEMPTS", "1")
+os.environ.setdefault("MYSQL_HOST", "127.0.0.1")
 
 from app.config import get_settings
 from app.database import Base

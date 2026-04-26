@@ -251,7 +251,7 @@ class ProcessingEngine:
         content = str(text or "").strip()
         if not content:
             return False
-        return nonempty_index == 1 and len(content) <= 64 and not re.search(r"[。！？；;:：]", content)
+        return nonempty_index == 1 and len(content) <= 64 and not re.search(r"[。！？；;]", content)
 
     def _is_docx_subtitle_like(self, text: str, *, nonempty_index: int, previous_kind: str) -> bool:
         content = str(text or "").strip()
@@ -263,7 +263,7 @@ class ProcessingEngine:
             return False
         if content.startswith(("——", "—", "--", "-", "副标题")):
             return True
-        return len(content) <= 48 and not re.search(r"[。！？；;:：]", content)
+        return len(content) <= 48 and not re.search(r"[。！？；;]", content)
 
     def _is_docx_keyword_body(self, text: str, *, previous_kind: str) -> bool:
         content = str(text or "").strip()
@@ -272,6 +272,20 @@ class ProcessingEngine:
         if len(content) > 120:
             return False
         return any(token in content for token in ("；", ";", "、", "，"))
+
+    def _match_docx_inline_front_label(self, text: str) -> tuple[str, str, str] | None:
+        content = str(text or "").strip()
+        if not content:
+            return None
+        patterns = (
+            ("abstract_inline", r"^(【摘要】|摘要[:：])\s*(.+)$"),
+            ("keyword_inline", r"^(【关键词】|【关键字】|关键词[:：]|关键字[:：])\s*(.+)$"),
+        )
+        for kind, pattern in patterns:
+            match = re.match(pattern, content, flags=re.IGNORECASE | re.DOTALL)
+            if match:
+                return kind, match.group(1), match.group(2).strip()
+        return None
 
     def _classify_docx_paragraph_kind(
         self,
@@ -299,6 +313,9 @@ class ProcessingEngine:
             return "abstract_heading"
         if self._is_docx_keyword_heading(content):
             return "keyword_heading"
+        inline_label = self._match_docx_inline_front_label(content)
+        if inline_label:
+            return inline_label[0]
         if self._is_docx_keyword_body(content, previous_kind=previous_kind):
             return "keyword_body"
         if self._is_docx_intro_heading(content):
@@ -320,7 +337,7 @@ class ProcessingEngine:
             return True
         if re.match(r"^(图|表)\s*[0-9一二三四五六七八九十]+", content):
             return True
-        if len(content) <= 24 and not re.search(r"[。！？；;:：]", content):
+        if len(content) <= 32 and not re.search(r"[。！？；;]", content):
             if re.match(r"^([一二三四五六七八九十]+[、.．]|第[一二三四五六七八九十百零0-9]+[章节部分篇]|[（(][一二三四五六七八九十百零0-9]+[)）])", content):
                 return True
         return False
@@ -384,6 +401,39 @@ class ProcessingEngine:
                 cursor = target_end
             run.text = segment
 
+    def _replace_docx_inline_label_paragraph(self, paragraph, label_text: str, rewritten_body: str) -> None:
+        text_runs = [run for run in paragraph.runs if run.text]
+        if not text_runs:
+            return
+        normalized_label = str(label_text or "")
+        remaining = str(rewritten_body or "")
+        if len(text_runs) == 1:
+            text_runs[0].text = f"{normalized_label}{remaining}"
+            return
+        assigned_label = False
+        label_run = None
+        for run in text_runs:
+            current = run.text or ""
+            if not assigned_label and normalized_label and current.startswith(normalized_label):
+                run.text = normalized_label
+                assigned_label = True
+                label_run = run
+                continue
+            run.text = ""
+        if assigned_label:
+            for run in text_runs:
+                if run.text == "":
+                    run.text = remaining
+                    remaining = ""
+                    break
+            if remaining and label_run is not None:
+                label_run.text = f"{label_run.text}{remaining}"
+                remaining = ""
+        else:
+            text_runs[0].text = f"{normalized_label}{remaining}"
+            for run in text_runs[1:]:
+                run.text = ""
+
     def _should_transform_docx_paragraph(self, paragraph, text: str, *, in_reference_section: bool) -> bool:
         if not text.strip():
             return False
@@ -434,6 +484,13 @@ class ProcessingEngine:
                 previous_kind = kind
                 continue
             if kind != "body":
+                if kind == "abstract_inline":
+                    inline = self._match_docx_inline_front_label(source_text)
+                    if inline and inline[2]:
+                        rewritten_body = self._transform_text(inline[2], task_type, platform, summary)
+                        rewritten_text = f"{inline[1]}{rewritten_body}" if rewritten_body else source_text
+                        if rewritten_text and rewritten_text != source_text:
+                            self._redistribute_paragraph_text(paragraph, rewritten_text)
                 previous_kind = kind
                 continue
             rewritten_text = self._transform_text(source_text, task_type, platform, summary)
@@ -442,11 +499,11 @@ class ProcessingEngine:
             previous_kind = kind
         doc.save(str(output_path))
 
-    def _transform_docx_cnki_v20(self, doc: Document, task_type: TaskType) -> None:
-        from app.services.cnki_v20_runtime import execute_cnki_v20
-
+    def _collect_full_docx_rewrite_targets(self, doc: Document) -> tuple[list, list[str], list[str], list[str]]:
         target_paragraphs: list = []
         source_paragraphs: list[str] = []
+        target_kinds: list[str] = []
+        preserved_prefixes: list[str] = []
         in_reference_section = False
         nonempty_index = 0
         previous_kind = ""
@@ -467,12 +524,29 @@ class ProcessingEngine:
                 in_reference_section = True
                 previous_kind = kind
                 continue
+            if kind == "abstract_inline":
+                inline = self._match_docx_inline_front_label(source_text)
+                if inline and inline[2]:
+                    target_paragraphs.append(paragraph)
+                    source_paragraphs.append(inline[2])
+                    target_kinds.append(kind)
+                    preserved_prefixes.append(inline[1])
+                previous_kind = kind
+                continue
             if kind != "body":
                 previous_kind = kind
                 continue
             target_paragraphs.append(paragraph)
             source_paragraphs.append(source_text)
+            target_kinds.append(kind)
+            preserved_prefixes.append("")
             previous_kind = kind
+        return target_paragraphs, source_paragraphs, target_kinds, preserved_prefixes
+
+    def _transform_docx_cnki_v20(self, doc: Document, task_type: TaskType) -> None:
+        from app.services.cnki_v20_runtime import execute_cnki_v20
+
+        target_paragraphs, source_paragraphs, _target_kinds, preserved_prefixes = self._collect_full_docx_rewrite_targets(doc)
         if not source_paragraphs:
             return
         run = execute_cnki_v20(self.db, task_type=task_type, paragraphs=source_paragraphs)
@@ -481,7 +555,14 @@ class ProcessingEngine:
             rewritten_paragraphs = [line.strip() for line in str(run.text or "").splitlines() if line.strip()]
         if len(rewritten_paragraphs) != len(target_paragraphs):
             raise BizError(code=4626, message="知网 V20 DOCX 输出段落数不匹配")
-        for paragraph, rewritten_text, source_text in zip(target_paragraphs, rewritten_paragraphs, source_paragraphs):
+        for paragraph, rewritten_text, source_text, target_kind, preserved_prefix in zip(
+            target_paragraphs, rewritten_paragraphs, source_paragraphs, _target_kinds, preserved_prefixes
+        ):
+            if preserved_prefix:
+                if target_kind == "abstract_inline":
+                    self._replace_docx_inline_label_paragraph(paragraph, preserved_prefix, rewritten_text)
+                    continue
+                rewritten_text = f"{preserved_prefix}{rewritten_text}"
             if rewritten_text and rewritten_text != source_text:
                 self._redistribute_paragraph_text(paragraph, rewritten_text)
         meta = {
@@ -524,34 +605,7 @@ class ProcessingEngine:
     def _transform_docx_vip_w4(self, doc: Document, task_type: TaskType) -> None:
         from app.services.vip_w4_runtime import execute_vip_w4
 
-        target_paragraphs: list = []
-        source_paragraphs: list[str] = []
-        in_reference_section = False
-        nonempty_index = 0
-        previous_kind = ""
-        for paragraph in self._iter_body_paragraphs(doc):
-            source_text = paragraph.text or ""
-            stripped = source_text.strip()
-            if not stripped:
-                continue
-            nonempty_index += 1
-            kind = self._classify_docx_paragraph_kind(
-                paragraph,
-                stripped,
-                nonempty_index=nonempty_index,
-                previous_kind=previous_kind,
-                in_reference_section=in_reference_section,
-            )
-            if kind == "reference_heading":
-                in_reference_section = True
-                previous_kind = kind
-                continue
-            if kind != "body":
-                previous_kind = kind
-                continue
-            target_paragraphs.append(paragraph)
-            source_paragraphs.append(source_text)
-            previous_kind = kind
+        target_paragraphs, source_paragraphs, _target_kinds, preserved_prefixes = self._collect_full_docx_rewrite_targets(doc)
         if not source_paragraphs:
             return
         run = execute_vip_w4(self.db, task_type=task_type, paragraphs=source_paragraphs)
@@ -560,7 +614,14 @@ class ProcessingEngine:
             rewritten_paragraphs = [line.strip() for line in str(run.text or "").splitlines() if line.strip()]
         if len(rewritten_paragraphs) != len(target_paragraphs):
             raise BizError(code=4636, message="维普 W4 DOCX 输出段落数不匹配")
-        for paragraph, rewritten_text, source_text in zip(target_paragraphs, rewritten_paragraphs, source_paragraphs):
+        for paragraph, rewritten_text, source_text, target_kind, preserved_prefix in zip(
+            target_paragraphs, rewritten_paragraphs, source_paragraphs, _target_kinds, preserved_prefixes
+        ):
+            if preserved_prefix:
+                if target_kind == "abstract_inline":
+                    self._replace_docx_inline_label_paragraph(paragraph, preserved_prefix, rewritten_text)
+                    continue
+                rewritten_text = f"{preserved_prefix}{rewritten_text}"
             if rewritten_text and rewritten_text != source_text:
                 self._redistribute_paragraph_text(paragraph, rewritten_text)
         meta = {
