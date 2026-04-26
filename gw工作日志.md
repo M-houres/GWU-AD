@@ -7939,3 +7939,48 @@
     - 验证结果
       - 后端已通过 `python -m py_compile backend/app/api/partners.py`
       - 前端已通过 `npm run build`
+
+- 2026-04-27 13:02:11
+  - 推广中心邀请码奖励打通
+    - 用户侧
+      - `POST /api/v1/users/me/invite/bind` 不再只建立邀请关系，改为绑定后自动发放邀请奖励
+      - 被邀请人绑定成功后自动获得绑定奖励点数
+      - 邀请人自动获得有效邀请奖励点数
+    - 奖励链路
+      - 统一复用 `PromoBenefitRecord + CreditTransaction` 作为奖励审计链
+      - 奖励记录按 `relation / milestone` 维度生成唯一 benefit code，保证重复触发不重复发奖
+      - 邀请关系 `register_reward_sent` 在奖励成功后同步置为已发放
+    - 里程碑奖励
+      - 按 `promo_center.reward_rules.invite.milestones` 自动判断是否达档
+      - 邀请人达到门槛后自动补发里程碑点数奖励，且同一门槛只发一次
+    - 验证结果
+      - 后端已通过 `python -m pytest tests/test_user_promo_center.py tests/test_admin_promo_review.py tests/test_admin_promo_file_access.py -q`
+
+- 2026-04-27 13:18:42
+  - 推广中心邀请码奖励状态前端接入
+    - 接口
+      - `GET /api/v1/users/me/invite` 新增 `invite_summary`
+      - `POST /api/v1/users/me/invite/bind` 返回绑定关系同时返回 `invite_summary`
+    - 前端展示
+      - 邀请有奖页新增“我的有效邀请 / 我已获得奖励 / 下一档里程碑”三张状态卡
+      - 已达成的里程碑改为单独展示，用户可直接看到已发放奖励
+      - 绑定邀请码成功后提示语同步显示“奖励已到账”，并立即刷新用户点数
+    - 验证结果
+      - 后端已通过 `python -m pytest tests/test_user_promo_center.py tests/test_admin_promo_review.py tests/test_admin_promo_file_access.py -q`
+      - 前端已通过 `npm run build`
+
+- 2026-04-27 13:41:08
+  - 官网备案展示接入
+    - 后端
+      - `auth/options` 新增公开 `site_filing` 返回，避免前台直接暴露完整小程序配置
+      - 小程序配置补充 `police_filing_no / police_filing_url`，用于后续公安备案展示
+    - 后台配置
+      - 管理后台“合规与发布信息”新增公安备案号、公安备案链接录入项
+      - 保留原有 ICP 备案号录入项，统一从同一配置源下发
+    - 前端展示
+      - 登录页底部新增备案信息展示，ICP备案号点击跳转工信部备案站
+      - 用户站内壳层底部新增统一备案展示，公安备案填好后可一并展示
+      - 未填写备案号时自动隐藏，不影响现有页面布局
+    - 验证结果
+      - 后端已通过 `python -m py_compile app/api/auth.py app/api/admin.py`
+      - 前端已通过 `npm run build`

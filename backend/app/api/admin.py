@@ -34,6 +34,12 @@ from app.models import (
     CreditTransaction,
     LLMErrorLog,
     Order,
+    PromoBenefitRecord,
+    PromoBenefitStatus,
+    PromoBenefitType,
+    PromoShareSubmission,
+    PromoShareSubmissionStatus,
+    ShareTaskStatus,
     SwitchLog,
     SystemConfig,
     SystemSwitch,
@@ -41,6 +47,7 @@ from app.models import (
     TaskStatus,
     TaskType,
     User,
+    UserShareTaskSubmission,
 )
 from app.pagination import paginate
 from app.responses import ok
@@ -220,6 +227,8 @@ CONFIG_FIELD_LABELS = {
         "ws_domain": "WebSocket合法域名",
         "business_domain": "业务域名",
         "icp_filing_no": "备案号",
+        "police_filing_no": "公安备案号",
+        "police_filing_url": "公安备案链接",
         "contact_phone": "客服电话",
         "contact_email": "联系邮箱",
         "publish_note": "上线备注",
@@ -332,6 +341,8 @@ CONFIG_DEFAULTS = {
         "ws_domain": "",
         "business_domain": "",
         "icp_filing_no": "",
+        "police_filing_no": "",
+        "police_filing_url": "",
         "contact_phone": "",
         "contact_email": "",
         "publish_note": "",
@@ -1188,6 +1199,8 @@ def _extract_miniapp_payload(raw: dict | None) -> dict:
     payload["ws_domain"] = _as_text(src.get("ws_domain", payload["ws_domain"]), default="", max_len=256)
     payload["business_domain"] = _as_text(src.get("business_domain", payload["business_domain"]), default="", max_len=256)
     payload["icp_filing_no"] = _as_text(src.get("icp_filing_no", payload["icp_filing_no"]), default="", max_len=128)
+    payload["police_filing_no"] = _as_text(src.get("police_filing_no", payload["police_filing_no"]), default="", max_len=128)
+    payload["police_filing_url"] = _as_text(src.get("police_filing_url", payload["police_filing_url"]), default="", max_len=256)
     payload["contact_phone"] = _as_text(src.get("contact_phone", payload["contact_phone"]), default="", max_len=32)
     payload["contact_email"] = _as_text(src.get("contact_email", payload["contact_email"]), default="", max_len=128)
     payload["publish_note"] = _as_text(src.get("publish_note", payload["publish_note"]), default="", max_len=500)
@@ -3628,6 +3641,534 @@ def refund_order(
     )
     db.commit()
     return ok(data={"order_no": order.order_no, "status": order.status, "idempotent": False})
+
+
+def _promo_status_stats(rows, allowed_statuses: list[str]) -> dict:
+    stats = {key: 0 for key in allowed_statuses}
+    stats["total"] = 0
+    for raw_status, raw_count in rows:
+        key = raw_status.value if hasattr(raw_status, "value") else str(raw_status or "").strip().lower()
+        count = int(raw_count or 0)
+        stats[key] = count
+        stats["total"] += count
+    return stats
+
+
+def _promo_reward_options(scene: str, *, db: Session) -> list[dict]:
+    promo = _get_category_config(db, "promo_center", redact=False)
+    reward_rules = promo.get("reward_rules") if isinstance(promo.get("reward_rules"), dict) else {}
+    scene_rules = reward_rules.get(scene) if isinstance(reward_rules.get(scene), dict) else {}
+    raw_options = scene_rules.get("tiers") if isinstance(scene_rules.get("tiers"), list) else []
+    options = []
+    for index, item in enumerate(raw_options):
+        if not isinstance(item, dict):
+            continue
+        options.append(
+            {
+                "key": str(item.get("key") or item.get("tier_key") or f"tier-{index + 1}"),
+                "threshold": int(item.get("threshold") or 0),
+                "reward_points": int(item.get("reward_points") or 0),
+                "label": str(item.get("label") or f"{int(item.get('threshold') or 0)}+")[:64],
+            }
+        )
+    return options
+
+
+def _promo_benefit_code(submission_id: int) -> str:
+    return f"submission:{int(submission_id)}"
+
+
+def _promo_benefit_map(db: Session, *, scene: str, submission_ids: list[int]) -> dict[str, PromoBenefitRecord]:
+    if not submission_ids:
+        return {}
+    codes = [_promo_benefit_code(submission_id) for submission_id in submission_ids]
+    rows = (
+        db.query(PromoBenefitRecord)
+        .filter(PromoBenefitRecord.scene == scene, PromoBenefitRecord.benefit_code.in_(codes))
+        .all()
+    )
+    return {str(row.benefit_code): row for row in rows}
+
+
+def _resolve_promo_reward_option(
+    *,
+    options: list[dict],
+    option_key: str | None = None,
+    fallback_points: int | None = None,
+) -> dict | None:
+    normalized_key = str(option_key or "").strip()
+    if normalized_key:
+        for item in options:
+            if str(item.get("key") or "") == normalized_key:
+                return item
+    points = int(fallback_points or 0)
+    if points > 0:
+        for item in options:
+            if int(item.get("reward_points") or 0) == points:
+                return item
+    return None
+
+
+def _promo_benefit_reward_option_key(benefit: PromoBenefitRecord | None) -> str:
+    if benefit is None or not isinstance(benefit.meta_json, dict):
+        return ""
+    return str(benefit.meta_json.get("reward_option_key") or "").strip()
+
+
+def _grant_promo_credit_reward(
+    db: Session,
+    *,
+    user: User,
+    scene: str,
+    submission_id: int,
+    reward_option: dict,
+    title: str,
+    source: str,
+    meta: dict | None = None,
+) -> PromoBenefitRecord:
+    reward_points = int(reward_option.get("reward_points") or 0)
+    benefit_code = _promo_benefit_code(submission_id)
+    row = (
+        db.query(PromoBenefitRecord)
+        .filter(
+            PromoBenefitRecord.user_id == user.id,
+            PromoBenefitRecord.scene == scene,
+            PromoBenefitRecord.benefit_code == benefit_code,
+        )
+        .with_for_update()
+        .first()
+    )
+    if row is not None:
+        return row
+    if reward_points > 0:
+        change_credits(
+            db,
+            user,
+            tx_type=CreditType.SHARE_REWARD,
+            delta=reward_points,
+            reason=title,
+            related_id=f"promo_reward:{scene}:{submission_id}",
+            source=source,
+        )
+    row = PromoBenefitRecord(
+        user_id=int(user.id),
+        scene=scene,
+        benefit_code=benefit_code,
+        benefit_type=PromoBenefitType.CREDITS,
+        status=PromoBenefitStatus.GRANTED,
+        title=title[:120],
+        credit_delta=reward_points,
+        payout_status="paid" if reward_points > 0 else "pending",
+        meta_json=meta or {},
+        granted_at=datetime.utcnow(),
+    )
+    db.add(row)
+    db.flush()
+    return row
+
+
+def _admin_like_submission_item(
+    row: UserShareTaskSubmission,
+    *,
+    user_phone: str = "",
+    user_nickname: str = "",
+    reviewer_name: str = "",
+    reward_option_key: str = "",
+    benefit: PromoBenefitRecord | None = None,
+) -> dict:
+    status = row.status.value if hasattr(row.status, "value") else str(row.status or "pending")
+    return {
+        "id": int(row.id),
+        "scene": "like",
+        "user_id": int(row.user_id),
+        "user_phone": user_phone,
+        "user_nickname": user_nickname,
+        "platform": str(row.platform or "").strip(),
+        "status": status,
+        "reward_credits": int(row.reward_credits or 0),
+        "reward_option_key": reward_option_key,
+        "share_text": str(row.share_text or ""),
+        "original_filename": str(row.original_filename or ""),
+        "screenshot_path": str(row.screenshot_path or ""),
+        "review_note": row.review_note,
+        "reviewed_by": int(row.reviewed_by or 0) if row.reviewed_by else None,
+        "reviewed_by_username": reviewer_name or "",
+        "reviewed_at": row.reviewed_at,
+        "benefit_status": benefit.status.value if benefit and hasattr(benefit.status, "value") else "",
+        "benefit_title": benefit.title if benefit else "",
+        "benefit_payout_status": str(benefit.payout_status or "") if benefit else "",
+        "benefit_granted_at": benefit.granted_at if benefit else None,
+        "created_at": row.created_at,
+        "updated_at": row.updated_at,
+    }
+
+
+def _admin_create_submission_item(
+    row: PromoShareSubmission,
+    *,
+    user_phone: str = "",
+    user_nickname: str = "",
+    reviewer_name: str = "",
+    benefit: PromoBenefitRecord | None = None,
+) -> dict:
+    status = row.status.value if hasattr(row.status, "value") else str(row.status or "submitted")
+    return {
+        "id": int(row.id),
+        "scene": "create",
+        "user_id": int(row.user_id),
+        "user_phone": user_phone,
+        "user_nickname": user_nickname,
+        "platform": str(row.platform or "").strip(),
+        "tier_key": str(row.tier_key or "").strip(),
+        "share_link": str(row.share_link or "").strip(),
+        "payout_account": str(row.payout_account or "").strip(),
+        "payout_name": str(row.payout_name or "").strip(),
+        "note": str(row.note or ""),
+        "status": status,
+        "reward_credits": int(row.reward_credits or 0),
+        "reward_amount_cny": cny_to_api(row.reward_amount_cny or 0),
+        "coupon_name": row.coupon_name,
+        "coupon_count": int(row.coupon_count or 0),
+        "review_note": row.review_note,
+        "reviewed_by": int(row.reviewed_by or 0) if row.reviewed_by else None,
+        "reviewed_by_username": reviewer_name or "",
+        "reviewed_at": row.reviewed_at,
+        "benefit_status": benefit.status.value if benefit and hasattr(benefit.status, "value") else "",
+        "benefit_title": benefit.title if benefit else "",
+        "benefit_payout_status": str(benefit.payout_status or "") if benefit else "",
+        "benefit_granted_at": benefit.granted_at if benefit else None,
+        "created_at": row.created_at,
+        "updated_at": row.updated_at,
+    }
+
+
+@router.get("/promo/like-submissions", response_model=APIResp)
+def admin_like_submissions(
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
+    q_phone: str | None = Query(default=None),
+    status: str | None = Query(default=None),
+    platform: str | None = Query(default=None),
+    _: AdminUser = Depends(require_admin_permission("users:view")),
+    db: Session = Depends(db_dep),
+) -> APIResp:
+    reward_options = _promo_reward_options("like", db=db)
+    base_query = db.query(UserShareTaskSubmission).join(User, User.id == UserShareTaskSubmission.user_id)
+    if q_phone:
+        base_query = _apply_phone_filter(base_query, q_phone)
+    if platform:
+        base_query = base_query.filter(UserShareTaskSubmission.platform == platform.strip().lower())
+    normalized_status = str(status or "").strip().lower()
+    if normalized_status:
+        try:
+            base_query = base_query.filter(UserShareTaskSubmission.status == ShareTaskStatus(normalized_status))
+        except Exception:
+            raise BizError(code=4350, message="status 不支持")
+    status_rows = (
+        base_query.with_entities(UserShareTaskSubmission.status, func.count(UserShareTaskSubmission.id))
+        .group_by(UserShareTaskSubmission.status)
+        .all()
+    )
+    total = base_query.count()
+    rows = (
+        base_query.outerjoin(AdminUser, AdminUser.id == UserShareTaskSubmission.reviewed_by)
+        .with_entities(UserShareTaskSubmission, User.phone, User.nickname, AdminUser.username)
+        .order_by(desc(UserShareTaskSubmission.updated_at), desc(UserShareTaskSubmission.id))
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+        .all()
+    )
+    benefit_map = _promo_benefit_map(db, scene="like", submission_ids=[int(row.id) for row, *_ in rows])
+    items = [
+        _admin_like_submission_item(
+            row,
+            user_phone=phone or "",
+            user_nickname=nickname or "",
+            reviewer_name=reviewer_name or "",
+            reward_option_key=_promo_benefit_reward_option_key(benefit_map.get(_promo_benefit_code(int(row.id)))),
+            benefit=benefit_map.get(_promo_benefit_code(int(row.id))),
+        )
+        for row, phone, nickname, reviewer_name in rows
+    ]
+    return ok(
+        data={
+            "items": items,
+            "pagination": paginate(total, page, page_size),
+            "status_stats": _promo_status_stats(status_rows, ["pending", "approved", "rejected", "todo"]),
+            "reward_options": reward_options,
+        }
+    )
+
+
+@router.post("/promo/like-submissions/{submission_id}/review", response_model=APIResp)
+def review_like_submission(
+    submission_id: int,
+    payload: dict,
+    admin: AdminUser = Depends(require_admin_permission("users:manage")),
+    db: Session = Depends(db_dep),
+) -> APIResp:
+    decision = str(payload.get("status", "")).strip().lower()
+    if decision not in {"approved", "rejected"}:
+        raise BizError(code=4351, message="status 仅支持 approved / rejected")
+    review_note = str(payload.get("review_note", "")).strip()[:255] or None
+    reward_options = _promo_reward_options("like", db=db)
+    row = db.query(UserShareTaskSubmission).filter(UserShareTaskSubmission.id == submission_id).with_for_update().first()
+    if row is None:
+        raise BizError(code=4046, message="截图提审记录不存在", http_status=404)
+    before_status = row.status.value if hasattr(row.status, "value") else str(row.status or "")
+    existing_benefit = (
+        db.query(PromoBenefitRecord)
+        .filter(
+            PromoBenefitRecord.user_id == row.user_id,
+            PromoBenefitRecord.scene == "like",
+            PromoBenefitRecord.benefit_code == _promo_benefit_code(row.id),
+        )
+        .with_for_update()
+        .first()
+    )
+    reward_option_key = str(payload.get("reward_option_key", "")).strip()
+    selected_reward = _resolve_promo_reward_option(options=reward_options, option_key=reward_option_key, fallback_points=row.reward_credits)
+    if decision == "approved" and selected_reward is None:
+        raise BizError(code=4354, message="请先选择集赞奖励档位")
+    if (
+        decision == "approved"
+        and existing_benefit is not None
+        and selected_reward is not None
+        and int(existing_benefit.credit_delta or 0) != int(selected_reward.get("reward_points") or 0)
+    ):
+        raise BizError(code=4358, message="该记录奖励已发放，不能改成新的奖励档位")
+    if decision == "rejected" and existing_benefit is not None:
+        raise BizError(code=4355, message="该记录奖励已发放，不能直接改为驳回")
+    row.status = ShareTaskStatus.APPROVED if decision == "approved" else ShareTaskStatus.REJECTED
+    row.review_note = review_note
+    row.reviewed_by = int(admin.id)
+    row.reviewed_at = datetime.utcnow()
+    if selected_reward is not None:
+        row.reward_credits = int(selected_reward.get("reward_points") or 0)
+    benefit = existing_benefit
+    user = db.get(User, int(row.user_id))
+    if decision == "approved":
+        benefit = _grant_promo_credit_reward(
+            db,
+            user=user,
+            scene="like",
+            submission_id=int(row.id),
+            reward_option=selected_reward or {"reward_points": int(row.reward_credits or 0)},
+            title=f"集赞活动奖励：{selected_reward.get('label') if selected_reward else '审核通过'}",
+            source="promo_like_review",
+            meta={
+                "submission_id": int(row.id),
+                "platform": str(row.platform or ""),
+                "reward_option_key": str(selected_reward.get("key") or ""),
+                "threshold": int(selected_reward.get("threshold") or 0),
+            },
+        )
+    db.add(
+        AdminAuditLog(
+            admin_id=admin.id,
+            action="promo_like_review",
+            target_type="promo_like_submission",
+            target_id=str(row.id),
+            before_json={"status": before_status, "review_note": None},
+            after_json={
+                "status": decision,
+                "review_note": review_note,
+                "reward_option_key": str(selected_reward.get("key") or "") if selected_reward else "",
+                "reward_credits": int(selected_reward.get("reward_points") or 0) if selected_reward else int(row.reward_credits or 0),
+            },
+        )
+    )
+    db.commit()
+    db.refresh(row)
+    return ok(
+        data={
+            "item": _admin_like_submission_item(
+                row,
+                user_phone=user.phone if user else "",
+                user_nickname=user.nickname if user else "",
+                reviewer_name=admin.username,
+                reward_option_key=str(selected_reward.get("key") or "") if selected_reward else "",
+                benefit=benefit,
+            )
+        }
+    )
+
+
+@router.get("/promo/create-submissions", response_model=APIResp)
+def admin_create_submissions(
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
+    q_phone: str | None = Query(default=None),
+    status: str | None = Query(default=None),
+    platform: str | None = Query(default=None),
+    _: AdminUser = Depends(require_admin_permission("users:view")),
+    db: Session = Depends(db_dep),
+) -> APIResp:
+    reward_options = _promo_reward_options("create", db=db)
+    base_query = db.query(PromoShareSubmission).join(User, User.id == PromoShareSubmission.user_id)
+    if q_phone:
+        base_query = _apply_phone_filter(base_query, q_phone)
+    if platform:
+        base_query = base_query.filter(PromoShareSubmission.platform == platform.strip().lower())
+    normalized_status = str(status or "").strip().lower()
+    if normalized_status:
+        try:
+            base_query = base_query.filter(PromoShareSubmission.status == PromoShareSubmissionStatus(normalized_status))
+        except Exception:
+            raise BizError(code=4352, message="status 不支持")
+    status_rows = (
+        base_query.with_entities(PromoShareSubmission.status, func.count(PromoShareSubmission.id))
+        .group_by(PromoShareSubmission.status)
+        .all()
+    )
+    total = base_query.count()
+    rows = (
+        base_query.outerjoin(AdminUser, AdminUser.id == PromoShareSubmission.reviewed_by)
+        .with_entities(PromoShareSubmission, User.phone, User.nickname, AdminUser.username)
+        .order_by(desc(PromoShareSubmission.updated_at), desc(PromoShareSubmission.id))
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+        .all()
+    )
+    benefit_map = _promo_benefit_map(db, scene="create", submission_ids=[int(row.id) for row, *_ in rows])
+    items = [
+        _admin_create_submission_item(
+            row,
+            user_phone=phone or "",
+            user_nickname=nickname or "",
+            reviewer_name=reviewer_name or "",
+            benefit=benefit_map.get(_promo_benefit_code(int(row.id))),
+        )
+        for row, phone, nickname, reviewer_name in rows
+    ]
+    return ok(
+        data={
+            "items": items,
+            "pagination": paginate(total, page, page_size),
+            "status_stats": _promo_status_stats(status_rows, ["submitted", "approved", "rejected"]),
+            "reward_options": reward_options,
+        }
+    )
+
+
+@router.post("/promo/create-submissions/{submission_id}/review", response_model=APIResp)
+def review_create_submission(
+    submission_id: int,
+    payload: dict,
+    admin: AdminUser = Depends(require_admin_permission("users:manage")),
+    db: Session = Depends(db_dep),
+) -> APIResp:
+    decision = str(payload.get("status", "")).strip().lower()
+    if decision not in {"approved", "rejected"}:
+        raise BizError(code=4353, message="status 仅支持 approved / rejected")
+    review_note = str(payload.get("review_note", "")).strip()[:255] or None
+    reward_options = _promo_reward_options("create", db=db)
+    row = db.query(PromoShareSubmission).filter(PromoShareSubmission.id == submission_id).with_for_update().first()
+    if row is None:
+        raise BizError(code=4047, message="创作提审记录不存在", http_status=404)
+    before_status = row.status.value if hasattr(row.status, "value") else str(row.status or "")
+    existing_benefit = (
+        db.query(PromoBenefitRecord)
+        .filter(
+            PromoBenefitRecord.user_id == row.user_id,
+            PromoBenefitRecord.scene == "create",
+            PromoBenefitRecord.benefit_code == _promo_benefit_code(row.id),
+        )
+        .with_for_update()
+        .first()
+    )
+    reward_option_key = str(payload.get("reward_option_key", "")).strip() or str(row.tier_key or "")
+    selected_reward = _resolve_promo_reward_option(options=reward_options, option_key=reward_option_key, fallback_points=row.reward_credits)
+    if decision == "approved" and selected_reward is None:
+        raise BizError(code=4356, message="当前创作记录没有匹配到奖励档位")
+    if (
+        decision == "approved"
+        and existing_benefit is not None
+        and selected_reward is not None
+        and int(existing_benefit.credit_delta or 0) != int(selected_reward.get("reward_points") or 0)
+    ):
+        raise BizError(code=4359, message="该记录奖励已发放，不能改成新的奖励档位")
+    if decision == "rejected" and existing_benefit is not None:
+        raise BizError(code=4357, message="该记录奖励已发放，不能直接改为驳回")
+    row.status = PromoShareSubmissionStatus.APPROVED if decision == "approved" else PromoShareSubmissionStatus.REJECTED
+    row.review_note = review_note
+    row.reviewed_by = int(admin.id)
+    row.reviewed_at = datetime.utcnow()
+    if selected_reward is not None:
+        row.tier_key = str(selected_reward.get("key") or row.tier_key or "")
+        row.reward_credits = int(selected_reward.get("reward_points") or 0)
+    benefit = existing_benefit
+    user = db.get(User, int(row.user_id))
+    if decision == "approved":
+        benefit = _grant_promo_credit_reward(
+            db,
+            user=user,
+            scene="create",
+            submission_id=int(row.id),
+            reward_option=selected_reward or {"reward_points": int(row.reward_credits or 0)},
+            title=f"创作活动奖励：{selected_reward.get('label') if selected_reward else '审核通过'}",
+            source="promo_create_review",
+            meta={
+                "submission_id": int(row.id),
+                "platform": str(row.platform or ""),
+                "reward_option_key": str(selected_reward.get("key") or ""),
+                "threshold": int(selected_reward.get("threshold") or 0),
+            },
+        )
+    db.add(
+        AdminAuditLog(
+            admin_id=admin.id,
+            action="promo_create_review",
+            target_type="promo_create_submission",
+            target_id=str(row.id),
+            before_json={"status": before_status, "review_note": None},
+            after_json={
+                "status": decision,
+                "review_note": review_note,
+                "reward_option_key": str(selected_reward.get("key") or "") if selected_reward else str(row.tier_key or ""),
+                "reward_credits": int(selected_reward.get("reward_points") or 0) if selected_reward else int(row.reward_credits or 0),
+            },
+        )
+    )
+    db.commit()
+    db.refresh(row)
+    return ok(
+        data={
+            "item": _admin_create_submission_item(
+                row,
+                user_phone=user.phone if user else "",
+                user_nickname=user.nickname if user else "",
+                reviewer_name=admin.username,
+                benefit=benefit,
+            )
+        }
+    )
+
+
+@router.get("/promo/like-submissions/{submission_id}/screenshot")
+def download_like_submission_screenshot(
+    submission_id: int,
+    _: AdminUser = Depends(require_admin_permission("users:view")),
+    db: Session = Depends(db_dep),
+) -> FileResponse:
+    row = db.get(UserShareTaskSubmission, submission_id)
+    if row is None:
+        raise BizError(code=4046, message="截图提审记录不存在", http_status=404)
+    raw_path = str(row.screenshot_path or "").strip()
+    path = resolve_task_artifact_path(raw_path)
+    if path is None or not path.exists():
+        raise BizError(code=4110, message="截图文件不存在", http_status=404)
+    try:
+        resolved = path.resolve()
+        promo_root = (settings.upload_dir / "promo" / "like").resolve()
+        if not (resolved == promo_root or promo_root in resolved.parents):
+            raise BizError(code=4111, message="截图文件路径不可信", http_status=403)
+    except BizError:
+        raise
+    except Exception as exc:
+        raise BizError(code=4111, message="截图文件路径不可信", http_status=403) from exc
+    download_name = str(row.original_filename or "").strip() or f"promo_like_{row.id}"
+    return FileResponse(path=str(path), filename=download_name)
 
 
 @router.get("/configs/audit-logs", response_model=APIResp)

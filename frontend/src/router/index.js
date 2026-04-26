@@ -12,6 +12,7 @@ const AdminUserDetailPage = () => import('../views/admin/AdminUserDetailPage.vue
 const AdminDashboardPage = () => import('../views/admin/AdminDashboardPage.vue')
 const AdminConfigPage = () => import('../views/admin/AdminConfigPage.vue')
 const AdminPartnerPage = () => import('../views/admin/AdminPartnerPage.vue')
+const AdminPromoReviewPage = () => import('../views/admin/AdminPromoReviewPage.vue')
 const LoginPage = () => import('../views/user/LoginPage.vue')
 const UserBuyPage = () => import('../views/user/UserBuyPage.vue')
 const UserProfilePage = () => import('../views/user/UserProfilePage.vue')
@@ -33,6 +34,7 @@ const adminEntryRoutes = [
   { path: '/admin/tasks', permission: 'tasks:view' },
   { path: '/admin/orders', permission: 'orders:view' },
   { path: '/admin/partners', permission: 'orders:view' },
+  { path: '/admin/promo-reviews', permission: 'users:view' },
   { path: '/admin/configs', permission: 'configs:view' },
 ]
 
@@ -93,6 +95,7 @@ const router = createRouter({
     { path: '/admin/tasks', component: AdminTaskPage, meta: { auth: 'admin', title: '任务管理', adminPermission: 'tasks:view' } },
     { path: '/admin/orders', component: AdminOrderPage, meta: { auth: 'admin', title: '订单管理', adminPermission: 'orders:view' } },
     { path: '/admin/partners', component: AdminPartnerPage, meta: { auth: 'admin', title: '渠道返佣', adminPermission: 'orders:view' } },
+    { path: '/admin/promo-reviews', component: AdminPromoReviewPage, meta: { auth: 'admin', title: '推广审核', adminPermission: 'users:view' } },
     { path: '/admin/configs', component: AdminConfigPage, meta: { auth: 'admin', title: '配置中心', adminPermission: 'configs:view' } },
     { path: '/admin/configs/miniapp', redirect: '/admin/configs?tab=miniapp' },
   ],

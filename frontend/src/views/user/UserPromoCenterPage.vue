@@ -50,10 +50,36 @@
                 <em>邀请越多，奖励越高</em>
               </article>
             </div>
+            <div class="promo-grid promo-grid--3">
+              <article class="promo-stat-card promo-stat-card--soft">
+                <span>我的有效邀请</span>
+                <strong>{{ inviteSummary.valid_invite_count }}</strong>
+                <em>已成功计入奖励的人数</em>
+              </article>
+              <article class="promo-stat-card promo-stat-card--soft">
+                <span>我已获得奖励</span>
+                <strong>{{ formatPoints(inviteSummary.total_reward_points) }}</strong>
+                <em>仅统计邀请活动已到账点数</em>
+              </article>
+              <article class="promo-stat-card promo-stat-card--soft">
+                <span>下一档里程碑</span>
+                <strong>{{ nextMilestoneLabel }}</strong>
+                <em>{{ nextMilestoneHint }}</em>
+              </article>
+            </div>
             <div v-if="inviteRules.milestones.length" class="promo-badge-row">
               <strong v-for="(item, index) in inviteRules.milestones" :key="`invite-milestone-${index}`">
                 {{ item.label || `${item.threshold} 人` }} +{{ formatPoints(item.reward_points) }}
               </strong>
+            </div>
+            <div v-if="inviteSummary.earned_milestones.length" class="promo-chip-grid">
+              <article
+                v-for="item in inviteSummary.earned_milestones"
+                :key="`invite-earned-${item.threshold}`"
+                class="promo-chip promo-chip--success"
+              >
+                已达成 {{ item.label }}，获得 {{ formatPoints(item.reward_points) }}
+              </article>
             </div>
           </section>
 
@@ -82,11 +108,33 @@
             <article class="promo-action-row">
               <div class="promo-action-row__copy">
                 <span>{{ invitePage.bind_code_label }}</span>
-                <strong>邀请码填写入口即将开放</strong>
+                <strong v-if="inviteBoundRelation">
+                  已绑定 {{ inviteBoundRelation.inviter_nickname || inviteBoundRelation.inviter_phone || "邀请人" }}
+                </strong>
+                <strong v-else>{{ invitePage.bind_code_notice || "填写邀请码后建立邀请关系" }}</strong>
               </div>
               <div class="promo-action-row__controls">
-                <input v-model.trim="bindInviteCodeValue" :placeholder="invitePage.bind_code_placeholder" />
-                <button type="button" disabled @click="bindInviteCode">{{ invitePage.bind_code_button_text }}</button>
+                <input
+                  v-model.trim="inviteBindCode"
+                  type="text"
+                  maxlength="16"
+                  placeholder="请输入邀请码"
+                  :disabled="bindingInvite || !!inviteBoundRelation"
+                />
+                <button
+                  type="button"
+                  class="promo-primary"
+                  :disabled="bindingInvite || !inviteBindCode || !!inviteBoundRelation"
+                  @click="submitInviteBind"
+                >
+                  {{ bindingInvite ? "绑定中..." : "确认绑定" }}
+                </button>
+              </div>
+              <div class="promo-action-row__meta">
+                <em v-if="inviteBoundRelation">
+                  绑定时间：{{ formatDateTime(inviteBoundRelation.created_at) }}，每个账号仅可绑定一次。
+                </em>
+                <em v-else>每个账号仅可绑定一次邀请码，绑定后不可更换。</em>
               </div>
             </article>
 
@@ -167,8 +215,56 @@
               </div>
               <div class="promo-qrcode-side">
                 <p>{{ likePage.review_notice }}</p>
-                <button type="button" class="promo-primary" disabled @click="submitPlaceholder('like')">提交截图</button>
+                <div class="promo-submit-card">
+                  <strong>提交截图</strong>
+                  <span class="promo-disabled-note">平台：{{ likePlatformLabel }}</span>
+                  <div class="promo-submit-row">
+                    <input
+                      v-model.trim="likeShareText"
+                      type="text"
+                      maxlength="500"
+                      placeholder="选填：补充说明或分享文案"
+                    />
+                  </div>
+                  <div class="promo-submit-row">
+                    <label class="promo-file-trigger">
+                      <input class="promo-hidden-input" type="file" accept=".png,.jpg,.jpeg,.webp" @change="handleLikeFileChange" />
+                      <span>{{ likeScreenshotName || "选择截图文件" }}</span>
+                    </label>
+                    <button
+                      type="button"
+                      class="promo-primary"
+                      :disabled="likeSubmitting || !likeScreenshotFile"
+                      @click="submitLikeSubmission"
+                    >
+                      {{ likeSubmitting ? "提交中..." : "提交截图" }}
+                    </button>
+                  </div>
+                  <span class="promo-disabled-note">提交后进入人工审核，奖励在审核通过后发放。</span>
+                </div>
               </div>
+            </div>
+          </section>
+
+          <section class="promo-section promo-section--span-2 promo-section--compact">
+            <div class="promo-section__head">
+              <h4>我的截图记录</h4>
+            </div>
+            <div v-if="likeSubmissions.length" class="promo-history-list">
+              <article v-for="item in likeSubmissions" :key="`like-history-${item.id}`" class="promo-history-card">
+                <div class="promo-history-card__head">
+                  <strong>{{ resolveLikePlatformLabel(item.platform) }}</strong>
+                  <span class="promo-status-tag" :class="statusTagClass(item.status)">{{ formatSubmissionStatus(item.status) }}</span>
+                </div>
+                <p>文件：{{ item.original_filename || "未命名截图" }}</p>
+                <p v-if="item.share_text">备注：{{ item.share_text }}</p>
+                <p>更新时间：{{ formatDateTime(item.updated_at || item.created_at) }}</p>
+                <p v-if="item.review_note">审核备注：{{ item.review_note }}</p>
+              </article>
+            </div>
+            <div v-else class="promo-submit-placeholder">
+              <strong>还没有截图记录</strong>
+              <span>完成集赞后上传截图，这里会展示你的审核状态。</span>
             </div>
           </section>
 
@@ -225,9 +321,37 @@
               </article>
             </div>
             <div class="promo-submit-row">
-              <input v-model.trim="createSubmissionUrl" :placeholder="createPage.submit_placeholder" />
-              <button type="button" class="promo-primary" disabled @click="submitPlaceholder('create')">{{ createPage.submit_button_text }}</button>
-              <button type="button" class="promo-secondary" disabled @click="openSubmissionHistory">{{ createPage.history_button_text }}</button>
+              <select v-model="createForm.platform">
+                <option value="" disabled>选择发布平台</option>
+                <option v-for="platform in enabledCreatePlatforms" :key="platform.key" :value="platform.key">
+                  {{ platform.label }}
+                </option>
+              </select>
+              <select v-model="createForm.tier_key">
+                <option v-for="item in createTierOptions" :key="item.key" :value="item.key">
+                  {{ item.label }}
+                </option>
+              </select>
+            </div>
+            <div class="promo-submit-row">
+              <input v-model.trim="createForm.share_link" type="text" maxlength="500" placeholder="请输入作品链接" />
+            </div>
+            <div class="promo-submit-row">
+              <input v-model.trim="createForm.payout_name" type="text" maxlength="120" placeholder="收款人姓名（选填）" />
+              <input v-model.trim="createForm.payout_account" type="text" maxlength="120" placeholder="收款账号（选填）" />
+            </div>
+            <div class="promo-submit-row">
+              <textarea v-model.trim="createForm.note" maxlength="500" rows="3" placeholder="补充说明（选填）"></textarea>
+            </div>
+            <div class="promo-submit-row">
+              <button
+                type="button"
+                class="promo-primary"
+                :disabled="createSubmitting || !createForm.platform || !createForm.share_link"
+                @click="submitCreateSubmission"
+              >
+                {{ createSubmitting ? "提交中..." : (createPage.submit_button_text || "提交链接") }}
+              </button>
             </div>
           </section>
 
@@ -239,6 +363,29 @@
             <div class="promo-button-row">
               <button type="button" class="promo-secondary" @click="rotateTemplate">换个文案</button>
               <button type="button" class="promo-primary" @click="copyText(currentTemplate, '创作文案已复制')">一键复制</button>
+            </div>
+          </section>
+
+          <section class="promo-section promo-section--span-2 promo-section--compact">
+            <div class="promo-section__head">
+              <h4>我的作品记录</h4>
+            </div>
+            <div v-if="createSubmissions.length" class="promo-history-list">
+              <article v-for="item in createSubmissions" :key="`create-history-${item.id}`" class="promo-history-card">
+                <div class="promo-history-card__head">
+                  <strong>{{ resolveCreatePlatformLabel(item.platform) }}</strong>
+                  <span class="promo-status-tag" :class="statusTagClass(item.status)">{{ formatSubmissionStatus(item.status) }}</span>
+                </div>
+                <p>档位：{{ resolveCreateTierLabel(item.tier_key) }}</p>
+                <p>链接：{{ item.share_link }}</p>
+                <p v-if="item.note">备注：{{ item.note }}</p>
+                <p>更新时间：{{ formatDateTime(item.updated_at || item.created_at) }}</p>
+                <p v-if="item.review_note">审核备注：{{ item.review_note }}</p>
+              </article>
+            </div>
+            <div v-else class="promo-submit-placeholder">
+              <strong>还没有作品记录</strong>
+              <span>提交发布链接后，这里会持续展示审核进度。</span>
             </div>
           </section>
         </section>
@@ -315,8 +462,35 @@ const loading = ref(false)
 const errorText = ref("")
 const hintText = ref("")
 const inviteCode = ref("")
-const bindInviteCodeValue = ref("")
-const createSubmissionUrl = ref("")
+const inviteBindCode = ref("")
+const inviteBoundRelation = ref(null)
+const inviteSummary = ref({
+  valid_invite_count: 0,
+  invitee_bind_reward_points: 0,
+  invitee_bind_reward_granted: false,
+  inviter_reward_points_total: 0,
+  milestone_reward_points_total: 0,
+  total_reward_points: 0,
+  earned_milestones: [],
+  next_milestone: null,
+  bound_relation_id: null,
+})
+const bindingInvite = ref(false)
+const likeShareText = ref("")
+const likeScreenshotFile = ref(null)
+const likeScreenshotName = ref("")
+const likeSubmitting = ref(false)
+const likeSubmissions = ref([])
+const createSubmitting = ref(false)
+const createSubmissions = ref([])
+const createForm = ref({
+  platform: "",
+  tier_key: "",
+  share_link: "",
+  payout_account: "",
+  payout_name: "",
+  note: "",
+})
 const currentTemplateIndex = ref(0)
 const promoConfig = ref(normalizePromotionCenterConfig(DEFAULT_PROMO_CENTER_CONFIG))
 
@@ -347,6 +521,14 @@ const likeRules = computed(() => promoConfig.value?.reward_rules?.like || DEFAUL
 const createRules = computed(() => promoConfig.value?.reward_rules?.create || DEFAULT_PROMO_CENTER_CONFIG.reward_rules.create)
 const visibleLikeEntries = computed(() => (Array.isArray(likePage.value?.other_entries) ? likePage.value.other_entries : []).filter((item) => item?.enabled !== false))
 const visiblePartnerContacts = computed(() => (Array.isArray(partnerPage.value?.contacts) ? partnerPage.value.contacts : []).filter((item) => item?.enabled !== false))
+const enabledCreatePlatforms = computed(() => (Array.isArray(createPage.value?.platforms) ? createPage.value.platforms : []).filter((item) => item?.enabled !== false))
+const createTierOptions = computed(() => {
+  const list = Array.isArray(createRules.value?.tiers) ? createRules.value.tiers : []
+  return list.map((item, index) => ({
+    key: String(item?.key || item?.tier_key || `tier-${index + 1}`),
+    label: String(item?.label || `${item?.threshold || 0}+`),
+  }))
+})
 const createTemplates = computed(() => {
   const list = Array.isArray(createPage.value?.templates) ? createPage.value.templates : []
   return list.length ? list : DEFAULT_PROMO_CENTER_CONFIG.pages.create.templates
@@ -359,6 +541,20 @@ const maxCreateRewardLabel = computed(() => {
 const inviteLink = computed(() => {
   if (!inviteCode.value || typeof window === "undefined") return ""
   return `${window.location.origin}/register?invite_code=${encodeURIComponent(inviteCode.value)}`
+})
+const nextMilestoneLabel = computed(() => {
+  const milestone = inviteSummary.value?.next_milestone
+  if (!milestone) return "已全部达成"
+  return milestone.label || `${milestone.threshold} 人`
+})
+const nextMilestoneHint = computed(() => {
+  const milestone = inviteSummary.value?.next_milestone
+  if (!milestone) return "当前已拿满已配置里程碑奖励"
+  return `再邀请 ${Number(milestone.remaining_count || 0)} 人，可得 ${formatPoints(milestone.reward_points)}`
+})
+const likePlatformLabel = computed(() => {
+  const title = String(likePage.value?.qrcode_title || "").trim()
+  return title || "微信集赞活动"
 })
 
 const likeFlow = [
@@ -381,6 +577,28 @@ watch(
   },
 )
 
+watch(
+  enabledCreatePlatforms,
+  (items) => {
+    const keys = items.map((item) => String(item?.key || ""))
+    if (!keys.includes(createForm.value.platform)) {
+      createForm.value.platform = keys[0] || ""
+    }
+  },
+  { immediate: true },
+)
+
+watch(
+  createTierOptions,
+  (items) => {
+    const keys = items.map((item) => item.key)
+    if (!keys.includes(createForm.value.tier_key)) {
+      createForm.value.tier_key = keys[0] || ""
+    }
+  },
+  { immediate: true },
+)
+
 async function initialize() {
   try {
     await refreshUser()
@@ -398,10 +616,22 @@ async function loadData() {
     const options = await userHttp.get("/auth/options")
     promoConfig.value = normalizePromotionCenterConfig(options?.promo_center)
     if (getUserToken()) {
-      const invite = await userHttp.get("/users/me/invite")
+      const [invite, likeData, createData] = await Promise.all([
+        userHttp.get("/users/me/invite"),
+        userHttp.get("/users/me/promo/like-submissions"),
+        userHttp.get("/users/me/promo/create-submissions"),
+      ])
       inviteCode.value = String(invite?.invite_code || "").trim()
+      inviteBoundRelation.value = invite?.bound_relation || null
+      inviteSummary.value = normalizeInviteSummary(invite?.invite_summary)
+      likeSubmissions.value = Array.isArray(likeData?.items) ? likeData.items : []
+      createSubmissions.value = Array.isArray(createData?.items) ? createData.items : []
     } else {
       inviteCode.value = ""
+      inviteBoundRelation.value = null
+      inviteSummary.value = normalizeInviteSummary(null)
+      likeSubmissions.value = []
+      createSubmissions.value = []
     }
     const keys = enabledCards.value.map((item) => item.key)
     if (keys.length && !keys.includes(activeTab.value)) {
@@ -435,19 +665,74 @@ async function copyText(value, successMessage) {
   }
 }
 
-function bindInviteCode() {
+async function submitInviteBind() {
+  if (!inviteBindCode.value || bindingInvite.value) return
+  bindingInvite.value = true
+  errorText.value = ""
   hintText.value = ""
-  errorText.value = "邀请码填写入口即将开放。"
+  try {
+    const data = await userHttp.post("/users/me/invite/bind", { invite_code: inviteBindCode.value })
+    inviteBoundRelation.value = data?.bound_relation || null
+    inviteSummary.value = normalizeInviteSummary(data?.invite_summary)
+    inviteBindCode.value = ""
+    const rewardText = Number(inviteSummary.value?.invitee_bind_reward_points || 0) > 0 ? `，${formatPoints(inviteSummary.value.invitee_bind_reward_points)} 已到账` : ""
+    hintText.value = `邀请码绑定成功${rewardText}`
+    await refreshUser()
+  } catch (error) {
+    errorText.value = String(error?.message || "邀请码绑定失败")
+  } finally {
+    bindingInvite.value = false
+  }
 }
 
-function submitPlaceholder(type) {
-  hintText.value = ""
-  errorText.value = type === "like" ? "截图提交通道即将开放。" : "作品提交通道即将开放。"
+function handleLikeFileChange(event) {
+  const files = event?.target?.files
+  const file = files && files[0] ? files[0] : null
+  likeScreenshotFile.value = file
+  likeScreenshotName.value = file?.name || ""
 }
 
-function openSubmissionHistory() {
+async function submitLikeSubmission() {
+  if (!likeScreenshotFile.value || likeSubmitting.value) return
+  likeSubmitting.value = true
+  errorText.value = ""
   hintText.value = ""
-  errorText.value = "记录查询功能即将开放。"
+  try {
+    const formData = new FormData()
+    formData.append("platform", "wechat")
+    formData.append("share_text", likeShareText.value || "")
+    formData.append("screenshot", likeScreenshotFile.value)
+    const data = await userHttp.post("/users/me/promo/like-submissions", formData)
+    upsertSubmission(likeSubmissions.value, data?.item)
+    likeScreenshotFile.value = null
+    likeScreenshotName.value = ""
+    likeShareText.value = ""
+    hintText.value = "截图已提交，等待审核"
+  } catch (error) {
+    errorText.value = String(error?.message || "截图提交失败")
+  } finally {
+    likeSubmitting.value = false
+  }
+}
+
+async function submitCreateSubmission() {
+  if (!createForm.value.platform || !createForm.value.share_link || createSubmitting.value) return
+  createSubmitting.value = true
+  errorText.value = ""
+  hintText.value = ""
+  try {
+    const data = await userHttp.post("/users/me/promo/create-submissions", { ...createForm.value })
+    upsertSubmission(createSubmissions.value, data?.item)
+    createForm.value.share_link = ""
+    createForm.value.payout_account = ""
+    createForm.value.payout_name = ""
+    createForm.value.note = ""
+    hintText.value = "作品链接已提交，等待审核"
+  } catch (error) {
+    errorText.value = String(error?.message || "作品提交失败")
+  } finally {
+    createSubmitting.value = false
+  }
 }
 
 function rotateTemplate() {
@@ -462,6 +747,74 @@ async function afterPaid() {
 
 function formatPoints(value) {
   return `${Math.max(0, Number(value || 0)).toLocaleString()} 点`
+}
+
+function normalizeInviteSummary(value) {
+  const data = value && typeof value === "object" ? value : {}
+  return {
+    valid_invite_count: Number(data.valid_invite_count || 0),
+    invitee_bind_reward_points: Number(data.invitee_bind_reward_points || 0),
+    invitee_bind_reward_granted: Boolean(data.invitee_bind_reward_granted),
+    inviter_reward_points_total: Number(data.inviter_reward_points_total || 0),
+    milestone_reward_points_total: Number(data.milestone_reward_points_total || 0),
+    total_reward_points: Number(data.total_reward_points || 0),
+    earned_milestones: Array.isArray(data.earned_milestones) ? data.earned_milestones : [],
+    next_milestone: data.next_milestone && typeof data.next_milestone === "object" ? data.next_milestone : null,
+    bound_relation_id: data.bound_relation_id ?? null,
+  }
+}
+
+function upsertSubmission(list, item) {
+  if (!item || !item.platform) return
+  const items = Array.isArray(list) ? list : []
+  const next = [item, ...items.filter((row) => row?.platform !== item.platform)]
+  list.splice(0, list.length, ...next)
+}
+
+function formatDateTime(value) {
+  if (!value) return "--"
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return String(value)
+  return date.toLocaleString("zh-CN", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  })
+}
+
+function formatSubmissionStatus(status) {
+  const key = String(status || "").trim().toLowerCase()
+  return {
+    pending: "待审核",
+    submitted: "已提交",
+    approved: "已通过",
+    rejected: "已驳回",
+  }[key] || key || "待处理"
+}
+
+function statusTagClass(status) {
+  const key = String(status || "").trim().toLowerCase()
+  return `promo-status-tag--${key || "default"}`
+}
+
+function resolveLikePlatformLabel(platform) {
+  const key = String(platform || "").trim().toLowerCase()
+  if (key === "wechat") return likePlatformLabel.value
+  return likePlatformLabel.value
+}
+
+function resolveCreatePlatformLabel(platform) {
+  const key = String(platform || "").trim()
+  const matched = enabledCreatePlatforms.value.find((item) => String(item?.key || "") === key)
+  return matched?.label || key || "创作活动"
+}
+
+function resolveCreateTierLabel(tierKey) {
+  const key = String(tierKey || "").trim()
+  const matched = createTierOptions.value.find((item) => item.key === key)
+  return matched?.label || key || "默认档位"
 }
 </script>
 
@@ -767,6 +1120,12 @@ function formatPoints(value) {
   background: linear-gradient(180deg, #f3f8ff 0%, #ffffff 100%);
 }
 
+.promo-chip--success,
+.promo-stat-card--soft {
+  border-color: rgba(62, 164, 104, 0.2);
+  background: linear-gradient(180deg, #f1fbf5 0%, #ffffff 100%);
+}
+
 .promo-step-card strong {
   display: block;
   margin-top: 6px;
@@ -844,8 +1203,23 @@ function formatPoints(value) {
   justify-content: flex-end;
 }
 
+.promo-action-row__meta,
+.promo-submit-placeholder,
+.promo-disabled-note {
+  color: #5e7393;
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.promo-action-row__meta {
+  justify-self: end;
+  text-align: right;
+}
+
 .promo-action-row__controls input,
-.promo-submit-row input {
+.promo-submit-row input,
+.promo-submit-row select,
+.promo-submit-row textarea {
   flex: 1;
   min-width: 220px;
   min-height: 42px;
@@ -862,9 +1236,17 @@ function formatPoints(value) {
 }
 
 .promo-action-row__controls input:focus,
-.promo-submit-row input:focus {
+.promo-submit-row input:focus,
+.promo-submit-row select:focus,
+.promo-submit-row textarea:focus {
   border-color: rgba(30, 91, 223, 0.58);
   box-shadow: 0 0 0 4px rgba(30, 91, 223, 0.08);
+}
+
+.promo-submit-row textarea {
+  min-height: 96px;
+  padding-top: 10px;
+  resize: vertical;
 }
 
 .promo-primary {
@@ -952,6 +1334,117 @@ function formatPoints(value) {
   margin-top: 12px;
 }
 
+.promo-submit-placeholder {
+  padding: 14px 16px;
+  border-radius: 18px;
+  border: 1px dashed #cfdcec;
+  background: linear-gradient(180deg, #f8fbff 0%, #ffffff 100%);
+  display: grid;
+  gap: 6px;
+}
+
+.promo-submit-placeholder strong {
+  color: #183b68;
+  font-size: 14px;
+}
+
+.promo-submit-card {
+  padding: 14px 16px;
+  border-radius: 18px;
+  border: 1px solid rgba(212, 224, 242, 0.96);
+  background: linear-gradient(180deg, #fcfdff 0%, #ffffff 100%);
+  display: grid;
+  gap: 10px;
+}
+
+.promo-submit-card strong {
+  color: #183b68;
+  font-size: 14px;
+}
+
+.promo-hidden-input {
+  display: none;
+}
+
+.promo-file-trigger {
+  min-height: 42px;
+  padding: 0 14px;
+  border-radius: 14px;
+  border: 1px dashed #b8cce8;
+  background: #f8fbff;
+  color: #20456d;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.promo-history-list {
+  margin-top: 12px;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.promo-history-card {
+  padding: 14px 15px;
+  border-radius: 18px;
+  border: 1px solid rgba(212, 224, 242, 0.96);
+  background: linear-gradient(180deg, #fbfdff 0%, #ffffff 100%);
+  display: grid;
+  gap: 6px;
+}
+
+.promo-history-card__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.promo-history-card__head strong {
+  color: #17385f;
+}
+
+.promo-history-card p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.7;
+  color: #627a95;
+  word-break: break-all;
+}
+
+.promo-status-tag {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 28px;
+  padding: 0 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #1f436b;
+  background: #eef4ff;
+}
+
+.promo-status-tag--pending,
+.promo-status-tag--submitted {
+  color: #945d00;
+  background: #fff4dc;
+}
+
+.promo-status-tag--approved {
+  color: #1f7a3b;
+  background: #e9f8ee;
+}
+
+.promo-status-tag--rejected {
+  color: #b03838;
+  background: #ffe8e8;
+}
+
 .promo-detail {
   font-size: 13px;
 }
@@ -1003,6 +1496,7 @@ function formatPoints(value) {
   .promo-chip-grid--steps,
   .promo-tier-grid,
   .promo-badge-row,
+  .promo-history-list,
   .promo-entry-grid,
   .promo-partner-grid {
     grid-template-columns: 1fr;
@@ -1022,7 +1516,9 @@ function formatPoints(value) {
   }
 
   .promo-action-row__controls input,
-  .promo-submit-row input {
+  .promo-submit-row input,
+  .promo-submit-row select,
+  .promo-submit-row textarea {
     min-width: 100%;
     width: 100%;
   }

@@ -555,6 +555,14 @@
                   <input v-model.trim="forms.miniapp.icp_filing_no" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" />
                 </label>
                 <label class="space-y-1 text-sm">
+                  <span>公安备案号</span>
+                  <input v-model.trim="forms.miniapp.police_filing_no" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" placeholder="公网安备 XXXXXXXXXXXXXXXX 号" />
+                </label>
+                <label class="space-y-1 text-sm md:col-span-2">
+                  <span>公安备案链接</span>
+                  <input v-model.trim="forms.miniapp.police_filing_url" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" placeholder="https://beian.mps.gov.cn/#/query/webSearch" />
+                </label>
+                <label class="space-y-1 text-sm">
                   <span>客服电话</span>
                   <input v-model.trim="forms.miniapp.contact_phone" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" />
                 </label>

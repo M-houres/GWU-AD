@@ -9,8 +9,6 @@
             </span>
             <span class="gw-auth-card__brand-name">格物学术</span>
           </div>
-
-          <span class="gw-auth-card__entry-link">验证码登录</span>
         </header>
 
         <h2 class="gw-auth-card__title">{{ panelTitle }}</h2>
@@ -78,6 +76,26 @@
         </div>
       </section>
     </main>
+    <footer v-if="hasSiteFiling" class="gw-site-filing" aria-label="网站备案信息">
+      <a
+        v-if="siteFiling.icp_filing_no"
+        class="gw-site-filing__link"
+        :href="siteFiling.icp_filing_url"
+        target="_blank"
+        rel="noreferrer"
+      >
+        {{ siteFiling.icp_filing_no }}
+      </a>
+      <a
+        v-if="siteFiling.police_filing_no"
+        class="gw-site-filing__link"
+        :href="siteFiling.police_filing_url"
+        target="_blank"
+        rel="noreferrer"
+      >
+        {{ siteFiling.police_filing_no }}
+      </a>
+    </footer>
   </div>
 </template>
 
@@ -119,6 +137,12 @@ const wxKey = ref("")
 const wxQrcodeDataUrl = ref("")
 const wxCountdown = ref(0)
 const wxStatus = ref("pending")
+const siteFiling = ref({
+  icp_filing_no: "",
+  icp_filing_url: "https://beian.miit.gov.cn",
+  police_filing_no: "",
+  police_filing_url: "https://beian.mps.gov.cn/#/query/webSearch",
+})
 
 let smsCountdownTimer = null
 let wxCountTimer = null
@@ -138,6 +162,7 @@ const wxStatusText = computed(() => {
 })
 const showLoginTypeTabs = computed(() => phoneLoginEnabled.value && wechatLoginEnabled.value)
 const hasWechatEntry = computed(() => wechatLoginEnabled.value)
+const hasSiteFiling = computed(() => Boolean(siteFiling.value.icp_filing_no || siteFiling.value.police_filing_no))
 
 watch(
   () => route.fullPath,
@@ -190,22 +215,29 @@ function validatePhone() {
 }
 
 async function loadAuthOptions() {
-  if (!envWechatLoginEnabled) {
-    wechatLoginEnabled.value = false
-    wxMockEnabled.value = false
-    return
-  }
   try {
     const data = await userHttp.get("/auth/options")
-    wechatLoginEnabled.value = Boolean(data.wechat_login_enabled)
+    wechatLoginEnabled.value = envWechatLoginEnabled && Boolean(data.wechat_login_enabled)
     wxMockEnabled.value = Boolean(data.wx_mock_enabled)
     phoneLoginEnabled.value = data.phone_login_enabled !== false
+    siteFiling.value = normalizeSiteFiling(data.site_filing)
     if (!phoneLoginEnabled.value && wechatLoginEnabled.value) mode.value = "wx"
     if (!wechatLoginEnabled.value && phoneLoginEnabled.value) mode.value = "phone"
   } catch {
     wechatLoginEnabled.value = false
     wxMockEnabled.value = false
     phoneLoginEnabled.value = true
+    siteFiling.value = normalizeSiteFiling(null)
+  }
+}
+
+function normalizeSiteFiling(raw) {
+  const source = raw && typeof raw === "object" ? raw : {}
+  return {
+    icp_filing_no: String(source.icp_filing_no || "").trim(),
+    icp_filing_url: String(source.icp_filing_url || "https://beian.miit.gov.cn").trim(),
+    police_filing_no: String(source.police_filing_no || "").trim(),
+    police_filing_url: String(source.police_filing_url || "https://beian.mps.gov.cn/#/query/webSearch").trim(),
   }
 }
 
@@ -403,7 +435,7 @@ function enterGuest() {
 .gw-auth-card__head {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
   gap: 8px;
 }
 
@@ -436,21 +468,6 @@ function enterGuest() {
   font-weight: 700;
   letter-spacing: 0.02em;
   color: #143a73;
-}
-
-.gw-auth-card__entry-link {
-  min-height: 34px;
-  padding: 0 10px;
-  border-radius: 8px;
-  border: 1px solid #1e5bdf;
-  background: #1e5bdf;
-  color: #ffffff;
-  text-decoration: none;
-  font-size: 12px;
-  font-weight: 700;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
 }
 
 .gw-auth-card__title {
@@ -507,8 +524,7 @@ function enterGuest() {
 .gw-auth-card__code-row button:hover,
 .gw-auth-card__submit:hover,
 .gw-auth-card__secondary:hover,
-.gw-auth-card__wechat-actions button:hover,
-.gw-auth-card__entry-link:hover {
+.gw-auth-card__wechat-actions button:hover {
   background: #225be4;
   border-color: #225be4;
   color: #ffffff;
@@ -518,8 +534,7 @@ function enterGuest() {
 .gw-auth-card__code-row button:active,
 .gw-auth-card__submit:active,
 .gw-auth-card__secondary:active,
-.gw-auth-card__wechat-actions button:active,
-.gw-auth-card__entry-link:active {
+.gw-auth-card__wechat-actions button:active {
   background: #eef4ff;
   border-color: #1e5bdf;
   color: #1e5bdf;
@@ -705,6 +720,25 @@ function enterGuest() {
   color: #1e5bdf;
 }
 
+.gw-site-filing {
+  padding: 8px 16px 18px;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px 18px;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.86);
+}
+
+.gw-site-filing__link {
+  color: inherit;
+  text-decoration: none;
+}
+
+.gw-site-filing__link:hover {
+  text-decoration: underline;
+}
+
 @media (max-width: 480px) {
   .gw-auth-page__main {
     padding: 12px;
@@ -712,12 +746,7 @@ function enterGuest() {
   }
 
   .gw-auth-card__head {
-    flex-direction: column;
-    align-items: stretch;
-  }
-
-  .gw-auth-card__entry-link {
-    width: 100%;
+    align-items: flex-start;
   }
 
   .gw-auth-card__brand-name {

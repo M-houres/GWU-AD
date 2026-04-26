@@ -108,6 +108,7 @@ import {
   Boxes,
   LayoutDashboard,
   ListTodo,
+  Megaphone,
   Menu,
   PanelLeftClose,
   PanelLeftOpen,
@@ -154,6 +155,7 @@ const menuDefs = [
   { path: "/admin/tasks", label: "任务管理", permission: "tasks:view", icon: ListTodo },
   { path: "/admin/orders", label: "订单管理", permission: "orders:view", icon: ReceiptText },
   { path: "/admin/partners", label: "渠道返佣", permission: "orders:view", icon: Boxes },
+  { path: "/admin/promo-reviews", label: "推广审核", permission: "users:view", icon: Megaphone },
   { path: "/admin/configs", label: "配置中心", permission: "configs:view", icon: Settings2 },
 ]
 

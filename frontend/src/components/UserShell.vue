@@ -118,6 +118,27 @@
       </div>
     </main>
 
+    <footer v-if="hasSiteFiling" class="shell-filing" aria-label="网站备案信息">
+      <a
+        v-if="siteFiling.icp_filing_no"
+        class="shell-filing__link"
+        :href="siteFiling.icp_filing_url"
+        target="_blank"
+        rel="noreferrer"
+      >
+        {{ siteFiling.icp_filing_no }}
+      </a>
+      <a
+        v-if="siteFiling.police_filing_no"
+        class="shell-filing__link"
+        :href="siteFiling.police_filing_url"
+        target="_blank"
+        rel="noreferrer"
+      >
+        {{ siteFiling.police_filing_no }}
+      </a>
+    </footer>
+
     <div
       v-if="showNoticeEntry && isNoticeDialogOpen && !disableNoticeDialog"
       class="notice-dialog-mask"
@@ -207,6 +228,12 @@ const viewportWidth = ref(typeof window !== "undefined" ? window.innerWidth : 14
 const isHeaderElevated = ref(false)
 const isNavMoreOpen = ref(false)
 const navMoreRef = ref(null)
+const siteFiling = ref({
+  icp_filing_no: "",
+  icp_filing_url: "https://beian.miit.gov.cn",
+  police_filing_no: "",
+  police_filing_url: "https://beian.mps.gov.cn/#/query/webSearch",
+})
 
 let noticePollTimer = null
 
@@ -244,6 +271,7 @@ const creditsLabel = computed(() => {
   if (value === null) return "-"
   return value.toLocaleString()
 })
+const hasSiteFiling = computed(() => Boolean(siteFiling.value.icp_filing_no || siteFiling.value.police_filing_no))
 
 onMounted(() => {
   syncTokenState()
@@ -311,6 +339,7 @@ async function loadAnnouncement() {
 function applyShellOptions(raw) {
   applyNotice(raw?.notice || raw)
   applyNavigation(raw?.user_navigation)
+  siteFiling.value = normalizeSiteFiling(raw?.site_filing)
 }
 
 function applyNavigation(raw) {
@@ -457,6 +486,16 @@ function normalizeCredits(value) {
   if (!Number.isFinite(num)) return null
   return Math.max(0, Math.floor(num))
 }
+
+function normalizeSiteFiling(raw) {
+  const source = raw && typeof raw === "object" ? raw : {}
+  return {
+    icp_filing_no: String(source.icp_filing_no || "").trim(),
+    icp_filing_url: String(source.icp_filing_url || "https://beian.miit.gov.cn").trim(),
+    police_filing_no: String(source.police_filing_no || "").trim(),
+    police_filing_url: String(source.police_filing_url || "https://beian.mps.gov.cn/#/query/webSearch").trim(),
+  }
+}
 </script>
 
 <style scoped>
@@ -492,6 +531,25 @@ function normalizeCredits(value) {
     radial-gradient(circle at 88% 0%, rgba(255, 255, 255, 0.14), transparent 18%),
     var(--shell-band);
   color: var(--shell-ink);
+}
+
+.shell-filing {
+  padding: 4px 18px 18px;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px 18px;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.88);
+}
+
+.shell-filing__link {
+  color: inherit;
+  text-decoration: none;
+}
+
+.shell-filing__link:hover {
+  text-decoration: underline;
 }
 
 .header-wrap {

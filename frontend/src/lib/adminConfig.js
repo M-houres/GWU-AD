@@ -256,6 +256,8 @@ export const DEFAULT_MINIAPP_CONFIG = {
   ws_domain: "",
   business_domain: "",
   icp_filing_no: "",
+  police_filing_no: "",
+  police_filing_url: "",
   contact_phone: "",
   contact_email: "",
   publish_note: "",
@@ -583,6 +585,8 @@ export function normalizeMiniappConfig(raw) {
     ws_domain: String(source.ws_domain || "").trim(),
     business_domain: String(source.business_domain || "").trim(),
     icp_filing_no: String(source.icp_filing_no || "").trim(),
+    police_filing_no: String(source.police_filing_no || "").trim(),
+    police_filing_url: String(source.police_filing_url || "").trim(),
     contact_phone: String(source.contact_phone || "").trim(),
     contact_email: String(source.contact_email || "").trim(),
     publish_note: String(source.publish_note || "").trim(),
@@ -1258,6 +1262,8 @@ export function buildAdminConfigPayload(category, forms, { normalizeUserNavigati
     payload.business_domain = normalized.business_domain.slice(0, 256)
     payload.payment_notify_url = normalized.payment_notify_url.slice(0, 256)
     payload.icp_filing_no = normalized.icp_filing_no.slice(0, 128)
+    payload.police_filing_no = normalized.police_filing_no.slice(0, 128)
+    payload.police_filing_url = normalized.police_filing_url.slice(0, 256)
     payload.contact_phone = normalized.contact_phone.slice(0, 32)
     payload.contact_email = normalized.contact_email.slice(0, 128)
     payload.publish_note = normalized.publish_note.slice(0, 500)

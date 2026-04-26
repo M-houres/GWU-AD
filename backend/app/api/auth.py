@@ -259,6 +259,19 @@ def _get_login_config(db: Session) -> dict:
     return merged
 
 
+def _public_site_filing_payload(db: Session) -> dict:
+    miniapp_value = _read_system_config_raw(db, "miniapp")
+    icp_filing_no = str(miniapp_value.get("icp_filing_no") or "").strip()
+    police_filing_no = str(miniapp_value.get("police_filing_no") or "").strip()
+    police_filing_url = str(miniapp_value.get("police_filing_url") or "").strip() or "https://beian.mps.gov.cn/#/query/webSearch"
+    return {
+        "icp_filing_no": icp_filing_no[:128],
+        "icp_filing_url": "https://beian.miit.gov.cn",
+        "police_filing_no": police_filing_no[:128],
+        "police_filing_url": police_filing_url[:256],
+    }
+
+
 def _get_user_navigation_config(db: Session) -> dict:
     raw = _read_system_config_raw(db, "user_navigation")
     if not raw:
@@ -1257,6 +1270,7 @@ def auth_options(db: Session = Depends(db_dep)) -> APIResp:
             "notice": notice,
             "user_navigation": user_navigation,
             "promo_center": promo_center,
+            "site_filing": _public_site_filing_payload(db),
         }
     )
 

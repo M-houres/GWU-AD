@@ -1,20 +1,47 @@
 from datetime import datetime, timedelta
 import secrets
-from fastapi import APIRouter, Depends, Query, Response
+from pathlib import Path
+
+from fastapi import APIRouter, Depends, File, Form, Query, Response, UploadFile
 from sqlalchemy import desc, func
 from sqlalchemy.orm import Session
 
+from app.api.auth import _get_promo_center_config
 from app.config import get_settings
+from app.constants import MAX_FILE_SIZE_MB
 from app.deps import current_user, db_dep, get_redis
 from app.exceptions import BizError
 from app.money import cny_to_api, fen_to_cny
-from app.models import CreditTransaction, Notification, Task, TaskStatus, TaskType, User, UserInviteCode
+from app.models import (
+    CreditType,
+    CreditTransaction,
+    Notification,
+    PromoBenefitRecord,
+    PromoBenefitStatus,
+    PromoBenefitType,
+    PromoShareSubmission,
+    PromoShareSubmissionStatus,
+    ReferralRelation,
+    ShareTaskStatus,
+    Task,
+    TaskStatus,
+    TaskType,
+    User,
+    UserInviteCode,
+    UserShareTaskSubmission,
+)
 from app.pagination import paginate
 from app.responses import ok
 from app.schemas import APIResp
 from app.services.aigc_quota_service import get_aigc_daily_quota
+from app.services.credit_service import change_credits
 from app.services.process_strategy_service import sanitize_user_result_json
-from app.services.task_artifacts import safe_remove_task_artifact
+from app.services.task_artifacts import (
+    build_storage_name,
+    safe_remove_task_artifact,
+    save_upload_to,
+    serialize_task_artifact_path,
+)
 from app.security import auth_session_key
 
 router = APIRouter()
@@ -47,6 +74,281 @@ def _generate_invite_code(db: Session) -> str:
     raise BizError(code=4401, message="邀请码生成失败，请稍后重试")
 
 
+def _promo_mask_phone(phone: str) -> str:
+    return _mask_phone(phone)
+
+
+def _serialize_referral_relation(db: Session, relation: ReferralRelation | None) -> dict | None:
+    if relation is None:
+        return None
+    inviter = db.get(User, int(relation.inviter_id))
+    return {
+        "id": int(relation.id),
+        "invite_code": relation.invite_code,
+        "status": str(relation.status or "registered"),
+        "created_at": relation.created_at,
+        "inviter_user_id": int(relation.inviter_id),
+        "inviter_phone": _promo_mask_phone(inviter.phone if inviter else ""),
+        "inviter_nickname": str(inviter.nickname or "").strip() if inviter else "",
+    }
+
+
+def _serialize_invite_summary(db: Session, *, user: User, relation: ReferralRelation | None) -> dict:
+    reward_rules = _get_promo_center_config(db).get("reward_rules", {}).get("invite", {})
+    milestone_rules = reward_rules.get("milestones") if isinstance(reward_rules.get("milestones"), list) else []
+    valid_invite_count = (
+        db.query(func.count(ReferralRelation.id))
+        .filter(
+            ReferralRelation.inviter_id == user.id,
+            ReferralRelation.register_reward_sent.is_(True),
+        )
+        .scalar()
+        or 0
+    )
+    benefits = (
+        db.query(PromoBenefitRecord)
+        .filter(PromoBenefitRecord.user_id == user.id, PromoBenefitRecord.scene == "invite")
+        .order_by(PromoBenefitRecord.id.asc())
+        .all()
+    )
+    total_reward_points = sum(max(0, int(row.credit_delta or 0)) for row in benefits)
+    inviter_reward_points = 0
+    milestone_reward_points = 0
+    invitee_bind_reward_granted = False
+    earned_milestone_thresholds: set[int] = set()
+    for row in benefits:
+        benefit_code = str(row.benefit_code or "").strip()
+        if benefit_code.endswith("invitee-bind"):
+            invitee_bind_reward_granted = True
+        elif benefit_code.endswith("inviter-valid"):
+            inviter_reward_points += max(0, int(row.credit_delta or 0))
+        elif benefit_code.startswith("milestone:"):
+            milestone_reward_points += max(0, int(row.credit_delta or 0))
+            parts = benefit_code.split(":")
+            if len(parts) >= 3:
+                try:
+                    earned_milestone_thresholds.add(int(parts[-1]))
+                except Exception:
+                    pass
+    earned_milestones = []
+    next_milestone = None
+    for item in milestone_rules:
+        threshold = max(0, int(item.get("threshold") or 0))
+        reward_points = max(0, int(item.get("reward_points") or 0))
+        label = str(item.get("label") or "").strip()[:48] or f"邀请满 {threshold} 人"
+        milestone_item = {
+            "threshold": threshold,
+            "reward_points": reward_points,
+            "label": label,
+            "earned": threshold in earned_milestone_thresholds,
+            "remaining_count": max(0, threshold - int(valid_invite_count)),
+        }
+        if milestone_item["earned"]:
+            earned_milestones.append(milestone_item)
+        elif next_milestone is None and threshold > 0:
+            next_milestone = milestone_item
+    invitee_reward_points = max(0, int(reward_rules.get("invitee_bind_reward_points") or 0))
+    return {
+        "valid_invite_count": int(valid_invite_count),
+        "invitee_bind_reward_points": invitee_reward_points,
+        "invitee_bind_reward_granted": bool(invitee_bind_reward_granted),
+        "inviter_reward_points_total": int(inviter_reward_points),
+        "milestone_reward_points_total": int(milestone_reward_points),
+        "total_reward_points": int(total_reward_points),
+        "earned_milestones": earned_milestones,
+        "next_milestone": next_milestone,
+        "bound_relation_id": int(relation.id) if relation else None,
+    }
+
+
+def _serialize_like_submission(row: UserShareTaskSubmission) -> dict:
+    return {
+        "id": int(row.id),
+        "platform": str(row.platform or "").strip(),
+        "status": row.status.value if hasattr(row.status, "value") else str(row.status or "pending"),
+        "reward_credits": int(row.reward_credits or 0),
+        "share_text": str(row.share_text or ""),
+        "original_filename": str(row.original_filename or ""),
+        "screenshot_path": str(row.screenshot_path or ""),
+        "review_note": row.review_note,
+        "reviewed_at": row.reviewed_at,
+        "created_at": row.created_at,
+        "updated_at": row.updated_at,
+    }
+
+
+def _serialize_create_submission(row: PromoShareSubmission) -> dict:
+    return {
+        "id": int(row.id),
+        "platform": str(row.platform or "").strip(),
+        "tier_key": str(row.tier_key or "").strip(),
+        "share_link": str(row.share_link or "").strip(),
+        "payout_account": str(row.payout_account or "").strip(),
+        "payout_name": str(row.payout_name or "").strip(),
+        "note": str(row.note or ""),
+        "status": row.status.value if hasattr(row.status, "value") else str(row.status or "submitted"),
+        "reward_credits": int(row.reward_credits or 0),
+        "reward_amount_cny": float(row.reward_amount_cny or 0),
+        "coupon_name": row.coupon_name,
+        "coupon_count": int(row.coupon_count or 0),
+        "review_note": row.review_note,
+        "reviewed_at": row.reviewed_at,
+        "created_at": row.created_at,
+        "updated_at": row.updated_at,
+    }
+
+
+def _promo_code_row(db: Session, *, user_id: int) -> UserInviteCode:
+    row = db.query(UserInviteCode).filter(UserInviteCode.user_id == user_id).with_for_update().first()
+    if row is None:
+        row = UserInviteCode(user_id=user_id, invite_code=_generate_invite_code(db))
+        db.add(row)
+        db.flush()
+    return row
+
+
+def _invite_benefit_code(*parts: object) -> str:
+    return ":".join(str(part).strip() for part in parts if str(part).strip())[:64]
+
+
+def _grant_invite_credit_reward(
+    db: Session,
+    *,
+    user: User,
+    scene: str,
+    benefit_code: str,
+    reward_points: int,
+    title: str,
+    meta: dict | None = None,
+) -> PromoBenefitRecord:
+    row = (
+        db.query(PromoBenefitRecord)
+        .filter(
+            PromoBenefitRecord.user_id == user.id,
+            PromoBenefitRecord.scene == scene,
+            PromoBenefitRecord.benefit_code == benefit_code,
+        )
+        .with_for_update()
+        .first()
+    )
+    if row is not None:
+        return row
+    points = max(0, int(reward_points or 0))
+    if points > 0:
+        change_credits(
+            db,
+            user,
+            tx_type=CreditType.SHARE_REWARD,
+            delta=points,
+            reason=title,
+            related_id=f"promo_reward:{scene}:{benefit_code}",
+            source="promo_center",
+        )
+    row = PromoBenefitRecord(
+        user_id=int(user.id),
+        scene=scene,
+        benefit_code=benefit_code,
+        benefit_type=PromoBenefitType.CREDITS,
+        status=PromoBenefitStatus.GRANTED,
+        title=title[:120],
+        credit_delta=points,
+        payout_status="paid" if points > 0 else "pending",
+        meta_json=meta or {},
+    )
+    db.add(row)
+    db.flush()
+    return row
+
+
+def _grant_invite_rewards(
+    db: Session,
+    *,
+    relation: ReferralRelation,
+    invitee: User,
+) -> None:
+    inviter = db.get(User, int(relation.inviter_id))
+    if inviter is None:
+        raise BizError(code=4406, message="邀请人不存在，无法发放奖励")
+
+    reward_rules = _get_promo_center_config(db).get("reward_rules", {}).get("invite", {})
+    invitee_points = max(0, int(reward_rules.get("invitee_bind_reward_points") or 0))
+    inviter_points = max(0, int(reward_rules.get("inviter_valid_invite_reward_points") or 0))
+    scene = "invite"
+
+    _grant_invite_credit_reward(
+        db,
+        user=invitee,
+        scene=scene,
+        benefit_code=_invite_benefit_code("relation", relation.id, "invitee-bind"),
+        reward_points=invitee_points,
+        title="邀请绑定奖励",
+        meta={
+            "relation_id": int(relation.id),
+            "role": "invitee",
+            "inviter_user_id": int(inviter.id),
+        },
+    )
+    _grant_invite_credit_reward(
+        db,
+        user=inviter,
+        scene=scene,
+        benefit_code=_invite_benefit_code("relation", relation.id, "inviter-valid"),
+        reward_points=inviter_points,
+        title="有效邀请奖励",
+        meta={
+            "relation_id": int(relation.id),
+            "role": "inviter",
+            "invitee_user_id": int(invitee.id),
+        },
+    )
+
+    relation.register_reward_sent = True
+    db.flush()
+
+    valid_invite_count = (
+        db.query(func.count(ReferralRelation.id))
+        .filter(
+            ReferralRelation.inviter_id == inviter.id,
+            ReferralRelation.register_reward_sent.is_(True),
+        )
+        .scalar()
+        or 0
+    )
+    milestone_rules = reward_rules.get("milestones") if isinstance(reward_rules.get("milestones"), list) else []
+    for item in milestone_rules:
+        threshold = max(0, int(item.get("threshold") or 0))
+        reward_points = max(0, int(item.get("reward_points") or 0))
+        if threshold <= 0 or reward_points <= 0 or int(valid_invite_count) < threshold:
+            continue
+        label = str(item.get("label") or "").strip()[:48] or f"邀请满 {threshold} 人"
+        _grant_invite_credit_reward(
+            db,
+            user=inviter,
+            scene=scene,
+            benefit_code=_invite_benefit_code("milestone", inviter.id, threshold),
+            reward_points=reward_points,
+            title=label,
+            meta={
+                "role": "inviter",
+                "threshold": threshold,
+                "valid_invite_count": int(valid_invite_count),
+            },
+        )
+
+
+def _promo_store_upload(upload: UploadFile, *, folder: str) -> tuple[str, str]:
+    filename = str(upload.filename or "").strip()
+    if not filename:
+        raise BizError(code=4101, message="请先选择截图文件")
+    suffix = Path(filename).suffix.lower()
+    if suffix not in {".png", ".jpg", ".jpeg", ".webp"}:
+        raise BizError(code=4104, message="截图仅支持 png、jpg、jpeg、webp")
+    original_name, unique_name = build_storage_name(filename, "promo-screenshot.png")
+    target_path = settings.upload_dir / "promo" / folder / unique_name
+    save_upload_to(target_path, upload, MAX_FILE_SIZE_MB * 1024 * 1024)
+    return serialize_task_artifact_path(target_path) or str(target_path), original_name
+
+
 @router.get("/me", response_model=APIResp)
 def me(user: User = Depends(current_user)) -> APIResp:
     return ok(
@@ -68,13 +370,184 @@ def my_invite_info(
     user: User = Depends(current_user),
     db: Session = Depends(db_dep),
 ) -> APIResp:
-    row = db.query(UserInviteCode).filter(UserInviteCode.user_id == user.id).with_for_update().first()
+    row = _promo_code_row(db, user_id=int(user.id))
+    relation = db.query(ReferralRelation).filter(ReferralRelation.invitee_id == user.id).first()
+    db.commit()
+    return ok(
+        data={
+            "invite_code": row.invite_code,
+            "invite_url_code": row.invite_code,
+            "bound_relation": _serialize_referral_relation(db, relation),
+            "invite_summary": _serialize_invite_summary(db, user=user, relation=relation),
+        }
+    )
+
+
+@router.post("/me/invite/bind", response_model=APIResp)
+def bind_invite_code(
+    payload: dict,
+    user: User = Depends(current_user),
+    db: Session = Depends(db_dep),
+) -> APIResp:
+    invite_code = str(payload.get("invite_code", "")).strip().upper()
+    if not invite_code:
+        raise BizError(code=4402, message="请输入邀请码")
+
+    own_code = _promo_code_row(db, user_id=int(user.id))
+    if invite_code == own_code.invite_code:
+        db.rollback()
+        raise BizError(code=4403, message="不能绑定自己的邀请码")
+
+    existing = db.query(ReferralRelation).filter(ReferralRelation.invitee_id == user.id).first()
+    if existing is not None:
+        db.rollback()
+        raise BizError(code=4404, message="当前账号已绑定邀请码")
+
+    inviter_code = db.query(UserInviteCode).filter(UserInviteCode.invite_code == invite_code).first()
+    if inviter_code is None:
+        db.rollback()
+        raise BizError(code=4405, message="邀请码不存在")
+
+    relation = ReferralRelation(
+        inviter_id=int(inviter_code.user_id),
+        invitee_id=int(user.id),
+        invite_code=invite_code,
+        source="web",
+        status="registered",
+    )
+    db.add(relation)
+    db.flush()
+    _grant_invite_rewards(db, relation=relation, invitee=user)
+    db.commit()
+    db.refresh(relation)
+    return ok(
+        data={
+            "bound_relation": _serialize_referral_relation(db, relation),
+            "invite_summary": _serialize_invite_summary(db, user=user, relation=relation),
+        }
+    )
+
+
+@router.get("/me/promo/like-submissions", response_model=APIResp)
+def my_like_submissions(
+    user: User = Depends(current_user),
+    db: Session = Depends(db_dep),
+) -> APIResp:
+    rows = (
+        db.query(UserShareTaskSubmission)
+        .filter(UserShareTaskSubmission.user_id == user.id)
+        .order_by(desc(UserShareTaskSubmission.updated_at), desc(UserShareTaskSubmission.id))
+        .all()
+    )
+    return ok(data={"items": [_serialize_like_submission(row) for row in rows]})
+
+
+@router.post("/me/promo/like-submissions", response_model=APIResp)
+def submit_like_screenshot(
+    platform: str = Form(...),
+    share_text: str = Form(default=""),
+    screenshot: UploadFile = File(...),
+    user: User = Depends(current_user),
+    db: Session = Depends(db_dep),
+) -> APIResp:
+    normalized_platform = str(platform or "").strip().lower()[:32]
+    if not normalized_platform:
+        raise BizError(code=4406, message="请选择活动平台")
+    screenshot_path, original_name = _promo_store_upload(screenshot, folder="like")
+    row = (
+        db.query(UserShareTaskSubmission)
+        .filter(
+            UserShareTaskSubmission.user_id == user.id,
+            UserShareTaskSubmission.platform == normalized_platform,
+        )
+        .first()
+    )
     if row is None:
-        row = UserInviteCode(user_id=user.id, invite_code=_generate_invite_code(db))
+        row = UserShareTaskSubmission(
+            user_id=int(user.id),
+            platform=normalized_platform,
+            screenshot_path=screenshot_path,
+            original_filename=original_name,
+            share_text=str(share_text or "").strip()[:500],
+        )
         db.add(row)
-        db.commit()
-        db.refresh(row)
-    return ok(data={"invite_code": row.invite_code, "invite_url_code": row.invite_code})
+    else:
+        previous_path = str(row.screenshot_path or "").strip()
+        row.screenshot_path = screenshot_path
+        row.original_filename = original_name
+        row.share_text = str(share_text or "").strip()[:500]
+        row.status = ShareTaskStatus.PENDING
+        row.review_note = None
+        row.reviewed_at = None
+        row.reviewed_by = None
+        if previous_path and previous_path != screenshot_path:
+            safe_remove_task_artifact(previous_path, warn_on_untrusted=False)
+    db.commit()
+    db.refresh(row)
+    return ok(data={"item": _serialize_like_submission(row)})
+
+
+@router.get("/me/promo/create-submissions", response_model=APIResp)
+def my_create_submissions(
+    user: User = Depends(current_user),
+    db: Session = Depends(db_dep),
+) -> APIResp:
+    rows = (
+        db.query(PromoShareSubmission)
+        .filter(PromoShareSubmission.user_id == user.id)
+        .order_by(desc(PromoShareSubmission.updated_at), desc(PromoShareSubmission.id))
+        .all()
+    )
+    return ok(data={"items": [_serialize_create_submission(row) for row in rows]})
+
+
+@router.post("/me/promo/create-submissions", response_model=APIResp)
+def submit_create_link(
+    payload: dict,
+    user: User = Depends(current_user),
+    db: Session = Depends(db_dep),
+) -> APIResp:
+    platform = str(payload.get("platform", "")).strip().lower()[:32]
+    share_link = str(payload.get("share_link", "")).strip()[:500]
+    tier_key = str(payload.get("tier_key", "")).strip()[:24] or "default"
+    payout_account = str(payload.get("payout_account", "")).strip()[:120]
+    payout_name = str(payload.get("payout_name", "")).strip()[:120]
+    note = str(payload.get("note", "")).strip()[:500]
+    if not platform:
+        raise BizError(code=4407, message="请选择创作平台")
+    if not share_link:
+        raise BizError(code=4408, message="请填写作品链接")
+
+    row = (
+        db.query(PromoShareSubmission)
+        .filter(PromoShareSubmission.user_id == user.id, PromoShareSubmission.platform == platform)
+        .first()
+    )
+    if row is None:
+        row = PromoShareSubmission(
+            user_id=int(user.id),
+            platform=platform,
+            tier_key=tier_key,
+            share_link=share_link,
+            payout_account=payout_account,
+            payout_name=payout_name,
+            note=note,
+            status=PromoShareSubmissionStatus.SUBMITTED,
+        )
+        db.add(row)
+    else:
+        row.tier_key = tier_key
+        row.share_link = share_link
+        row.payout_account = payout_account
+        row.payout_name = payout_name
+        row.note = note
+        row.status = PromoShareSubmissionStatus.SUBMITTED
+        row.review_note = None
+        row.reviewed_at = None
+        row.reviewed_by = None
+    db.commit()
+    db.refresh(row)
+    return ok(data={"item": _serialize_create_submission(row)})
 
 
 @router.patch("/me", response_model=APIResp)
