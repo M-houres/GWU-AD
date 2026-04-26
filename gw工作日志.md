@@ -7711,3 +7711,15 @@
     - 测试补强
       - `backend/tests/test_processing_engine_results.py`
       - 新增“过程文本剥离”和“异常缩水拦截”回归用例
+
+- 2026-04-26 21:12:00
+  - DOCX 整体格式保护补强
+    - `backend/app/services/processing_engine.py`
+      - 新增 DOCX 段落结构分类：标题、副标题、摘要标题、关键词标题、关键词内容、引言标题、章节标题、参考文献区
+      - 知网 / 维普全文 DOCX 改写时，仅正文段进入 LLM 链路，其余结构段整体保留
+      - 去掉旧的“摘要首句单独保护”临时逻辑，改为统一结构保护
+    - `backend/app/services/cnki_v20_runtime.py`
+    - `backend/app/services/vip_w4_runtime.py`
+      - 纯文本全文布局也补上前置结构段识别，避免 fallback 时把 `【摘要】/【关键词】/引言/副标题` 卷入正文
+    - `backend/tests/test_processing_engine_results.py`
+      - 新增 DOCX 结构保护回归：标题、摘要、关键词、引言、章节标题、参考文献必须保持原段结构

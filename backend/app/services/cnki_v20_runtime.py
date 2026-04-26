@@ -14,6 +14,34 @@ from app.utils import count_billable_chars
 _FINAL_HEADER_RE = re.compile(r"===\s*改写完成\s*总改写次数[：:]\s*(\d+)\s*次\s*===", flags=re.IGNORECASE)
 _REFERENCE_HEADINGS = {"参考文献", "参考文献:", "参考文献：", "references", "REFERENCES"}
 _KEYWORD_PREFIXES = ("关键词：", "关键词:", "关键字：", "关键字:")
+_PRESERVED_FRONT_HEADINGS = {
+    "摘要",
+    "摘要:",
+    "摘要：",
+    "【摘要】",
+    "引言",
+    "引言:",
+    "引言：",
+    "绪论",
+    "绪论:",
+    "绪论：",
+    "前言",
+    "前言:",
+    "前言：",
+    "导论",
+    "导论:",
+    "导论：",
+    "关键词",
+    "关键词:",
+    "关键词：",
+    "关键字",
+    "关键字:",
+    "关键字：",
+    "【关键词】",
+    "【关键字】",
+    "Abstract",
+    "ABSTRACT",
+}
 _SOFT_PROTECTION_ANOMALIES = {
     "根子": "根本",
     "首个": "首要",
@@ -168,18 +196,24 @@ def build_cnki_v20_text_layout(source_text: str) -> CnkiV20TextLayout:
         blocks = [line.strip() for line in normalized.splitlines() if line.strip()]
     layout_blocks: list[CnkiV20TextBlock] = []
     in_reference_section = False
+    previous_kind = ""
     for index, block in enumerate(blocks):
         if in_reference_section:
             layout_blocks.append(CnkiV20TextBlock(kind="preserved", text=block))
+            previous_kind = "reference_body"
             continue
         if _is_reference_heading(block):
             in_reference_section = True
             layout_blocks.append(CnkiV20TextBlock(kind="preserved", text=block))
+            previous_kind = "reference_heading"
             continue
-        if _is_preserved_text_block(block, index=index):
+        preserved_kind = _classify_preserved_text_block(block, index=index, previous_kind=previous_kind)
+        if preserved_kind:
             layout_blocks.append(CnkiV20TextBlock(kind="preserved", text=block))
+            previous_kind = preserved_kind
             continue
         layout_blocks.append(CnkiV20TextBlock(kind="body", text=block))
+        previous_kind = "body"
     return CnkiV20TextLayout(blocks=layout_blocks)
 
 
@@ -381,26 +415,34 @@ def _is_reference_heading(text: str) -> bool:
     return normalized in _REFERENCE_HEADINGS
 
 
-def _is_preserved_text_block(text: str, *, index: int) -> bool:
+def _classify_preserved_text_block(text: str, *, index: int, previous_kind: str) -> str | None:
     lines = [line.strip() for line in str(text or "").splitlines() if line.strip()]
     if not lines:
-        return True
-    if any(line.startswith(_KEYWORD_PREFIXES) for line in lines):
-        return True
+        return "blank"
     if any(("｜" in line or "|" in line) for line in lines):
-        return True
+        return "table"
     if len(lines) == 1:
         content = lines[0]
-        if index == 0 and len(content) <= 40 and not re.search(r"[。！？；;:：]", content):
-            return True
+        normalized = re.sub(r"\s+", "", content)
+        if index == 0 and len(content) <= 48 and not re.search(r"[。！？；;:：]", content):
+            return "title"
+        if previous_kind in {"title", "subtitle"} and index <= 2:
+            if content.startswith(("——", "—", "--", "-", "副标题")) or (
+                len(content) <= 48 and not re.search(r"[。！？；;:：]", content)
+            ):
+                return "subtitle"
+        if any(content.startswith(prefix) for prefix in _KEYWORD_PREFIXES):
+            return "keyword_heading"
+        if normalized in _PRESERVED_FRONT_HEADINGS:
+            return "front_heading"
+        if previous_kind == "keyword_heading" and len(content) <= 120 and any(token in content for token in ("；", ";", "、", "，")):
+            return "keyword_body"
         if re.match(r"^(图|表)\s*[0-9一二三四五六七八九十]+", content):
-            return True
-        if re.match(r"^(摘要|引言|结论|结语|致谢|参考文献|Abstract|ABSTRACT)$", content):
-            return True
+            return "caption"
         if len(content) <= 28 and not re.search(r"[。！？；;:：]", content):
             if re.match(r"^([一二三四五六七八九十]+[、.．]|第[一二三四五六七八九十百零0-9]+[章节部分篇]|[（(][一二三四五六七八九十百零0-9]+[)）])", content):
-                return True
-    return False
+                return "heading"
+    return None
 
 
 def _strip_process_markers(text: str) -> str:

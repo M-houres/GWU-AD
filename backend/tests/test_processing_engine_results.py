@@ -226,6 +226,57 @@ def test_rewrite_process_uses_report_summary(tmp_path: Path, db_session: Session
     assert result.result_json["rewrite_strategy"]["rule_trace"]["strategy_version"] == "cnki_v20"
 
 
+def test_rewrite_docx_preserves_title_abstract_keyword_intro_structure(
+    tmp_path: Path, db_session: Session, monkeypatch
+) -> None:
+    source_path = tmp_path / "structured_source.docx"
+    output_path = tmp_path / "structured_output.docx"
+    _write_docx(
+        source_path,
+        [
+            "地方红色资源转化为少先队教育资源的机制研究",
+            "——以蚌埠市班会课实践为中心的考察",
+            "【摘要】",
+            "地方红色资源是重要教育资源。本文围绕班会课应用展开分析，并提出改进路径。",
+            "【关键词】",
+            "地方红色资源；少先队教育；班会课；蚌埠市；转化机制",
+            "引言",
+            "少先队活动课与班会课是学校开展思想政治教育的重要阵地，因此需要持续优化资源转化路径。",
+            "一、地方红色资源融入少先队教育的现实背景",
+            "蚌埠市拥有丰富红色资源，为少先队教育提供了在地素材。",
+            "参考文献",
+            "[1] 示例文献",
+        ],
+    )
+
+    def _fake_generate(_db, *, task_type, text: str):
+        return (
+            "=== 改写完成 总改写次数：24 次 ===\n"
+            "地方红色资源是主要教育资源。本文围绕班会课应用展开分析，并提出优化途径。\n\n"
+            "少先队活动课与班会课是学校开展思想政治教育的主要阵地，因此需要持续优化资源转化途径。\n\n"
+            "蚌埠市拥有丰富红色资源，能够为少先队教育提供更直接的在地素材。"
+        )
+
+    monkeypatch.setattr("app.services.cnki_v20_runtime.generate_with_llm", _fake_generate)
+
+    engine = ProcessingEngine(db_session)
+    engine.process(TaskType.REWRITE, "cnki", source_path, output_path, task_id=301)
+
+    output_doc = Document(str(output_path))
+    paragraphs = [paragraph.text for paragraph in output_doc.paragraphs]
+
+    assert paragraphs[0] == "地方红色资源转化为少先队教育资源的机制研究"
+    assert paragraphs[1] == "——以蚌埠市班会课实践为中心的考察"
+    assert paragraphs[2] == "【摘要】"
+    assert paragraphs[4] == "【关键词】"
+    assert paragraphs[5] == "地方红色资源；少先队教育；班会课；蚌埠市；转化机制"
+    assert paragraphs[6] == "引言"
+    assert paragraphs[8] == "一、地方红色资源融入少先队教育的现实背景"
+    assert paragraphs[10] == "参考文献"
+    assert "持续优化资源转化途径" in paragraphs[7]
+    assert "提供更直接的在地素材" in paragraphs[9]
+
+
 def test_aigc_detect_returns_structured_result(tmp_path: Path, db_session: Session, monkeypatch) -> None:
     source_path = tmp_path / "paper.txt"
     output_path = tmp_path / "result.pdf"

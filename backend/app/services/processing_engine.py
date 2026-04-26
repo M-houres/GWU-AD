@@ -212,6 +212,103 @@ class ProcessingEngine:
         lowered = normalized.lower()
         return lowered in {"摘要", "摘要:", "摘要：", "中文摘要", "英文摘要", "abstract", "abstract:", "abstract："}
 
+    def _is_docx_keyword_heading(self, text: str) -> bool:
+        normalized = re.sub(r"\s+", "", str(text or ""))
+        lowered = normalized.lower()
+        return lowered in {
+            "关键词",
+            "关键词:",
+            "关键词：",
+            "关键字",
+            "关键字:",
+            "关键字：",
+            "【关键词】",
+            "【关键字】",
+            "keywords",
+            "keywords:",
+            "keywords：",
+        }
+
+    def _is_docx_intro_heading(self, text: str) -> bool:
+        normalized = re.sub(r"\s+", "", str(text or ""))
+        lowered = normalized.lower()
+        return lowered in {
+            "引言",
+            "引言:",
+            "引言：",
+            "绪论",
+            "绪论:",
+            "绪论：",
+            "前言",
+            "前言:",
+            "前言：",
+            "导论",
+            "导论:",
+            "导论：",
+        }
+
+    def _is_docx_title_like(self, text: str, *, nonempty_index: int) -> bool:
+        content = str(text or "").strip()
+        if not content:
+            return False
+        return nonempty_index == 1 and len(content) <= 64 and not re.search(r"[。！？；;:：]", content)
+
+    def _is_docx_subtitle_like(self, text: str, *, nonempty_index: int, previous_kind: str) -> bool:
+        content = str(text or "").strip()
+        if not content:
+            return False
+        if nonempty_index > 3:
+            return False
+        if previous_kind not in {"title", "subtitle"}:
+            return False
+        if content.startswith(("——", "—", "--", "-", "副标题")):
+            return True
+        return len(content) <= 48 and not re.search(r"[。！？；;:：]", content)
+
+    def _is_docx_keyword_body(self, text: str, *, previous_kind: str) -> bool:
+        content = str(text or "").strip()
+        if previous_kind != "keyword_heading" or not content:
+            return False
+        if len(content) > 120:
+            return False
+        return any(token in content for token in ("；", ";", "、", "，"))
+
+    def _classify_docx_paragraph_kind(
+        self,
+        paragraph,
+        text: str,
+        *,
+        nonempty_index: int,
+        previous_kind: str,
+        in_reference_section: bool,
+    ) -> str:
+        content = str(text or "").strip()
+        if not content:
+            return "blank"
+        if in_reference_section:
+            return "reference_body"
+        if self._is_docx_reference_heading(content):
+            return "reference_heading"
+        if self._docx_paragraph_has_superscript(paragraph):
+            return "preserved"
+        if self._is_docx_title_like(content, nonempty_index=nonempty_index):
+            return "title"
+        if self._is_docx_subtitle_like(content, nonempty_index=nonempty_index, previous_kind=previous_kind):
+            return "subtitle"
+        if self._is_docx_abstract_heading(content):
+            return "abstract_heading"
+        if self._is_docx_keyword_heading(content):
+            return "keyword_heading"
+        if self._is_docx_keyword_body(content, previous_kind=previous_kind):
+            return "keyword_body"
+        if self._is_docx_intro_heading(content):
+            return "intro_heading"
+        if re.match(r"^【[^】]{1,12}】$", content):
+            return "label_heading"
+        if self._is_docx_heading_or_caption(paragraph, content):
+            return "heading"
+        return "body"
+
     def _is_docx_heading_or_caption(self, paragraph, text: str) -> bool:
         content = str(text or "").strip()
         if not content:
@@ -317,38 +414,32 @@ class ProcessingEngine:
             return
         summary = report_summary or {}
         in_reference_section = False
-        abstract_first_sentence_pending = False
+        nonempty_index = 0
+        previous_kind = ""
         for paragraph in self._iter_body_paragraphs(doc):
             source_text = paragraph.text or ""
             stripped = source_text.strip()
             if not stripped:
                 continue
-            if self._is_docx_reference_heading(stripped):
+            nonempty_index += 1
+            kind = self._classify_docx_paragraph_kind(
+                paragraph,
+                stripped,
+                nonempty_index=nonempty_index,
+                previous_kind=previous_kind,
+                in_reference_section=in_reference_section,
+            )
+            if kind == "reference_heading":
                 in_reference_section = True
+                previous_kind = kind
                 continue
-            if self._is_docx_abstract_heading(stripped):
-                abstract_first_sentence_pending = True
+            if kind != "body":
+                previous_kind = kind
                 continue
-            preserve_abstract_first_sentence = False
-            if abstract_first_sentence_pending and not self._is_docx_heading_or_caption(paragraph, source_text):
-                preserve_abstract_first_sentence = True
-                abstract_first_sentence_pending = False
-            if not self._should_transform_docx_paragraph(paragraph, source_text, in_reference_section=in_reference_section):
-                continue
-            transform_input = source_text
-            preserved_prefix = ""
-            if preserve_abstract_first_sentence:
-                first_sentence, remaining = self._split_docx_first_sentence(source_text)
-                if not first_sentence:
-                    continue
-                if not remaining.strip():
-                    continue
-                preserved_prefix = first_sentence
-                transform_input = remaining
-            rewritten_payload = self._transform_text(transform_input, task_type, platform, summary)
-            rewritten_text = f"{preserved_prefix}{rewritten_payload}" if preserved_prefix else rewritten_payload
+            rewritten_text = self._transform_text(source_text, task_type, platform, summary)
             if rewritten_text and rewritten_text != source_text:
                 self._redistribute_paragraph_text(paragraph, rewritten_text)
+            previous_kind = kind
         doc.save(str(output_path))
 
     def _transform_docx_cnki_v20(self, doc: Document, task_type: TaskType) -> None:
@@ -357,18 +448,31 @@ class ProcessingEngine:
         target_paragraphs: list = []
         source_paragraphs: list[str] = []
         in_reference_section = False
+        nonempty_index = 0
+        previous_kind = ""
         for paragraph in self._iter_body_paragraphs(doc):
             source_text = paragraph.text or ""
             stripped = source_text.strip()
             if not stripped:
                 continue
-            if self._is_docx_reference_heading(stripped):
+            nonempty_index += 1
+            kind = self._classify_docx_paragraph_kind(
+                paragraph,
+                stripped,
+                nonempty_index=nonempty_index,
+                previous_kind=previous_kind,
+                in_reference_section=in_reference_section,
+            )
+            if kind == "reference_heading":
                 in_reference_section = True
+                previous_kind = kind
                 continue
-            if not self._should_transform_docx_paragraph(paragraph, source_text, in_reference_section=in_reference_section):
+            if kind != "body":
+                previous_kind = kind
                 continue
             target_paragraphs.append(paragraph)
             source_paragraphs.append(source_text)
+            previous_kind = kind
         if not source_paragraphs:
             return
         run = execute_cnki_v20(self.db, task_type=task_type, paragraphs=source_paragraphs)
@@ -423,18 +527,31 @@ class ProcessingEngine:
         target_paragraphs: list = []
         source_paragraphs: list[str] = []
         in_reference_section = False
+        nonempty_index = 0
+        previous_kind = ""
         for paragraph in self._iter_body_paragraphs(doc):
             source_text = paragraph.text or ""
             stripped = source_text.strip()
             if not stripped:
                 continue
-            if self._is_docx_reference_heading(stripped):
+            nonempty_index += 1
+            kind = self._classify_docx_paragraph_kind(
+                paragraph,
+                stripped,
+                nonempty_index=nonempty_index,
+                previous_kind=previous_kind,
+                in_reference_section=in_reference_section,
+            )
+            if kind == "reference_heading":
                 in_reference_section = True
+                previous_kind = kind
                 continue
-            if not self._should_transform_docx_paragraph(paragraph, source_text, in_reference_section=in_reference_section):
+            if kind != "body":
+                previous_kind = kind
                 continue
             target_paragraphs.append(paragraph)
             source_paragraphs.append(source_text)
+            previous_kind = kind
         if not source_paragraphs:
             return
         run = execute_vip_w4(self.db, task_type=task_type, paragraphs=source_paragraphs)
