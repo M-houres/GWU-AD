@@ -721,13 +721,16 @@ function enterGuest() {
 }
 
 .gw-site-filing {
-  padding: 8px 16px 18px;
+  margin-top: auto;
+  padding: 10px 16px 14px;
   display: flex;
   flex-wrap: wrap;
   justify-content: center;
   gap: 10px 18px;
   font-size: 12px;
-  color: rgba(255, 255, 255, 0.86);
+  color: #111111;
+  background: rgba(255, 255, 255, 0.96);
+  border-top: 1px solid rgba(17, 17, 17, 0.08);
 }
 
 .gw-site-filing__link {

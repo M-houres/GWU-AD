@@ -534,13 +534,16 @@ function normalizeSiteFiling(raw) {
 }
 
 .shell-filing {
-  padding: 4px 18px 18px;
+  margin-top: auto;
+  padding: 10px 18px 14px;
   display: flex;
   flex-wrap: wrap;
   justify-content: center;
   gap: 10px 18px;
   font-size: 12px;
-  color: rgba(255, 255, 255, 0.88);
+  color: #111111;
+  background: rgba(255, 255, 255, 0.96);
+  border-top: 1px solid rgba(17, 17, 17, 0.08);
 }
 
 .shell-filing__link {

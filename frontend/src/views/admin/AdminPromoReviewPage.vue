@@ -80,7 +80,7 @@
           </div>
         </div>
 
-        <div class="overflow-x-auto" style="margin-top: 18px">
+        <div class="overflow-x-auto gw-promo-review-table-shell" style="margin-top: 18px">
           <table class="scholar-table">
             <thead>
               <tr>
@@ -630,6 +630,10 @@ function formatTime(value) {
   align-items: center;
 }
 
+.gw-promo-review-table-shell .scholar-table {
+  min-width: 1120px;
+}
+
 .gw-promo-review-cell-title,
 .gw-promo-review-card__title {
   font-weight: 700;
@@ -781,6 +785,10 @@ function formatTime(value) {
   .gw-promo-review-overview {
     grid-template-columns: 1fr 1fr;
   }
+
+  .gw-promo-review-overview__hero {
+    grid-column: 1 / -1;
+  }
 }
 
 @media (max-width: 768px) {
@@ -793,7 +801,7 @@ function formatTime(value) {
     display: grid;
   }
 
-  .overflow-x-auto {
+  .gw-promo-review-table-shell {
     display: none;
   }
 
