@@ -129,6 +129,13 @@ async function normalizeError(error) {
     err.requestId = requestId
     return Promise.reject(err)
   }
+  if (status === 413) {
+    const err = new Error("上传文件过大，请控制在 20MB 以内后重试")
+    err.code = "PAYLOAD_TOO_LARGE"
+    err.status = status
+    err.requestId = requestId
+    return Promise.reject(err)
+  }
   if (status >= 500) {
     const err = new Error(
       requestId ? `服务器内部错误（请求ID: ${requestId}）` : "服务器内部错误，请稍后重试"
