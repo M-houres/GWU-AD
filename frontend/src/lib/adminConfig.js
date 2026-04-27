@@ -439,6 +439,10 @@ export const DEFAULT_PROMO_CENTER_CONFIG = {
     invite_example_image_url: "",
     partner_primary_qrcode_url: "/promo-contact-qr-1.jpg",
     partner_secondary_qrcode_url: "/promo-contact-qr-2.png",
+    platform_douyin_qrcode_url: "/promo-qr-douyin.jpg",
+    platform_xiaohongshu_qrcode_url: "/promo-qr-xiaohongshu.jpg",
+    platform_bilibili_qrcode_url: "/promo-qr-bilibili.jpg",
+    platform_wechat_qrcode_url: "/promo-qr-wechat.jpg",
   },
 }
 
@@ -639,6 +643,10 @@ export function normalizePromotionCenterConfig(raw) {
       invite_example_image_url: String(assets.invite_example_image_url || defaults.assets.invite_example_image_url || "").trim().slice(0, 256),
       partner_primary_qrcode_url: String(assets.partner_primary_qrcode_url || defaults.assets.partner_primary_qrcode_url || "").trim().slice(0, 256),
       partner_secondary_qrcode_url: String(assets.partner_secondary_qrcode_url || defaults.assets.partner_secondary_qrcode_url || "").trim().slice(0, 256),
+      platform_douyin_qrcode_url: String(assets.platform_douyin_qrcode_url || defaults.assets.platform_douyin_qrcode_url || "").trim().slice(0, 256),
+      platform_xiaohongshu_qrcode_url: String(assets.platform_xiaohongshu_qrcode_url || defaults.assets.platform_xiaohongshu_qrcode_url || "").trim().slice(0, 256),
+      platform_bilibili_qrcode_url: String(assets.platform_bilibili_qrcode_url || defaults.assets.platform_bilibili_qrcode_url || "").trim().slice(0, 256),
+      platform_wechat_qrcode_url: String(assets.platform_wechat_qrcode_url || defaults.assets.platform_wechat_qrcode_url || "").trim().slice(0, 256),
     },
   }
   normalized.nav_cards = normalizePromoNavCards(source.nav_cards, defaults.nav_cards)
@@ -1361,6 +1369,10 @@ export function buildAdminConfigPayload(category, forms, { normalizeUserNavigati
       invite_example_image_url: normalized.assets.invite_example_image_url,
       partner_primary_qrcode_url: normalized.assets.partner_primary_qrcode_url,
       partner_secondary_qrcode_url: normalized.assets.partner_secondary_qrcode_url,
+      platform_douyin_qrcode_url: normalized.assets.platform_douyin_qrcode_url,
+      platform_xiaohongshu_qrcode_url: normalized.assets.platform_xiaohongshu_qrcode_url,
+      platform_bilibili_qrcode_url: normalized.assets.platform_bilibili_qrcode_url,
+      platform_wechat_qrcode_url: normalized.assets.platform_wechat_qrcode_url,
     }
   }
   if (category === "aigc_detect_strategy") {

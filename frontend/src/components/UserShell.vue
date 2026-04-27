@@ -18,7 +18,7 @@
           <div class="top-nav-track">
             <div class="top-nav-primary">
               <template v-for="item in visibleTopMenus" :key="item.path">
-                <div v-if="item.disabled" class="top-nav-link is-disabled" aria-disabled="true">
+                <div v-if="item.disabled" class="top-nav-link is-disabled" :class="{ 'top-nav-link--promo': isPromoMenu(item) }" aria-disabled="true">
                   <i class="siderIcon">
                     <component :is="item.icon" :size="17" />
                   </i>
@@ -26,7 +26,7 @@
                   <span v-if="item.badge" class="menu-beta-badge">{{ item.badge }}</span>
                 </div>
                 <RouterLink v-else :to="item.path" class="menu-link">
-                  <div class="top-nav-link" :class="{ 'is-active': isMenuActive(item.path) }">
+                  <div class="top-nav-link" :class="{ 'is-active': isMenuActive(item.path), 'top-nav-link--promo': isPromoMenu(item) }">
                     <i class="siderIcon">
                       <component :is="item.icon" :size="17" />
                     </i>
@@ -56,6 +56,7 @@
                       v-else
                       :to="item.path"
                       class="top-dropdown__item top-dropdown__item--link"
+                      :class="{ 'top-dropdown__item--promo': isPromoMenu(item) }"
                       @click="handleTopMenuNavigate"
                     >
                       {{ item.label }}
@@ -480,6 +481,10 @@ function isRouteMatch(currentPath, targetPath) {
   return currentPath === targetPath || currentPath.startsWith(`${targetPath}/`)
 }
 
+function isPromoMenu(item) {
+  return String(item?.key || "").trim() === "promo_center" || String(item?.path || "").trim() === "/app/promo-center"
+}
+
 function normalizeCredits(value) {
   if (value === null || value === undefined || value === "") return null
   const num = Number(value)
@@ -733,6 +738,18 @@ function normalizeSiteFiling(raw) {
   border-color: rgba(30, 91, 223, 0.16);
 }
 
+.top-dropdown__item--promo {
+  background: linear-gradient(135deg, #ea3b44 0%, #cf2029 100%);
+  color: #ffffff;
+  font-weight: 700;
+}
+
+.top-dropdown__item--promo:hover {
+  background: linear-gradient(135deg, #f34a52 0%, #c81822 100%);
+  color: #ffffff;
+  border-color: rgba(255, 255, 255, 0.18);
+}
+
 .top-dropdown__item.is-disabled {
   opacity: 0.62;
   cursor: not-allowed;
@@ -856,6 +873,21 @@ function normalizeSiteFiling(raw) {
   border-color: rgba(255, 255, 255, 0.18);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.14);
   text-decoration: none;
+}
+
+.top-nav-link--promo {
+  background: linear-gradient(135deg, #ea3b44 0%, #cf2029 100%);
+  border-color: rgba(207, 32, 41, 0.46);
+  color: #ffffff;
+  box-shadow: 0 14px 30px rgba(207, 32, 41, 0.24);
+}
+
+.top-nav-link--promo:hover,
+.top-nav-link--promo.is-active {
+  background: linear-gradient(135deg, #f34a52 0%, #c81822 100%);
+  border-color: rgba(207, 32, 41, 0.68);
+  color: #ffffff;
+  box-shadow: 0 16px 34px rgba(207, 32, 41, 0.28);
 }
 
 .top-nav-link.is-disabled {

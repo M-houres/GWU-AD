@@ -50,6 +50,7 @@ class Settings(BaseSettings):
     auth_send_code_ip_1h_limit: int = 30
     auth_login_ip_10m_limit: int = 120
     auth_return_debug_code: bool = False
+    miniapp_internal_test_login_enabled: bool = False
     admin_login_ip_10m_limit: int = 30
     admin_login_user_10m_limit: int = 10
 

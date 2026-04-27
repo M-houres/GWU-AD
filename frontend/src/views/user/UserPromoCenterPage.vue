@@ -88,12 +88,15 @@
               <h4>活动规则</h4>
             </div>
             <div class="promo-chip-grid promo-chip-grid--rules">
-              <article v-for="(item, index) in invitePage.rule_lines" :key="`invite-rule-${index}`" class="promo-chip">
+              <article v-for="(item, index) in inviteDisplayRuleLines" :key="`invite-rule-${index}`" class="promo-chip">
                 {{ item }}
               </article>
             </div>
+            <div class="promo-section__head promo-section__head--sub">
+              <h4>{{ inviteGuideTitle }}</h4>
+            </div>
             <div class="promo-chip-grid promo-chip-grid--steps">
-              <article v-for="(step, index) in invitePage.miniapp_steps" :key="`invite-step-${index}`" class="promo-step-card">
+              <article v-for="(step, index) in inviteDisplaySteps" :key="`invite-step-${index}`" class="promo-step-card">
                 <span>STEP {{ index + 1 }}</span>
                 <strong>{{ step }}</strong>
               </article>
@@ -111,14 +114,14 @@
                 <strong v-if="inviteBoundRelation">
                   已绑定 {{ inviteBoundRelation.inviter_nickname || inviteBoundRelation.inviter_phone || "邀请人" }}
                 </strong>
-                <strong v-else>{{ invitePage.bind_code_notice || "填写邀请码后建立邀请关系" }}</strong>
+                <strong v-else>{{ inviteBindNoticeText }}</strong>
               </div>
               <div class="promo-action-row__controls">
                 <input
                   v-model.trim="inviteBindCode"
                   type="text"
                   maxlength="16"
-                  placeholder="请输入邀请码"
+                  placeholder="请输入好友邀请码"
                   :disabled="bindingInvite || !!inviteBoundRelation"
                 />
                 <button
@@ -161,10 +164,10 @@
             <article class="promo-action-row">
               <div class="promo-action-row__copy">
                 <span>{{ invitePage.share_copy_title }}</span>
-                <strong class="promo-action-row__wide">{{ invitePage.share_copy_text }}</strong>
+                <strong class="promo-action-row__wide">{{ inviteShareCopyText }}</strong>
               </div>
               <div class="promo-action-row__controls">
-                <button type="button" @click="copyText(invitePage.share_copy_text, '分享文案已复制')">复制文案</button>
+                <button type="button" @click="copyText(inviteShareCopyText, '分享文案已复制')">复制文案</button>
               </div>
             </article>
           </div>
@@ -437,6 +440,24 @@
           </section>
         </section>
       </template>
+
+      <section class="promo-section promo-section--span-2 promo-section--footer">
+        <div class="promo-section__head">
+          <h4>平台二维码</h4>
+        </div>
+        <p class="promo-detail promo-detail--compact">电脑端可直接扫码进入对应平台主页，手机端也可长按识别，统一放在每页底部方便取用。</p>
+        <div class="promo-platform-qr-strip">
+          <article v-for="item in promoPlatformQRCodes" :key="item.key" class="promo-platform-qr-card">
+            <div class="promo-platform-qr-card__media">
+              <img :src="item.src" :alt="`${item.label} 二维码`" :style="{ objectPosition: item.objectPosition }" />
+            </div>
+            <div class="promo-platform-qr-card__copy">
+              <strong>{{ item.label }}</strong>
+              <span>{{ item.desc }}</span>
+            </div>
+          </article>
+        </div>
+      </section>
     </section>
 
     <BuyCreditsPanel v-if="showBuy" @paid="afterPaid" />
@@ -552,9 +573,58 @@ const nextMilestoneHint = computed(() => {
   if (!milestone) return "当前已拿满已配置里程碑奖励"
   return `再邀请 ${Number(milestone.remaining_count || 0)} 人，可得 ${formatPoints(milestone.reward_points)}`
 })
+const inviteDisplayRuleLines = computed(() => [
+  `好友填写邀请码后，可获得 ${formatPoints(inviteRules.value?.invitee_bind_reward_points || 0)}。`,
+  `每产生 1 个有效邀请，邀请人可获得 ${formatPoints(inviteRules.value?.inviter_valid_invite_reward_points || 0)}。`,
+  "里程碑奖励按后台配置累计发放，人数越多，额外点数越高。",
+])
+const inviteGuideTitle = computed(() => "邀请方式")
+const inviteDisplaySteps = computed(() => [
+  "复制你的邀请码或邀请链接，直接发给好友。",
+  "好友注册后填写邀请码，系统立即建立邀请关系。",
+  "满足有效邀请条件后，奖励按规则发放到双方账户。",
+])
+const inviteBindNoticeText = computed(() => "好友注册后填写邀请码，即可建立邀请关系并参与奖励计算。")
+const inviteShareCopyText = computed(() => {
+  const suffix = inviteCode.value ? `我的邀请码是 ${inviteCode.value}。` : ""
+  return `我正在用格物学术处理论文，注册后填写邀请码即可参加邀请有奖活动。${suffix}`.trim()
+})
 const likePlatformLabel = computed(() => {
   const title = String(likePage.value?.qrcode_title || "").trim()
   return title || "微信集赞活动"
+})
+const promoPlatformQRCodes = computed(() => {
+  const assets = promoConfig.value?.assets || {}
+  return [
+    {
+      key: "douyin",
+      label: "抖音",
+      desc: "扫码直达格物学术抖音主页",
+      src: String(assets.platform_douyin_qrcode_url || "/promo-qr-douyin.jpg").trim(),
+      objectPosition: "50% 35%",
+    },
+    {
+      key: "xiaohongshu",
+      label: "小红书",
+      desc: "扫码查看小红书账号内容",
+      src: String(assets.platform_xiaohongshu_qrcode_url || "/promo-qr-xiaohongshu.jpg").trim(),
+      objectPosition: "50% 42%",
+    },
+    {
+      key: "bilibili",
+      label: "B站",
+      desc: "扫码进入 B 站主页",
+      src: String(assets.platform_bilibili_qrcode_url || "/promo-qr-bilibili.jpg").trim(),
+      objectPosition: "50% 30%",
+    },
+    {
+      key: "wechat",
+      label: "微信公众号",
+      desc: "扫码关注公众号获取更新",
+      src: String(assets.platform_wechat_qrcode_url || "/promo-qr-wechat.jpg").trim(),
+      objectPosition: "50% 50%",
+    },
+  ].filter((item) => item.src)
 })
 
 const likeFlow = [
@@ -993,6 +1063,10 @@ function resolveCreateTierLabel(tierKey) {
   margin-bottom: 2px;
 }
 
+.promo-section__head--sub {
+  margin-top: 16px;
+}
+
 .promo-section__head h4 {
   font-size: 19px;
 }
@@ -1160,13 +1234,14 @@ function resolveCreateTierLabel(tierKey) {
   margin-top: 12px;
   display: grid;
   gap: 10px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .promo-action-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 14px;
-  align-items: center;
+  grid-template-columns: 1fr;
+  gap: 12px;
+  align-items: start;
   padding: 14px 16px;
   border-radius: 18px;
   border: 1px solid rgba(212, 224, 242, 0.96);
@@ -1200,7 +1275,7 @@ function resolveCreateTierLabel(tierKey) {
 }
 
 .promo-action-row__controls {
-  justify-content: flex-end;
+  justify-content: flex-start;
 }
 
 .promo-action-row__meta,
@@ -1212,8 +1287,8 @@ function resolveCreateTierLabel(tierKey) {
 }
 
 .promo-action-row__meta {
-  justify-self: end;
-  text-align: right;
+  justify-self: start;
+  text-align: left;
 }
 
 .promo-action-row__controls input,
@@ -1466,6 +1541,62 @@ function resolveCreateTierLabel(tierKey) {
   overflow: hidden;
 }
 
+.promo-section--footer {
+  margin-top: 4px;
+}
+
+.promo-detail--compact {
+  margin-top: 8px;
+}
+
+.promo-platform-qr-strip {
+  margin-top: 14px;
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.promo-platform-qr-card {
+  padding: 12px;
+  border-radius: 20px;
+  border: 1px solid rgba(212, 224, 242, 0.96);
+  background: linear-gradient(180deg, #fbfdff 0%, #ffffff 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.88);
+  display: grid;
+  gap: 10px;
+}
+
+.promo-platform-qr-card__media {
+  aspect-ratio: 1 / 1;
+  border-radius: 18px;
+  overflow: hidden;
+  background: #f4f8ff;
+  border: 1px solid rgba(204, 220, 243, 0.96);
+}
+
+.promo-platform-qr-card__media img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.promo-platform-qr-card__copy {
+  display: grid;
+  gap: 4px;
+}
+
+.promo-platform-qr-card__copy strong {
+  color: #17385f;
+  font-size: 15px;
+}
+
+.promo-platform-qr-card__copy span {
+  color: #627a95;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
 @media (max-width: 1200px) {
   .promo-layout,
   .promo-tabs,
@@ -1477,6 +1608,10 @@ function resolveCreateTierLabel(tierKey) {
   .promo-badge-row,
   .promo-entry-grid,
   .promo-partner-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .promo-platform-qr-strip {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
@@ -1496,9 +1631,11 @@ function resolveCreateTierLabel(tierKey) {
   .promo-chip-grid--steps,
   .promo-tier-grid,
   .promo-badge-row,
+  .promo-action-list,
   .promo-history-list,
   .promo-entry-grid,
-  .promo-partner-grid {
+  .promo-partner-grid,
+  .promo-platform-qr-strip {
     grid-template-columns: 1fr;
   }
 

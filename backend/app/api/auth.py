@@ -60,6 +60,7 @@ _LOGIN_CONFIG_DEFAULTS = {
     "wechat_miniprogram_login_enabled": False,
     "wechat_miniprogram_app_id": "",
     "wechat_miniprogram_app_secret": "",
+    "miniapp_internal_test_login_enabled": False,
     "header_notice_text": DEFAULT_HEADER_NOTICE_TEXT,
     "notice_enabled": True,
     "notice_title": DEFAULT_NOTICE_TITLE,
@@ -452,6 +453,10 @@ def _get_promo_center_config(db: Session) -> dict:
             "invite_example_image_url": "",
             "partner_primary_qrcode_url": "/promo-contact-qr-1.jpg",
             "partner_secondary_qrcode_url": "/promo-contact-qr-2.png",
+            "platform_douyin_qrcode_url": "/promo-qr-douyin.jpg",
+            "platform_xiaohongshu_qrcode_url": "/promo-qr-xiaohongshu.jpg",
+            "platform_bilibili_qrcode_url": "/promo-qr-bilibili.jpg",
+            "platform_wechat_qrcode_url": "/promo-qr-wechat.jpg",
         },
     }
     merged = dict(defaults)
@@ -513,6 +518,10 @@ def _get_promo_center_config(db: Session) -> dict:
         "invite_example_image_url": str(assets_raw.get("invite_example_image_url", defaults["assets"]["invite_example_image_url"]) or "")[:256],
         "partner_primary_qrcode_url": str(assets_raw.get("partner_primary_qrcode_url", defaults["assets"]["partner_primary_qrcode_url"]) or "")[:256],
         "partner_secondary_qrcode_url": str(assets_raw.get("partner_secondary_qrcode_url", defaults["assets"]["partner_secondary_qrcode_url"]) or "")[:256],
+        "platform_douyin_qrcode_url": str(assets_raw.get("platform_douyin_qrcode_url", defaults["assets"]["platform_douyin_qrcode_url"]) or "")[:256],
+        "platform_xiaohongshu_qrcode_url": str(assets_raw.get("platform_xiaohongshu_qrcode_url", defaults["assets"]["platform_xiaohongshu_qrcode_url"]) or "")[:256],
+        "platform_bilibili_qrcode_url": str(assets_raw.get("platform_bilibili_qrcode_url", defaults["assets"]["platform_bilibili_qrcode_url"]) or "")[:256],
+        "platform_wechat_qrcode_url": str(assets_raw.get("platform_wechat_qrcode_url", defaults["assets"]["platform_wechat_qrcode_url"]) or "")[:256],
     }
 
     raw_cards = raw.get("nav_cards") if isinstance(raw.get("nav_cards"), list) else []
@@ -999,11 +1008,19 @@ def _wechat_miniprogram_real_login_enabled(login_cfg: dict) -> bool:
 
 
 def _wechat_miniprogram_login_enabled(login_cfg: dict) -> bool:
-    return _wechat_miniprogram_real_login_enabled(login_cfg) or _wechat_mock_enabled()
+    return (
+        _wechat_miniprogram_real_login_enabled(login_cfg)
+        or _miniapp_internal_test_login_enabled(login_cfg)
+        or _wechat_mock_enabled()
+    )
 
 
 def _wechat_miniprogram_phone_login_enabled(login_cfg: dict) -> bool:
     return _wechat_miniprogram_real_login_enabled(login_cfg)
+
+
+def _miniapp_internal_test_login_enabled(login_cfg: dict) -> bool:
+    return bool(login_cfg.get("miniapp_internal_test_login_enabled")) or bool(settings.miniapp_internal_test_login_enabled)
 
 
 def _get_wechat_miniprogram_access_token(login_cfg: dict, redis_client) -> str:
@@ -1043,6 +1060,11 @@ def _get_wechat_miniprogram_access_token(login_cfg: dict, redis_client) -> str:
 
 
 def _resolve_miniprogram_openid_unionid(login_cfg: dict, login_code: str) -> tuple[str, str | None]:
+    if _miniapp_internal_test_login_enabled(login_cfg) and login_code.startswith("internal_test_"):
+        openid = f"mp_internal_{hashlib.sha256(login_code.encode('utf-8')).hexdigest()[:20]}"
+        unionid = f"union_internal_{hashlib.sha256((login_code + settings.jwt_secret).encode('utf-8')).hexdigest()[:20]}"
+        return openid, unionid
+
     if settings.app_env != "prod" and login_code.startswith("mock_"):
         openid = f"mp_{hashlib.sha256(login_code.encode('utf-8')).hexdigest()[:20]}"
         unionid = f"union_{hashlib.sha256((login_code + settings.jwt_secret).encode('utf-8')).hexdigest()[:20]}"
@@ -1260,6 +1282,7 @@ def auth_options(db: Session = Depends(db_dep)) -> APIResp:
             "wechat_login_enabled": _wechat_login_enabled(login_cfg),
             "wechat_miniprogram_login_enabled": _wechat_miniprogram_login_enabled(login_cfg),
             "wechat_miniprogram_phone_quick_login_enabled": _wechat_miniprogram_phone_login_enabled(login_cfg),
+            "miniapp_internal_test_login_enabled": _miniapp_internal_test_login_enabled(login_cfg),
             "wechat_auth_scenes": ["web", "miniprogram"],
             "debug_code_enabled": debug_enabled,
             "sms_provider": str(login_cfg.get("sms_provider", "custom_webhook")).strip().lower() or "custom_webhook",

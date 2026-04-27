@@ -962,22 +962,22 @@
             <section class="rounded-2xl border border-[#dce4eb] bg-white p-4">
               <div class="text-sm font-semibold text-[#1f2c35]">活动素材</div>
               <div class="mt-3 grid gap-3 md:grid-cols-2">
-                <label class="space-y-1 text-sm">
-                  <span>集赞二维码地址</span>
-                  <input v-model.trim="forms.promo_center.assets.like_qrcode_url" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" />
-                </label>
-                <label class="space-y-1 text-sm">
-                  <span>邀请示例图地址</span>
-                  <input v-model.trim="forms.promo_center.assets.invite_example_image_url" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" />
-                </label>
-                <label class="space-y-1 text-sm">
-                  <span>机构合作主二维码</span>
-                  <input v-model.trim="forms.promo_center.assets.partner_primary_qrcode_url" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" />
-                </label>
-                <label class="space-y-1 text-sm">
-                  <span>机构合作次二维码</span>
-                  <input v-model.trim="forms.promo_center.assets.partner_secondary_qrcode_url" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" />
-                </label>
+                <div v-for="item in promoAssetFields" :key="item.key" class="rounded-2xl border border-[#dce4eb] bg-[#f8fbff] p-3">
+                  <label class="space-y-1 text-sm">
+                    <span>{{ item.label }}</span>
+                    <input v-model.trim="forms.promo_center.assets[item.key]" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" />
+                  </label>
+                  <div class="mt-2 flex flex-wrap items-center gap-2">
+                    <label class="inline-flex cursor-pointer items-center rounded-xl border border-[#cfd9e3] bg-white px-3 py-2 text-xs font-medium text-[#35527d]">
+                      <input class="hidden" type="file" accept=".png,.jpg,.jpeg,.webp" @change="uploadPromoAsset(item.key, $event)" />
+                      {{ promoAssetUploading[item.key] ? "上传中..." : "上传图片" }}
+                    </label>
+                    <span class="text-xs leading-5 text-[#667888]">{{ item.hint }}</span>
+                  </div>
+                  <div v-if="forms.promo_center.assets[item.key]" class="mt-3 overflow-hidden rounded-2xl border border-[#dce4eb] bg-white p-2">
+                    <img :src="forms.promo_center.assets[item.key]" :alt="item.label" class="admin-config-promo-asset-preview" />
+                  </div>
+                </div>
               </div>
             </section>
           </template>
@@ -1113,6 +1113,16 @@ const aigcDetectStrategyPlatforms = AIGC_DETECT_STRATEGY_PLATFORMS
 const rewriteStrategyPlatforms = REWRITE_STRATEGY_PLATFORMS
 const dedupStrategyPlatforms = DEDUP_STRATEGY_PLATFORMS
 const guideMap = ADMIN_CONFIG_GUIDES
+const promoAssetFields = [
+  { key: "like_qrcode_url", label: "集赞活动二维码", hint: "用于集赞有奖页主二维码" },
+  { key: "platform_douyin_qrcode_url", label: "抖音二维码", hint: "展示在推广中心各页底部" },
+  { key: "platform_xiaohongshu_qrcode_url", label: "小红书二维码", hint: "展示在推广中心各页底部" },
+  { key: "platform_bilibili_qrcode_url", label: "B站二维码", hint: "展示在推广中心各页底部" },
+  { key: "platform_wechat_qrcode_url", label: "微信公众号二维码", hint: "展示在推广中心各页底部" },
+  { key: "invite_example_image_url", label: "邀请示例图", hint: "邀请活动说明配图" },
+  { key: "partner_primary_qrcode_url", label: "机构合作主二维码", hint: "用于合作联系展示" },
+  { key: "partner_secondary_qrcode_url", label: "机构合作次二维码", hint: "用于合作联系展示" },
+]
 const activeTab = ref("login")
 const route = useRoute()
 const router = useRouter()
@@ -1166,6 +1176,7 @@ const readinessMap = ref({})
 const hintText = ref("")
 const errorText = ref("")
 const saving = ref(false)
+const promoAssetUploading = ref({})
 
 const currentTab = computed(() => tabs.find((tab) => tab.key === activeTab.value) || tabs[0])
 const currentGuide = computed(() => guideMap[activeTab.value] || guideMap.login)
@@ -1401,6 +1412,39 @@ function removePromoPartnerContact(index) {
   }
 }
 
+async function uploadPromoAsset(assetKey, event) {
+  const file = event?.target?.files?.[0]
+  if (!file) {
+    return
+  }
+  if (!canManageConfigs.value) {
+    errorText.value = "当前账号仅有查看权限，无法上传素材。"
+    hintText.value = ""
+    event.target.value = ""
+    return
+  }
+  promoAssetUploading.value = { ...promoAssetUploading.value, [assetKey]: true }
+  errorText.value = ""
+  hintText.value = ""
+  try {
+    const formData = new FormData()
+    formData.append("slot", assetKey)
+    formData.append("file", file)
+    const response = await adminHttp.post("/admin/promo/assets/upload", formData, { timeout: 45000 })
+    const url = String(response?.url || response?.data?.url || "").trim()
+    if (!url) {
+      throw new Error("上传成功，但未返回素材地址")
+    }
+    forms.value.promo_center.assets[assetKey] = url
+    hintText.value = "素材上传成功，保存配置后前台会立即使用新图片。"
+  } catch (error) {
+    errorText.value = error.message || "素材上传失败"
+  } finally {
+    promoAssetUploading.value = { ...promoAssetUploading.value, [assetKey]: false }
+    event.target.value = ""
+  }
+}
+
 function navGroupLabel(group) {
   return USER_NAV_GROUP_LABELS[group] || group || "未分组"
 }
@@ -1556,6 +1600,15 @@ async function saveCurrent() {
   color: #35527d;
   font-size: 14px;
   font-weight: 600;
+}
+
+.admin-config-promo-asset-preview {
+  display: block;
+  width: 100%;
+  max-height: 180px;
+  object-fit: contain;
+  border-radius: 14px;
+  background: #fff;
 }
 
 @media (max-width: 1279px) {

@@ -14,6 +14,7 @@ const MENU_ICON_MAP = {
 export function mapUserShellMenuItems(items = []) {
   return items.map((item) => ({
     ...item,
+    label: item.key === "promo_center" ? "推广领积分" : item.label,
     icon: MENU_ICON_MAP[item.key] || FilePenLine,
   }))
 }

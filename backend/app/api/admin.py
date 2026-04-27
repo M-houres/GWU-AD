@@ -6,7 +6,7 @@ import re
 import secrets
 from urllib.parse import urlparse
 
-from fastapi import APIRouter, Body, Cookie, Depends, Query, Request, Response
+from fastapi import APIRouter, Body, Cookie, Depends, File, Form, Query, Request, Response, UploadFile
 from fastapi.responses import FileResponse
 from sqlalchemy import desc, func
 from sqlalchemy.orm import Session
@@ -17,6 +17,7 @@ from app.constants import (
     DEFAULT_BILLING_PACKAGE_PROFILE_VERSION,
     DEFAULT_BILLING_SCHEMA_VERSION,
     LEGACY_BUILTIN_BILLING_PACKAGE_NAMES,
+    MAX_FILE_SIZE_MB,
 )
 from app.deps import (
     admin_has_permission,
@@ -97,6 +98,7 @@ from app.services.rewrite_strategies.config import (
     rewrite_strategy_readiness,
 )
 from app.services.task_artifacts import resolve_task_artifact_path
+from app.services.task_artifacts import build_storage_name, save_upload_to, serialize_task_artifact_path
 from app.services.task_filename import build_task_filename_pair, build_task_result_filename
 from app.services.user_navigation_service import default_user_navigation_config, normalize_user_navigation_config
 from app.services.partner_rebate_service import record_refund_order_rebate
@@ -305,6 +307,7 @@ CONFIG_DEFAULTS = {
         "wechat_miniprogram_login_enabled": False,
         "wechat_miniprogram_app_id": "",
         "wechat_miniprogram_app_secret": "",
+        "miniapp_internal_test_login_enabled": False,
         "header_notice_text": DEFAULT_NOTICE_TEXT,
         "notice_enabled": True,
         "notice_title": DEFAULT_NOTICE_TITLE,
@@ -549,6 +552,10 @@ CONFIG_DEFAULTS = {
             "invite_example_image_url": "",
             "partner_primary_qrcode_url": "/promo-contact-qr-1.jpg",
             "partner_secondary_qrcode_url": "/promo-contact-qr-2.png",
+            "platform_douyin_qrcode_url": "/promo-qr-douyin.jpg",
+            "platform_xiaohongshu_qrcode_url": "/promo-qr-xiaohongshu.jpg",
+            "platform_bilibili_qrcode_url": "/promo-qr-bilibili.jpg",
+            "platform_wechat_qrcode_url": "/promo-qr-wechat.jpg",
         },
     },
     "aigc_detect_strategy": deepcopy(DEFAULT_AIGC_DETECT_STRATEGY_CONFIG),
@@ -558,6 +565,13 @@ CONFIG_DEFAULTS = {
 
 PROMO_CENTER_PAGE_KEYS = ("invite", "like", "create", "partner")
 PROMO_CENTER_CARD_KEYS = ("invite", "like", "create", "partner")
+PROMO_CENTER_UPLOAD_ASSET_KEYS = {
+    "like_qrcode_url",
+    "platform_douyin_qrcode_url",
+    "platform_xiaohongshu_qrcode_url",
+    "platform_bilibili_qrcode_url",
+    "platform_wechat_qrcode_url",
+}
 
 _LLM_PROVIDERS = set(SUPPORTED_LLM_PROVIDERS)
 _PAYMENT_PROVIDERS = {"wechat", "alipay", "mock", "wechatpay_v3"}
@@ -1611,6 +1625,10 @@ def _normalize_category_payload(category: str, payload: dict) -> dict:
             raw.get("wechat_miniprogram_login_enabled", base.get("wechat_miniprogram_login_enabled", False)),
             default=False,
         )
+        base["miniapp_internal_test_login_enabled"] = _as_bool(
+            raw.get("miniapp_internal_test_login_enabled", base.get("miniapp_internal_test_login_enabled", False)),
+            default=False,
+        )
         base["wechat_miniprogram_app_id"] = _as_text(
             raw.get("wechat_miniprogram_app_id", base.get("wechat_miniprogram_app_id", "")),
             default="",
@@ -2006,6 +2024,26 @@ def _normalize_promo_center_config(raw: dict, base: dict) -> dict:
             default=base_assets.get("partner_secondary_qrcode_url", ""),
             max_len=256,
         ),
+        "platform_douyin_qrcode_url": _as_text(
+            assets_source.get("platform_douyin_qrcode_url", base_assets.get("platform_douyin_qrcode_url", "")),
+            default=base_assets.get("platform_douyin_qrcode_url", ""),
+            max_len=256,
+        ),
+        "platform_xiaohongshu_qrcode_url": _as_text(
+            assets_source.get("platform_xiaohongshu_qrcode_url", base_assets.get("platform_xiaohongshu_qrcode_url", "")),
+            default=base_assets.get("platform_xiaohongshu_qrcode_url", ""),
+            max_len=256,
+        ),
+        "platform_bilibili_qrcode_url": _as_text(
+            assets_source.get("platform_bilibili_qrcode_url", base_assets.get("platform_bilibili_qrcode_url", "")),
+            default=base_assets.get("platform_bilibili_qrcode_url", ""),
+            max_len=256,
+        ),
+        "platform_wechat_qrcode_url": _as_text(
+            assets_source.get("platform_wechat_qrcode_url", base_assets.get("platform_wechat_qrcode_url", "")),
+            default=base_assets.get("platform_wechat_qrcode_url", ""),
+            max_len=256,
+        ),
     }
 
     normalized["nav_cards"] = _normalize_promo_nav_cards(source.get("nav_cards"), base.get("nav_cards", []))
@@ -2072,6 +2110,20 @@ def _normalize_promo_center_config(raw: dict, base: dict) -> dict:
 
     normalized["contacts"] = _normalize_promo_contacts(source.get("contacts", normalized["contacts"]))
     return normalized
+
+
+def _store_promo_asset_upload(upload: UploadFile, *, slot: str) -> tuple[str, str]:
+    filename = str(upload.filename or "").strip()
+    if not filename:
+        raise BizError(code=4101, message="请先选择图片文件")
+    suffix = Path(filename).suffix.lower()
+    if suffix not in {".png", ".jpg", ".jpeg", ".webp"}:
+        raise BizError(code=4104, message="图片仅支持 png、jpg、jpeg、webp")
+    safe_slot = re.sub(r"[^a-z0-9_-]+", "-", str(slot or "").strip().lower()).strip("-") or "promo-asset"
+    original_name, unique_name = build_storage_name(filename, f"{safe_slot}.png")
+    target_path = settings.upload_dir / "promo" / "assets" / unique_name
+    save_upload_to(target_path, upload, MAX_FILE_SIZE_MB * 1024 * 1024)
+    return serialize_task_artifact_path(target_path) or str(target_path), original_name
 
 
 def _category_readiness(category: str, value: dict) -> dict:
@@ -4257,6 +4309,19 @@ def update_config(
     except Exception:
         db.rollback()
         raise
+
+
+@router.post("/promo/assets/upload", response_model=APIResp)
+def admin_upload_promo_asset(
+    slot: str = Form(...),
+    file: UploadFile = File(...),
+    _: AdminUser = Depends(require_admin_permission("configs:manage")),
+) -> APIResp:
+    asset_key = str(slot or "").strip()
+    if asset_key not in PROMO_CENTER_UPLOAD_ASSET_KEYS:
+        raise BizError(code=4341, message="不支持的推广素材类型")
+    asset_url, original_name = _store_promo_asset_upload(file, slot=asset_key)
+    return ok(data={"slot": asset_key, "url": asset_url, "original_name": original_name})
 
 
 @router.get("/strategies", response_model=APIResp)
