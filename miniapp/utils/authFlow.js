@@ -45,6 +45,13 @@ function requireAuth(pending = {}) {
 function finishLoginNavigation() {
   const pending = getPendingAuth() || {}
   const targetTab = ["records", "profile"].includes(pending.targetTab) ? pending.targetTab : "home"
+  const sourceRoute = String(pending.sourceRoute || "").trim()
+  if (sourceRoute && sourceRoute !== "pages/login/index" && sourceRoute.startsWith("pages/") && !sourceRoute.includes("?")) {
+    clearPendingAuth()
+    wx.reLaunch({ url: `/${sourceRoute}` })
+    return
+  }
+  clearPendingAuth()
   wx.switchTab({ url: `/pages/${targetTab}/index` })
 }
 

@@ -1,7 +1,7 @@
 from datetime import datetime
 from pathlib import Path
 
-from sqlalchemy import desc
+from sqlalchemy import desc, func
 from sqlalchemy.orm import Session
 
 from app.exceptions import BizError
@@ -51,14 +51,24 @@ def list_user_tasks(
             base_query = base_query.filter(Task.created_at <= dt)
         except Exception as exc:
             raise BizError(code=4112, message="结束日期格式错误，应为YYYY-MM-DD") from exc
-    total = base_query.count()
-    rows = (
-        base_query.order_by(desc(Task.id))
-        .offset((page - 1) * page_size)
-        .limit(page_size)
-        .all()
-    )
-    return {"items": [build_list_item(row) for row in rows], "pagination": paginate(total, page, page_size)}
+    total = int(base_query.with_entities(func.count(Task.id)).scalar() or 0)
+    page_task_ids = [
+        task_id
+        for (task_id,) in (
+            base_query.with_entities(Task.id)
+            .order_by(desc(Task.id))
+            .offset((page - 1) * page_size)
+            .limit(page_size)
+            .all()
+        )
+    ]
+    if not page_task_ids:
+        return {"items": [], "pagination": paginate(total, page, page_size)}
+
+    rows = db.query(Task).filter(Task.id.in_(page_task_ids)).all()
+    rows_by_id = {row.id: row for row in rows}
+    ordered_rows = [rows_by_id[task_id] for task_id in page_task_ids if task_id in rows_by_id]
+    return {"items": [build_list_item(row) for row in ordered_rows], "pagination": paginate(total, page, page_size)}
 
 
 def get_user_task_detail(db: Session, *, user_id: int, task_id: int) -> dict:

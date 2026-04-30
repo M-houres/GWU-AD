@@ -1,7 +1,20 @@
 {
   "description": "格物学术小程序",
   "packOptions": {
-    "ignore": [],
+    "ignore": [
+      {
+        "type": "file",
+        "value": "README.md"
+      },
+      {
+        "type": "file",
+        "value": "QA_CHECKLIST.md"
+      },
+      {
+        "type": "file",
+        "value": "project.private.config.json"
+      }
+    ],
     "include": []
   },
   "setting": {
@@ -30,7 +43,7 @@
   },
   "compileType": "miniprogram",
   "libVersion": "3.4.5",
-  "appid": "wxbd12fedf294ce6b4",
+  "appid": "wxf330c17322dfbd98",
   "projectname": "gewu-miniapp",
   "miniprogramRoot": "./",
   "simulatorPluginLibVersion": {},

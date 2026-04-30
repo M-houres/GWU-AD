@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from datetime import datetime
+import hashlib
+import hmac
 import re
 import secrets
 from urllib.parse import urlparse
@@ -40,6 +42,10 @@ def _normalize_channel_code(value: str | None) -> str:
     if not raw:
         return ""
     return re.sub(r"[^A-Z0-9_-]", "", raw)[:32]
+
+
+def _normalize_channel_scene(value: str | None) -> str:
+    return re.sub(r"[^a-z0-9_-]", "", str(value or "").strip().lower())[:64]
 
 
 def _normalize_statement_month(value: str | None) -> str:
@@ -99,34 +105,54 @@ def _frontend_base_url(request: Request | None = None) -> str:
     raw = str(settings.frontend_base_url or "").strip()
     if raw:
         return raw.split("/api/", 1)[0].rstrip("/")
+    preferred_base = "https://www.restin.top"
     if request is not None:
         origin = str(request.headers.get("origin") or "").strip()
         referer = str(request.headers.get("referer") or "").strip()
         candidate = origin or referer
         if candidate:
             parsed = urlparse(candidate)
-            if parsed.scheme and parsed.netloc:
+            if parsed.scheme and parsed.netloc and "restin.top" in parsed.netloc.lower():
                 return f"{parsed.scheme}://{parsed.netloc}".rstrip("/")
         forwarded_proto = request.headers.get("x-forwarded-proto", "").split(",")[0].strip()
         forwarded_host = request.headers.get("x-forwarded-host", "").split(",")[0].strip()
-        if forwarded_host:
+        if forwarded_host and "restin.top" in forwarded_host.lower():
             scheme = forwarded_proto or request.url.scheme or "https"
             return f"{scheme}://{forwarded_host}".rstrip("/")
-        return str(request.base_url).rstrip("/")
-    return "http://127.0.0.1:5173"
+    return preferred_base
 
 
 def build_channel_links(channel: PartnerChannel, request: Request | None = None) -> dict[str, str]:
     frontend_base = _frontend_base_url(request)
     miniapp_order_path = f"/pages/home/index?ch={channel.channel_code}&ck={channel.order_token}"
-    miniapp_portal_path = f"/pages/partner/index?ch={channel.channel_code}&pk={channel.portal_token}"
+    portal_query = f"account={channel.channel_code}"
     return {
         "order_link": f"{frontend_base}/app/detect?ch={channel.channel_code}&ck={channel.order_token}",
-        "portal_link": f"{frontend_base}/app/partner?ch={channel.channel_code}&pk={channel.portal_token}",
-        "portal_login_link": f"{frontend_base}/app/partner/login?ch={channel.channel_code}&pk={channel.portal_token}",
+        "portal_link": f"{frontend_base}/app/partner/login?{portal_query}",
+        "portal_login_link": f"{frontend_base}/app/partner/login?{portal_query}",
         "miniapp_order_path": miniapp_order_path,
-        "miniapp_portal_path": miniapp_portal_path,
     }
+
+
+def build_channel_scene_value(channel: PartnerChannel) -> str:
+    payload = f"pch{int(channel.id)}"
+    secret = str(settings.jwt_secret or "gw-partner-scene")
+    sign = hmac.new(secret.encode("utf-8"), payload.encode("utf-8"), hashlib.sha256).hexdigest()[:12]
+    return f"{payload}s{sign}"
+
+
+def resolve_channel_by_scene(db: Session, channel_scene: str | None) -> PartnerChannel | None:
+    normalized = _normalize_channel_scene(channel_scene)
+    matched = re.fullmatch(r"pch(\d+)s([a-f0-9]{12})", normalized)
+    if matched is None:
+        return None
+    channel_id = int(matched.group(1) or 0)
+    if channel_id <= 0:
+        return None
+    channel = db.query(PartnerChannel).filter(PartnerChannel.id == channel_id, PartnerChannel.status == "active").first()
+    if channel is None:
+        return None
+    return channel if build_channel_scene_value(channel) == normalized else None
 
 
 def _ensure_valid_parent(
@@ -481,18 +507,28 @@ def _resolve_rate_by_policy(db: Session, *, channel: PartnerChannel, package_nam
 
 
 def _read_tracking_inputs(
+    db: Session | None,
     request: Request | None,
     *,
     explicit_channel_code: str | None = None,
     explicit_channel_token: str | None = None,
+    explicit_channel_scene: str | None = None,
 ) -> tuple[str, str]:
     code = _normalize_channel_code(explicit_channel_code)
     token = str(explicit_channel_token or "").strip()
+    scene = _normalize_channel_scene(explicit_channel_scene)
     if request is not None:
+        if not scene:
+            scene = _normalize_channel_scene(request.query_params.get("cs") or request.headers.get("x-partner-scene"))
         if not code:
             code = _normalize_channel_code(request.query_params.get("ch") or request.headers.get("x-partner-channel"))
         if not token:
             token = str(request.query_params.get("ck") or request.headers.get("x-partner-token") or "").strip()
+    if (not code or not token) and scene and db is not None:
+        channel = resolve_channel_by_scene(db, scene)
+        if channel is not None:
+            code = str(channel.channel_code or "")
+            token = str(channel.order_token or "")
     return code, token
 
 
@@ -517,6 +553,26 @@ def _resolve_bound_channel(db: Session, *, user_id: int) -> PartnerChannel | Non
     if channel is None or channel.status != "active":
         return None
     return channel
+
+
+def get_bound_channel_payload(db: Session, *, user_id: int) -> dict | None:
+    binding = db.query(PartnerUserBinding).filter(PartnerUserBinding.user_id == user_id).first()
+    if binding is None:
+        return None
+    channel = db.query(PartnerChannel).filter(PartnerChannel.id == binding.channel_id).first()
+    if channel is None:
+        return None
+    return {
+        "channel_id": int(channel.id),
+        "channel_code": str(channel.channel_code or ""),
+        "channel_name": str(channel.name or ""),
+        "channel_status": str(channel.status or ""),
+        "bind_source": str(binding.bind_source or ""),
+        "locked_at": binding.locked_at,
+        "created_at": binding.created_at,
+        "updated_at": binding.updated_at,
+        "active": bool(channel.status == "active"),
+    }
 
 
 def _upsert_user_binding(
@@ -562,11 +618,14 @@ def resolve_partner_channel_for_order(
     user_id: int,
     explicit_channel_code: str | None = None,
     explicit_channel_token: str | None = None,
+    explicit_channel_scene: str | None = None,
 ) -> tuple[PartnerChannel | None, str]:
     channel_code, channel_token = _read_tracking_inputs(
+        db,
         request,
         explicit_channel_code=explicit_channel_code,
         explicit_channel_token=explicit_channel_token,
+        explicit_channel_scene=explicit_channel_scene,
     )
     if channel_code and channel_token:
         linked_channel = _find_active_channel_by_code_token(db, channel_code=channel_code, channel_token=channel_token)
@@ -586,6 +645,68 @@ def resolve_partner_channel_for_order(
     return None, ""
 
 
+def bind_partner_channel_from_request(
+    db: Session,
+    *,
+    request: Request | None,
+    user_id: int,
+    explicit_channel_code: str | None = None,
+    explicit_channel_token: str | None = None,
+    explicit_channel_scene: str | None = None,
+    bind_source: str = "link",
+    force_rebind: bool = False,
+) -> PartnerChannel | None:
+    channel_code, channel_token = _read_tracking_inputs(
+        db,
+        request,
+        explicit_channel_code=explicit_channel_code,
+        explicit_channel_token=explicit_channel_token,
+        explicit_channel_scene=explicit_channel_scene,
+    )
+    if not channel_code or not channel_token:
+        return _resolve_bound_channel(db, user_id=user_id)
+    linked_channel = _find_active_channel_by_code_token(db, channel_code=channel_code, channel_token=channel_token)
+    if linked_channel is None:
+        return _resolve_bound_channel(db, user_id=user_id)
+    binding = _upsert_user_binding(
+        db,
+        user_id=user_id,
+        channel_id=linked_channel.id,
+        bind_source=bind_source,
+        force_rebind=force_rebind,
+    )
+    if int(binding.channel_id or 0) == int(linked_channel.id):
+        return linked_channel
+    return _resolve_bound_channel(db, user_id=user_id)
+
+
+def bind_partner_channel(
+    db: Session,
+    *,
+    user_id: int,
+    channel_id: int,
+    bind_source: str = "link",
+    force_rebind: bool = False,
+) -> PartnerChannel | None:
+    channel = (
+        db.query(PartnerChannel)
+        .filter(PartnerChannel.id == int(channel_id))
+        .first()
+    )
+    if channel is None:
+        return _resolve_bound_channel(db, user_id=user_id)
+    binding = _upsert_user_binding(
+        db,
+        user_id=user_id,
+        channel_id=int(channel.id),
+        bind_source=bind_source,
+        force_rebind=force_rebind,
+    )
+    if int(binding.channel_id or 0) == int(channel.id):
+        return channel
+    return _resolve_bound_channel(db, user_id=user_id)
+
+
 def attach_order_attribution_from_request(
     db: Session,
     *,
@@ -595,6 +716,7 @@ def attach_order_attribution_from_request(
     package_name: str | None = None,
     explicit_channel_code: str | None = None,
     explicit_channel_token: str | None = None,
+    explicit_channel_scene: str | None = None,
 ) -> PartnerOrderAttribution | None:
     existing = db.query(PartnerOrderAttribution).filter(PartnerOrderAttribution.order_id == order.id).first()
     if existing is not None:
@@ -606,6 +728,7 @@ def attach_order_attribution_from_request(
         user_id=user_id,
         explicit_channel_code=explicit_channel_code,
         explicit_channel_token=explicit_channel_token,
+        explicit_channel_scene=explicit_channel_scene,
     )
     if channel is None:
         return None
@@ -1072,21 +1195,6 @@ def settle_monthly_statement(
     return row, False
 
 
-def authenticate_partner_portal(db: Session, *, channel_code: str, portal_token: str) -> PartnerChannel:
-    normalized_code = _normalize_channel_code(channel_code)
-    normalized_token = str(portal_token or "").strip()
-    if not normalized_code or not normalized_token:
-        raise BizError(code=4469, message="渠道访问参数缺失")
-    channel = (
-        db.query(PartnerChannel)
-        .filter(PartnerChannel.channel_code == normalized_code, PartnerChannel.status == "active")
-        .first()
-    )
-    if channel is None or channel.portal_token != normalized_token:
-        raise BizError(code=4470, message="渠道访问凭证无效", http_status=403)
-    return channel
-
-
 def authenticate_partner_portal_login(db: Session, *, account: str, password: str) -> PartnerChannel:
     normalized_account = _normalize_channel_code(account)
     plain_password = str(password or "")
@@ -1124,16 +1232,6 @@ def reset_partner_portal_password(
     channel.portal_password_updated_at = now
     db.flush()
     return channel, password
-
-
-def rotate_partner_portal_token(
-    db: Session,
-    *,
-    channel: PartnerChannel,
-) -> PartnerChannel:
-    channel.portal_token = _gen_unique_token(db, column_name="portal_token")
-    db.flush()
-    return channel
 
 
 def change_partner_portal_password(

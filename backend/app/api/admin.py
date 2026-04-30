@@ -239,6 +239,7 @@ CONFIG_FIELD_LABELS = {
         "wechat_miniprogram_app_secret": "小程序登录AppSecret",
         "wechat_miniprogram_payment_enabled": "小程序支付开关",
         "payment_notify_url": "支付回调地址",
+        "runtime_copy": "小程序运行文案",
     },
     "user_navigation": {
         "items": "前台导航编排",
@@ -354,6 +355,43 @@ CONFIG_DEFAULTS = {
         "wechat_miniprogram_app_secret": "",
         "wechat_miniprogram_payment_enabled": False,
         "payment_notify_url": "",
+        "runtime_copy": {
+            "login": {
+                "brand_name": "格物学术",
+                "brand_subtitle": "论文检测与处理服务",
+                "agreement_text": "我已阅读并同意服务协议与隐私条款",
+                "login_unavailable_title": "暂时无法完成登录",
+                "login_unavailable_desc": "当前登录服务正在维护，请稍后重试或联系管理员处理。",
+                "formal_mode_label": "当前为正式微信登录",
+                "internal_test_mode_label": "当前为内测登录",
+                "mock_mode_label": "当前为本地开发调试登录",
+                "prefer_phone_title": "请使用手机号快捷登录",
+                "prefer_phone_content": "为了统一 Web 端和小程序端账号、积分、订单和邀请关系，正式环境请优先使用微信手机号快捷登录。",
+                "policy_required_title": "请先同意协议",
+                "policy_required_content": "继续登录前，请先勾选服务协议与隐私条款。",
+                "phone_auth_missing_title": "未完成授权",
+            },
+            "home": {
+                "hero_title": "格物学术",
+                "hero_subtitle": "全文检测、降AIGC、降重处理，在同一个学术工作台里完成。",
+                "invite_label": "邀请好友",
+                "invite_note": "好友首次登录时会自动带入邀请码，邀请关系会被记录。",
+                "copy_invite_button_text": "复制邀请码",
+                "share_button_text": "邀请好友",
+                "share_title": "格物学术 | 检测、降AIGC与降重",
+            },
+            "profile": {
+                "guest_subtitle": "登录后可查看账户、权益和充值进度。",
+                "user_subtitle": "账户、充值、公告集中管理。",
+                "guest_section_title": "登录后进入个人中心",
+                "guest_section_desc": "账户信息、积分充值、订单进度和系统公告会在登录后显示。",
+                "guest_login_button_text": "去登录",
+                "account_section_title": "账户信息",
+                "promo_section_title": "推广领积分",
+                "promo_section_desc": "邀请好友、参与活动，领取积分奖励。",
+                "system_section_title": "公告与操作",
+            },
+        },
     },
     "user_navigation": default_user_navigation_config(),
     "promo_center": {
@@ -1198,6 +1236,10 @@ def _notice_to_notice_fields(notice_payload: dict) -> dict:
 def _extract_miniapp_payload(raw: dict | None) -> dict:
     src = raw if isinstance(raw, dict) else {}
     payload = deepcopy(CONFIG_DEFAULTS["miniapp"])
+    runtime_copy_source = src.get("runtime_copy")
+    login_copy_source = runtime_copy_source.get("login") if isinstance(runtime_copy_source, dict) and isinstance(runtime_copy_source.get("login"), dict) else {}
+    home_copy_source = runtime_copy_source.get("home") if isinstance(runtime_copy_source, dict) and isinstance(runtime_copy_source.get("home"), dict) else {}
+    profile_copy_source = runtime_copy_source.get("profile") if isinstance(runtime_copy_source, dict) and isinstance(runtime_copy_source.get("profile"), dict) else {}
     payload["enabled"] = _as_bool(src.get("enabled", src.get("wechat_miniprogram_login_enabled", payload["enabled"])), default=payload["enabled"])
     payload["app_id"] = _as_text(src.get("app_id", src.get("wechat_miniprogram_app_id", src.get("wechat_app_id", payload["app_id"]))), default="", max_len=128)
     payload["app_secret"] = _as_text(src.get("app_secret", src.get("wechat_miniprogram_app_secret", src.get("wechat_app_secret", payload["app_secret"]))), default="", max_len=256)
@@ -1237,6 +1279,151 @@ def _extract_miniapp_payload(raw: dict | None) -> dict:
         default=payload["wechat_miniprogram_payment_enabled"],
     )
     payload["payment_notify_url"] = _as_text(src.get("payment_notify_url", payload["payment_notify_url"]), default="", max_len=256)
+    payload["runtime_copy"]["login"]["brand_name"] = _as_text(
+        login_copy_source.get("brand_name", payload["runtime_copy"]["login"]["brand_name"]),
+        default=payload["runtime_copy"]["login"]["brand_name"],
+        max_len=32,
+    )
+    payload["runtime_copy"]["login"]["brand_subtitle"] = _as_text(
+        login_copy_source.get("brand_subtitle", payload["runtime_copy"]["login"]["brand_subtitle"]),
+        default=payload["runtime_copy"]["login"]["brand_subtitle"],
+        max_len=64,
+    )
+    payload["runtime_copy"]["login"]["agreement_text"] = _as_text(
+        login_copy_source.get("agreement_text", payload["runtime_copy"]["login"]["agreement_text"]),
+        default=payload["runtime_copy"]["login"]["agreement_text"],
+        max_len=80,
+    )
+    payload["runtime_copy"]["login"]["login_unavailable_title"] = _as_text(
+        login_copy_source.get("login_unavailable_title", payload["runtime_copy"]["login"]["login_unavailable_title"]),
+        default=payload["runtime_copy"]["login"]["login_unavailable_title"],
+        max_len=32,
+    )
+    payload["runtime_copy"]["login"]["login_unavailable_desc"] = _as_text(
+        login_copy_source.get("login_unavailable_desc", payload["runtime_copy"]["login"]["login_unavailable_desc"]),
+        default=payload["runtime_copy"]["login"]["login_unavailable_desc"],
+        max_len=200,
+    )
+    payload["runtime_copy"]["login"]["formal_mode_label"] = _as_text(
+        login_copy_source.get("formal_mode_label", payload["runtime_copy"]["login"]["formal_mode_label"]),
+        default=payload["runtime_copy"]["login"]["formal_mode_label"],
+        max_len=40,
+    )
+    payload["runtime_copy"]["login"]["internal_test_mode_label"] = _as_text(
+        login_copy_source.get("internal_test_mode_label", payload["runtime_copy"]["login"]["internal_test_mode_label"]),
+        default=payload["runtime_copy"]["login"]["internal_test_mode_label"],
+        max_len=40,
+    )
+    payload["runtime_copy"]["login"]["mock_mode_label"] = _as_text(
+        login_copy_source.get("mock_mode_label", payload["runtime_copy"]["login"]["mock_mode_label"]),
+        default=payload["runtime_copy"]["login"]["mock_mode_label"],
+        max_len=40,
+    )
+    payload["runtime_copy"]["login"]["prefer_phone_title"] = _as_text(
+        login_copy_source.get("prefer_phone_title", payload["runtime_copy"]["login"]["prefer_phone_title"]),
+        default=payload["runtime_copy"]["login"]["prefer_phone_title"],
+        max_len=32,
+    )
+    payload["runtime_copy"]["login"]["prefer_phone_content"] = _as_text(
+        login_copy_source.get("prefer_phone_content", payload["runtime_copy"]["login"]["prefer_phone_content"]),
+        default=payload["runtime_copy"]["login"]["prefer_phone_content"],
+        max_len=200,
+    )
+    payload["runtime_copy"]["login"]["policy_required_title"] = _as_text(
+        login_copy_source.get("policy_required_title", payload["runtime_copy"]["login"]["policy_required_title"]),
+        default=payload["runtime_copy"]["login"]["policy_required_title"],
+        max_len=32,
+    )
+    payload["runtime_copy"]["login"]["policy_required_content"] = _as_text(
+        login_copy_source.get("policy_required_content", payload["runtime_copy"]["login"]["policy_required_content"]),
+        default=payload["runtime_copy"]["login"]["policy_required_content"],
+        max_len=120,
+    )
+    payload["runtime_copy"]["login"]["phone_auth_missing_title"] = _as_text(
+        login_copy_source.get("phone_auth_missing_title", payload["runtime_copy"]["login"]["phone_auth_missing_title"]),
+        default=payload["runtime_copy"]["login"]["phone_auth_missing_title"],
+        max_len=32,
+    )
+    payload["runtime_copy"]["home"]["hero_title"] = _as_text(
+        home_copy_source.get("hero_title", payload["runtime_copy"]["home"]["hero_title"]),
+        default=payload["runtime_copy"]["home"]["hero_title"],
+        max_len=32,
+    )
+    payload["runtime_copy"]["home"]["hero_subtitle"] = _as_text(
+        home_copy_source.get("hero_subtitle", payload["runtime_copy"]["home"]["hero_subtitle"]),
+        default=payload["runtime_copy"]["home"]["hero_subtitle"],
+        max_len=120,
+    )
+    payload["runtime_copy"]["home"]["invite_label"] = _as_text(
+        home_copy_source.get("invite_label", payload["runtime_copy"]["home"]["invite_label"]),
+        default=payload["runtime_copy"]["home"]["invite_label"],
+        max_len=24,
+    )
+    payload["runtime_copy"]["home"]["invite_note"] = _as_text(
+        home_copy_source.get("invite_note", payload["runtime_copy"]["home"]["invite_note"]),
+        default=payload["runtime_copy"]["home"]["invite_note"],
+        max_len=120,
+    )
+    payload["runtime_copy"]["home"]["copy_invite_button_text"] = _as_text(
+        home_copy_source.get("copy_invite_button_text", payload["runtime_copy"]["home"]["copy_invite_button_text"]),
+        default=payload["runtime_copy"]["home"]["copy_invite_button_text"],
+        max_len=24,
+    )
+    payload["runtime_copy"]["home"]["share_button_text"] = _as_text(
+        home_copy_source.get("share_button_text", payload["runtime_copy"]["home"]["share_button_text"]),
+        default=payload["runtime_copy"]["home"]["share_button_text"],
+        max_len=24,
+    )
+    payload["runtime_copy"]["home"]["share_title"] = _as_text(
+        home_copy_source.get("share_title", payload["runtime_copy"]["home"]["share_title"]),
+        default=payload["runtime_copy"]["home"]["share_title"],
+        max_len=64,
+    )
+    payload["runtime_copy"]["profile"]["guest_subtitle"] = _as_text(
+        profile_copy_source.get("guest_subtitle", payload["runtime_copy"]["profile"]["guest_subtitle"]),
+        default=payload["runtime_copy"]["profile"]["guest_subtitle"],
+        max_len=80,
+    )
+    payload["runtime_copy"]["profile"]["user_subtitle"] = _as_text(
+        profile_copy_source.get("user_subtitle", payload["runtime_copy"]["profile"]["user_subtitle"]),
+        default=payload["runtime_copy"]["profile"]["user_subtitle"],
+        max_len=80,
+    )
+    payload["runtime_copy"]["profile"]["guest_section_title"] = _as_text(
+        profile_copy_source.get("guest_section_title", payload["runtime_copy"]["profile"]["guest_section_title"]),
+        default=payload["runtime_copy"]["profile"]["guest_section_title"],
+        max_len=40,
+    )
+    payload["runtime_copy"]["profile"]["guest_section_desc"] = _as_text(
+        profile_copy_source.get("guest_section_desc", payload["runtime_copy"]["profile"]["guest_section_desc"]),
+        default=payload["runtime_copy"]["profile"]["guest_section_desc"],
+        max_len=120,
+    )
+    payload["runtime_copy"]["profile"]["guest_login_button_text"] = _as_text(
+        profile_copy_source.get("guest_login_button_text", payload["runtime_copy"]["profile"]["guest_login_button_text"]),
+        default=payload["runtime_copy"]["profile"]["guest_login_button_text"],
+        max_len=20,
+    )
+    payload["runtime_copy"]["profile"]["account_section_title"] = _as_text(
+        profile_copy_source.get("account_section_title", payload["runtime_copy"]["profile"]["account_section_title"]),
+        default=payload["runtime_copy"]["profile"]["account_section_title"],
+        max_len=32,
+    )
+    payload["runtime_copy"]["profile"]["promo_section_title"] = _as_text(
+        profile_copy_source.get("promo_section_title", payload["runtime_copy"]["profile"]["promo_section_title"]),
+        default=payload["runtime_copy"]["profile"]["promo_section_title"],
+        max_len=32,
+    )
+    payload["runtime_copy"]["profile"]["promo_section_desc"] = _as_text(
+        profile_copy_source.get("promo_section_desc", payload["runtime_copy"]["profile"]["promo_section_desc"]),
+        default=payload["runtime_copy"]["profile"]["promo_section_desc"],
+        max_len=120,
+    )
+    payload["runtime_copy"]["profile"]["system_section_title"] = _as_text(
+        profile_copy_source.get("system_section_title", payload["runtime_copy"]["profile"]["system_section_title"]),
+        default=payload["runtime_copy"]["profile"]["system_section_title"],
+        max_len=32,
+    )
     return payload
 
 

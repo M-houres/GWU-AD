@@ -199,6 +199,32 @@ def test_submit_like_submission_and_list(client: TestClient, db_session: Session
     assert items[0]["platform"] == "wechat"
 
 
+def test_submit_like_submission_accepts_miniprogram_temp_filename_with_explicit_name(
+    client: TestClient, db_session: Session
+) -> None:
+    user = _create_user(db_session, user_id=108, phone="13800001008", nickname="截图临时名用户")
+    file_bytes = b"fake-image-binary"
+
+    submit = client.post(
+        "/api/v1/users/me/promo/like-submissions",
+        data={
+            "platform": "wechat",
+            "share_text": "测试文案",
+            "screenshot_name": "proof.png",
+        },
+        files={"screenshot": ("wxfile://tmp_1710000000001", file_bytes, "image/png")},
+        headers=_auth_headers(user.id),
+    )
+    assert submit.status_code == 200
+    item = submit.json()["data"]["item"]
+    assert item["original_filename"] == "proof.png"
+
+    row = db_session.query(UserShareTaskSubmission).filter(UserShareTaskSubmission.user_id == user.id).first()
+    assert row is not None
+    assert row.original_filename == "proof.png"
+    assert Path(str(row.screenshot_path)).name.endswith("_proof.png")
+
+
 def test_submit_create_submission_and_list(client: TestClient, db_session: Session) -> None:
     user = _create_user(db_session, user_id=107, phone="13800001007", nickname="创作用户")
 

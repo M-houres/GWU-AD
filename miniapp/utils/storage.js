@@ -134,16 +134,22 @@ function normalizeChannelToken(value = "") {
   return String(value || "").trim().slice(0, 128)
 }
 
+function normalizeChannelScene(value = "") {
+  return String(value || "").trim().toLowerCase().replace(/[^a-z0-9_-]/g, "").slice(0, 64)
+}
+
 function setPartnerTracking(payload) {
   const channelCode = normalizeChannelCode(payload && payload.channel_code)
   const channelToken = normalizeChannelToken(payload && payload.channel_token)
-  if (!channelCode || !channelToken) {
+  const channelScene = normalizeChannelScene(payload && payload.channel_scene)
+  if ((!channelCode || !channelToken) && !channelScene) {
     wx.removeStorageSync(PARTNER_TRACKING_KEY)
     return
   }
   wx.setStorageSync(PARTNER_TRACKING_KEY, {
     channel_code: channelCode,
     channel_token: channelToken,
+    channel_scene: channelScene,
     captured_at: Date.now(),
   })
 }
@@ -153,10 +159,12 @@ function getPartnerTracking() {
   if (!raw || typeof raw !== "object") return null
   const channelCode = normalizeChannelCode(raw.channel_code)
   const channelToken = normalizeChannelToken(raw.channel_token)
-  if (!channelCode || !channelToken) return null
+  const channelScene = normalizeChannelScene(raw.channel_scene)
+  if ((!channelCode || !channelToken) && !channelScene) return null
   return {
     channel_code: channelCode,
     channel_token: channelToken,
+    channel_scene: channelScene,
   }
 }
 
@@ -170,6 +178,12 @@ function clearAuthState() {
   clearUser()
   clearPendingAuth()
   clearHomeDraft()
+}
+
+function clearPartnerPortalAuth() {
+  wx.removeStorageSync("gw_partner_portal_token")
+  wx.removeStorageSync("gw_partner_portal_refresh_token")
+  wx.removeStorageSync("gw_partner_portal_profile")
 }
 
 module.exports = {
@@ -195,4 +209,5 @@ module.exports = {
   getPartnerTracking,
   clearPartnerTracking,
   clearAuthState,
+  clearPartnerPortalAuth,
 }

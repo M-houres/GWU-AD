@@ -266,6 +266,92 @@ export const DEFAULT_MINIAPP_CONFIG = {
   wechat_miniprogram_app_secret: "",
   wechat_miniprogram_payment_enabled: false,
   payment_notify_url: "",
+  runtime_copy: {
+    login: {
+      brand_name: "格物学术",
+      brand_subtitle: "论文检测与处理服务",
+      agreement_text: "我已阅读并同意服务协议与隐私条款",
+      login_unavailable_title: "暂时无法完成登录",
+      login_unavailable_desc: "当前登录服务正在维护，请稍后重试或联系管理员处理。",
+      formal_mode_label: "当前为正式微信登录",
+      internal_test_mode_label: "当前为内测登录",
+      mock_mode_label: "当前为本地开发调试登录",
+      prefer_phone_title: "请使用手机号快捷登录",
+      prefer_phone_content: "为了统一 Web 端和小程序端账号、积分、订单和邀请关系，正式环境请优先使用微信手机号快捷登录。",
+      policy_required_title: "请先同意协议",
+      policy_required_content: "继续登录前，请先勾选服务协议与隐私条款。",
+      phone_auth_missing_title: "未完成授权",
+    },
+    home: {
+      hero_title: "格物学术",
+      hero_subtitle: "全文检测、降AIGC、降重处理，在同一个学术工作台里完成。",
+      invite_label: "邀请好友",
+      invite_note: "好友首次登录时会自动带入邀请码，邀请关系会被记录。",
+      copy_invite_button_text: "复制邀请码",
+      share_button_text: "邀请好友",
+      share_title: "格物学术 | 检测、降AIGC与降重",
+    },
+    profile: {
+      guest_subtitle: "登录后可查看账户、权益和充值进度。",
+      user_subtitle: "账户、充值、公告集中管理。",
+      guest_section_title: "登录后进入个人中心",
+      guest_section_desc: "账户信息、积分充值、订单进度和系统公告会在登录后显示。",
+      guest_login_button_text: "去登录",
+      account_section_title: "账户信息",
+      promo_section_title: "推广领积分",
+      promo_section_desc: "邀请好友、参与活动，领取积分奖励。",
+      system_section_title: "公告与操作",
+    },
+  },
+}
+
+function trimText(value, maxLen, fallback = "") {
+  return String(value ?? fallback).trim().slice(0, maxLen)
+}
+
+function normalizeMiniappRuntimeCopy(raw) {
+  const defaults = DEFAULT_MINIAPP_CONFIG.runtime_copy
+  const source = raw && typeof raw === "object" ? raw : {}
+  const login = source.login && typeof source.login === "object" ? source.login : {}
+  const home = source.home && typeof source.home === "object" ? source.home : {}
+  const profile = source.profile && typeof source.profile === "object" ? source.profile : {}
+  return {
+    login: {
+      brand_name: trimText(login.brand_name, 32, defaults.login.brand_name),
+      brand_subtitle: trimText(login.brand_subtitle, 64, defaults.login.brand_subtitle),
+      agreement_text: trimText(login.agreement_text, 80, defaults.login.agreement_text),
+      login_unavailable_title: trimText(login.login_unavailable_title, 32, defaults.login.login_unavailable_title),
+      login_unavailable_desc: trimText(login.login_unavailable_desc, 200, defaults.login.login_unavailable_desc),
+      formal_mode_label: trimText(login.formal_mode_label, 40, defaults.login.formal_mode_label),
+      internal_test_mode_label: trimText(login.internal_test_mode_label, 40, defaults.login.internal_test_mode_label),
+      mock_mode_label: trimText(login.mock_mode_label, 40, defaults.login.mock_mode_label),
+      prefer_phone_title: trimText(login.prefer_phone_title, 32, defaults.login.prefer_phone_title),
+      prefer_phone_content: trimText(login.prefer_phone_content, 200, defaults.login.prefer_phone_content),
+      policy_required_title: trimText(login.policy_required_title, 32, defaults.login.policy_required_title),
+      policy_required_content: trimText(login.policy_required_content, 120, defaults.login.policy_required_content),
+      phone_auth_missing_title: trimText(login.phone_auth_missing_title, 32, defaults.login.phone_auth_missing_title),
+    },
+    home: {
+      hero_title: trimText(home.hero_title, 32, defaults.home.hero_title),
+      hero_subtitle: trimText(home.hero_subtitle, 120, defaults.home.hero_subtitle),
+      invite_label: trimText(home.invite_label, 24, defaults.home.invite_label),
+      invite_note: trimText(home.invite_note, 120, defaults.home.invite_note),
+      copy_invite_button_text: trimText(home.copy_invite_button_text, 24, defaults.home.copy_invite_button_text),
+      share_button_text: trimText(home.share_button_text, 24, defaults.home.share_button_text),
+      share_title: trimText(home.share_title, 64, defaults.home.share_title),
+    },
+    profile: {
+      guest_subtitle: trimText(profile.guest_subtitle, 80, defaults.profile.guest_subtitle),
+      user_subtitle: trimText(profile.user_subtitle, 80, defaults.profile.user_subtitle),
+      guest_section_title: trimText(profile.guest_section_title, 40, defaults.profile.guest_section_title),
+      guest_section_desc: trimText(profile.guest_section_desc, 120, defaults.profile.guest_section_desc),
+      guest_login_button_text: trimText(profile.guest_login_button_text, 20, defaults.profile.guest_login_button_text),
+      account_section_title: trimText(profile.account_section_title, 32, defaults.profile.account_section_title),
+      promo_section_title: trimText(profile.promo_section_title, 32, defaults.profile.promo_section_title),
+      promo_section_desc: trimText(profile.promo_section_desc, 120, defaults.profile.promo_section_desc),
+      system_section_title: trimText(profile.system_section_title, 32, defaults.profile.system_section_title),
+    },
+  }
 }
 
 export const DEFAULT_PROMO_CENTER_CONFIG = {
@@ -599,6 +685,7 @@ export function normalizeMiniappConfig(raw) {
     wechat_miniprogram_app_secret: String(source.wechat_miniprogram_app_secret || "").trim(),
     wechat_miniprogram_payment_enabled: source.wechat_miniprogram_payment_enabled === true,
     payment_notify_url: String(source.payment_notify_url || "").trim(),
+    runtime_copy: normalizeMiniappRuntimeCopy(source.runtime_copy),
   }
 }
 
@@ -1277,6 +1364,7 @@ export function buildAdminConfigPayload(category, forms, { normalizeUserNavigati
     payload.publish_note = normalized.publish_note.slice(0, 500)
     payload.wechat_miniprogram_app_id = normalized.wechat_miniprogram_app_id.slice(0, 128)
     payload.wechat_miniprogram_app_secret = normalized.wechat_miniprogram_app_secret.slice(0, 256)
+    payload.runtime_copy = normalized.runtime_copy
   }
   if (category === "promo_center") {
     const normalized = normalizePromotionCenterConfig(payload)

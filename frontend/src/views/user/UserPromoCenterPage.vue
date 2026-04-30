@@ -340,13 +340,6 @@
               <input v-model.trim="createForm.share_link" type="text" maxlength="500" placeholder="请输入作品链接" />
             </div>
             <div class="promo-submit-row">
-              <input v-model.trim="createForm.payout_name" type="text" maxlength="120" placeholder="收款人姓名（选填）" />
-              <input v-model.trim="createForm.payout_account" type="text" maxlength="120" placeholder="收款账号（选填）" />
-            </div>
-            <div class="promo-submit-row">
-              <textarea v-model.trim="createForm.note" maxlength="500" rows="3" placeholder="补充说明（选填）"></textarea>
-            </div>
-            <div class="promo-submit-row">
               <button
                 type="button"
                 class="promo-primary"
@@ -381,7 +374,6 @@
                 </div>
                 <p>档位：{{ resolveCreateTierLabel(item.tier_key) }}</p>
                 <p>链接：{{ item.share_link }}</p>
-                <p v-if="item.note">备注：{{ item.note }}</p>
                 <p>更新时间：{{ formatDateTime(item.updated_at || item.created_at) }}</p>
                 <p v-if="item.review_note">审核备注：{{ item.review_note }}</p>
               </article>
@@ -508,9 +500,6 @@ const createForm = ref({
   platform: "",
   tier_key: "",
   share_link: "",
-  payout_account: "",
-  payout_name: "",
-  note: "",
 })
 const currentTemplateIndex = ref(0)
 const promoConfig = ref(normalizePromotionCenterConfig(DEFAULT_PROMO_CENTER_CONFIG))
@@ -594,34 +583,33 @@ const likePlatformLabel = computed(() => {
   return title || "微信集赞活动"
 })
 const promoPlatformQRCodes = computed(() => {
-  const assets = promoConfig.value?.assets || {}
   return [
     {
       key: "douyin",
       label: "抖音",
       desc: "扫码直达格物学术抖音主页",
-      src: String(assets.platform_douyin_qrcode_url || "/promo-qr-douyin.jpg").trim(),
+      src: "/promo-qr-douyin-desktop.png",
       objectPosition: "50% 35%",
     },
     {
       key: "xiaohongshu",
       label: "小红书",
       desc: "扫码查看小红书账号内容",
-      src: String(assets.platform_xiaohongshu_qrcode_url || "/promo-qr-xiaohongshu.jpg").trim(),
+      src: "/promo-qr-xiaohongshu-desktop.png",
       objectPosition: "50% 42%",
     },
     {
       key: "bilibili",
       label: "B站",
-      desc: "扫码进入 B 站主页",
-      src: String(assets.platform_bilibili_qrcode_url || "/promo-qr-bilibili.jpg").trim(),
-      objectPosition: "50% 30%",
+      desc: "扫码查看 B 站账号内容",
+      src: "/promo-qr-miniapp-desktop.png",
+      objectPosition: "50% 50%",
     },
     {
       key: "wechat",
       label: "微信公众号",
-      desc: "扫码关注公众号获取更新",
-      src: String(assets.platform_wechat_qrcode_url || "/promo-qr-wechat.jpg").trim(),
+      desc: "扫码关注格物学术公众号",
+      src: "/promo-qr-wechat-restored.jpg",
       objectPosition: "50% 50%",
     },
   ].filter((item) => item.src)
@@ -794,9 +782,6 @@ async function submitCreateSubmission() {
     const data = await userHttp.post("/users/me/promo/create-submissions", { ...createForm.value })
     upsertSubmission(createSubmissions.value, data?.item)
     createForm.value.share_link = ""
-    createForm.value.payout_account = ""
-    createForm.value.payout_name = ""
-    createForm.value.note = ""
     hintText.value = "作品链接已提交，等待审核"
   } catch (error) {
     errorText.value = String(error?.message || "作品提交失败")

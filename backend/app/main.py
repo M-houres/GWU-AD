@@ -91,6 +91,7 @@ def assert_production_secrets() -> None:
 def run_runtime_bootstrap_tasks() -> None:
     run_migrations()
     repair_missing_tables()
+    repair_missing_indexes()
     normalize_runtime_configs()
     normalize_user_phone_storage()
     cleanup_expired_task_artifacts()
@@ -384,6 +385,32 @@ def repair_missing_tables() -> None:
         "schema_repair_created_missing_tables",
         extra={"tables": missing_tables},
     )
+
+
+def repair_missing_indexes() -> None:
+    inspector = inspect(engine)
+    target_indexes = {
+        "tasks": {"ix_tasks_user_recent"},
+        "credit_transactions": {"ix_credit_transactions_user_recent"},
+    }
+    created_indexes: list[str] = []
+
+    for table_name, required_names in target_indexes.items():
+        table = Base.metadata.tables.get(table_name)
+        if table is None:
+            continue
+        existing_indexes = {item["name"] for item in inspector.get_indexes(table_name)}
+        for index in table.indexes:
+            if not index.name or index.name not in required_names or index.name in existing_indexes:
+                continue
+            index.create(bind=engine, checkfirst=True)
+            created_indexes.append(index.name)
+
+    if created_indexes:
+        logger.warning(
+            "schema_repair_created_missing_indexes",
+            extra={"indexes": sorted(created_indexes)},
+        )
 
 
 def normalize_user_phone_storage() -> None:

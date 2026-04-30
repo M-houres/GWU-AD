@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import base64
 import json
 from datetime import datetime, time, timedelta, timezone
 
 from fastapi import APIRouter, Body, Depends, Query, Request, Response
+import httpx
 from sqlalchemy import case, desc, func, text
 from sqlalchemy.orm import Session
 
+from app.api.auth import _get_login_config, _get_wechat_miniprogram_access_token
 from app.config import get_settings
 from app.deps import current_partner, db_dep, get_redis, optional_partner, require_admin_permission
 from app.exceptions import BizError
@@ -31,9 +34,9 @@ from app.responses import ok
 from app.schemas import APIResp
 from app.security import auth_session_key, create_access_token, create_refresh_token, decode_token, new_session_version
 from app.services.partner_rebate_service import (
-    authenticate_partner_portal,
     authenticate_partner_portal_login,
     build_channel_links,
+    build_channel_scene_value,
     change_partner_portal_password,
     compute_partner_withdrawable_fen,
     create_partner_channel,
@@ -41,13 +44,14 @@ from app.services.partner_rebate_service import (
     generate_monthly_statement,
     get_partner_portal_overview,
     mark_partner_withdraw_paid,
+    resolve_channel_by_scene,
     reset_partner_portal_password,
-    rotate_partner_portal_token,
     review_partner_withdraw_request,
     settle_monthly_statement,
     update_partner_channel,
     upsert_partner_policy,
 )
+from app.utils_qrcode import build_qrcode_data_url
 
 router = APIRouter()
 settings = get_settings()
@@ -786,14 +790,12 @@ def _channel_item_payload(db: Session, channel: PartnerChannel, request: Request
         "child_count": int(child_count),
         "user_count": int(user_count),
         "order_token": channel.order_token,
-        "portal_token": channel.portal_token,
         "portal_account": channel.channel_code,
         "portal_last_login_at": channel.portal_last_login_at,
         "order_link": links["order_link"],
         "portal_link": links["portal_link"],
         "portal_login_link": links["portal_login_link"],
         "miniapp_order_path": links["miniapp_order_path"],
-        "miniapp_portal_path": links["miniapp_portal_path"],
         "pending_rebate_fen": int(pending),
         "pending_rebate_cny": _fen_to_cny_api(pending),
         "settled_rebate_fen": int(settled),
@@ -813,6 +815,92 @@ def _channel_secret_payload(
     data = _channel_item_payload(db, channel, request=request)
     data["portal_password"] = portal_password
     return data
+
+
+def _channel_miniapp_qrcode_payload(
+    channel: PartnerChannel,
+    *,
+    login_cfg: dict,
+    redis_client,
+) -> dict:
+    scene = build_channel_scene_value(channel)
+    page = "pages/home/index"
+    miniapp_path = f"/pages/home/index?ch={channel.channel_code}&ck={channel.order_token}"
+    miniapp_scene_path = f"/pages/home/index?cs={scene}"
+
+    if not bool(login_cfg.get("wechat_miniprogram_login_enabled")):
+        return {
+            "channel_id": int(channel.id),
+            "channel_code": str(channel.channel_code or ""),
+            "scene": scene,
+            "page": page,
+            "miniapp_order_path": miniapp_path,
+            "miniapp_scene_path": miniapp_scene_path,
+            "qrcode_data_url": build_qrcode_data_url(miniapp_path),
+            "is_official_qrcode": False,
+            "fallback_reason": "小程序正式配置未启用，当前返回预览二维码",
+        }
+
+    access_token = _get_wechat_miniprogram_access_token(login_cfg, redis_client)
+    try:
+        response = httpx.post(
+            f"https://api.weixin.qq.com/wxa/getwxacodeunlimit?access_token={access_token}",
+            json={
+                "scene": scene,
+                "page": page,
+                "check_path": False,
+                "env_version": "release",
+                "width": 430,
+            },
+            timeout=15,
+        )
+    except Exception as exc:
+        raise BizError(code=4489, message="微信小程序码生成失败") from exc
+
+    content_type = str(response.headers.get("content-type", "")).lower()
+    if response.status_code >= 400 or "application/json" in content_type:
+        message = "微信小程序码生成失败"
+        try:
+            payload = response.json()
+            err_msg = str(payload.get("errmsg") or "").strip()
+            if err_msg:
+                message = f"微信小程序码生成失败：{err_msg}"
+        except Exception:
+            pass
+        raise BizError(code=4489, message=message)
+
+    qrcode_data_url = f"data:image/png;base64,{base64.b64encode(response.content).decode('ascii')}"
+    return {
+        "channel_id": int(channel.id),
+        "channel_code": str(channel.channel_code or ""),
+        "scene": scene,
+        "page": page,
+        "miniapp_order_path": miniapp_path,
+        "miniapp_scene_path": miniapp_scene_path,
+        "qrcode_data_url": qrcode_data_url,
+        "is_official_qrcode": True,
+        "fallback_reason": "",
+    }
+
+
+@router.get("/miniapp/resolve-scene", response_model=APIResp)
+def resolve_miniapp_partner_scene(
+    scene: str = Query(default=""),
+    db: Session = Depends(db_dep),
+) -> APIResp:
+    channel = resolve_channel_by_scene(db, scene)
+    if channel is None:
+        raise BizError(code=4490, message="渠道场景码无效或已失效")
+    return ok(
+        data={
+            "channel_id": int(channel.id),
+            "channel_code": str(channel.channel_code or ""),
+            "channel_token": str(channel.order_token or ""),
+            "channel_scene": build_channel_scene_value(channel),
+            "channel_name": str(channel.name or ""),
+            "miniapp_order_path": f"/pages/home/index?ch={channel.channel_code}&ck={channel.order_token}",
+        }
+    )
 
 
 def _withdraw_item_payload(row: PartnerWithdrawRequest, channel: PartnerChannel | None = None) -> dict:
@@ -1362,19 +1450,9 @@ def admin_mark_partner_withdraw_paid(
 def _portal_channel(
     db: Session,
     current_channel: PartnerChannel | None = None,
-    channel_code: str | None = None,
-    portal_token: str | None = None,
 ) -> PartnerChannel:
     if current_channel is not None:
         return current_channel
-    normalized_code = str(channel_code or "").strip()
-    normalized_token = str(portal_token or "").strip()
-    if normalized_code and normalized_token:
-        return authenticate_partner_portal(
-            db,
-            channel_code=normalized_code,
-            portal_token=normalized_token,
-        )
     raise BizError(code=4486, message="渠道登录态已失效，请重新登录", http_status=401)
 
 
@@ -1416,24 +1494,13 @@ def partner_portal_login(
 
 @router.post("/portal/auth/exchange", response_model=APIResp)
 def partner_portal_exchange(
-    response: Response,
     payload: dict = Body(default_factory=dict),
-    db: Session = Depends(db_dep),
-    auth_store=Depends(get_redis),
 ) -> APIResp:
-    channel = authenticate_partner_portal(
-        db,
-        channel_code=str(payload.get("channel_code") or payload.get("ch") or ""),
-        portal_token=str(payload.get("portal_token") or payload.get("pk") or ""),
+    raise BizError(
+        code=4496,
+        message="渠道门户已升级为账号密码登录，请使用渠道账号和密码登录",
+        http_status=410,
     )
-    channel.portal_last_login_at = datetime.utcnow()
-    access_token, refresh_token = _issue_partner_auth(auth_store, response, channel)
-    db.commit()
-    db.refresh(channel)
-    data = _partner_auth_payload(channel)
-    data["token"] = access_token
-    data["refresh_token"] = refresh_token
-    return ok(data=data)
 
 
 @router.post("/portal/auth/refresh", response_model=APIResp)
@@ -1507,12 +1574,7 @@ def portal_overview(
     db: Session = Depends(db_dep),
     current_channel: PartnerChannel | None = Depends(optional_partner),
 ) -> APIResp:
-    channel = _portal_channel(
-        db,
-        current_channel=current_channel,
-        channel_code=request.query_params.get("ch") or request.query_params.get("channel_code"),
-        portal_token=request.query_params.get("pk") or request.query_params.get("portal_token"),
-    )
+    channel = _portal_channel(db, current_channel=current_channel)
     overview = get_partner_portal_overview(db, channel=channel, statement_month=statement_month)
     parent = None
     if channel.parent_channel_id:
@@ -1547,12 +1609,7 @@ def portal_orders(
     db: Session = Depends(db_dep),
     current_channel: PartnerChannel | None = Depends(optional_partner),
 ) -> APIResp:
-    channel = _portal_channel(
-        db,
-        current_channel=current_channel,
-        channel_code=request.query_params.get("ch") or request.query_params.get("channel_code"),
-        portal_token=request.query_params.get("pk") or request.query_params.get("portal_token"),
-    )
+    channel = _portal_channel(db, current_channel=current_channel)
     channel_ids = _scope_channel_ids(db, channel=channel, scope=scope)
     base_query = (
         db.query(PartnerRebateLedger, Order)
@@ -1621,12 +1678,7 @@ def portal_ledger(
     db: Session = Depends(db_dep),
     current_channel: PartnerChannel | None = Depends(optional_partner),
 ) -> APIResp:
-    channel = _portal_channel(
-        db,
-        current_channel=current_channel,
-        channel_code=request.query_params.get("ch") or request.query_params.get("channel_code"),
-        portal_token=request.query_params.get("pk") or request.query_params.get("portal_token"),
-    )
+    channel = _portal_channel(db, current_channel=current_channel)
     channel_ids = _scope_channel_ids(db, channel=channel, scope=scope)
     base_query = db.query(PartnerRebateLedger).filter(PartnerRebateLedger.channel_id.in_(channel_ids))
     created_from_dt = _parse_datetime_filter(created_from)
@@ -1683,12 +1735,7 @@ def portal_statements(
     db: Session = Depends(db_dep),
     current_channel: PartnerChannel | None = Depends(optional_partner),
 ) -> APIResp:
-    channel = _portal_channel(
-        db,
-        current_channel=current_channel,
-        channel_code=request.query_params.get("ch") or request.query_params.get("channel_code"),
-        portal_token=request.query_params.get("pk") or request.query_params.get("portal_token"),
-    )
+    channel = _portal_channel(db, current_channel=current_channel)
     base_query = db.query(PartnerMonthlyStatement).filter(PartnerMonthlyStatement.channel_id == channel.id)
     total = base_query.count()
     rows = (
@@ -1727,12 +1774,7 @@ def portal_withdrawals(
     db: Session = Depends(db_dep),
     current_channel: PartnerChannel | None = Depends(optional_partner),
 ) -> APIResp:
-    channel = _portal_channel(
-        db,
-        current_channel=current_channel,
-        channel_code=request.query_params.get("ch") or request.query_params.get("channel_code"),
-        portal_token=request.query_params.get("pk") or request.query_params.get("portal_token"),
-    )
+    channel = _portal_channel(db, current_channel=current_channel)
     base_query = db.query(PartnerWithdrawRequest).filter(PartnerWithdrawRequest.channel_id == channel.id)
     total = base_query.count()
     rows = (
@@ -1758,12 +1800,7 @@ def portal_withdraw_apply(
     db: Session = Depends(db_dep),
     current_channel: PartnerChannel | None = Depends(optional_partner),
 ) -> APIResp:
-    channel = _portal_channel(
-        db,
-        current_channel=current_channel,
-        channel_code=request.query_params.get("ch") or request.query_params.get("channel_code"),
-        portal_token=request.query_params.get("pk") or request.query_params.get("portal_token"),
-    )
+    channel = _portal_channel(db, current_channel=current_channel)
     try:
         apply_amount_cny = float(payload.get("apply_amount_cny") or 0)
     except Exception:
@@ -1786,12 +1823,7 @@ def portal_subchannels(
     db: Session = Depends(db_dep),
     current_channel: PartnerChannel | None = Depends(optional_partner),
 ) -> APIResp:
-    channel = _portal_channel(
-        db,
-        current_channel=current_channel,
-        channel_code=request.query_params.get("ch") or request.query_params.get("channel_code"),
-        portal_token=request.query_params.get("pk") or request.query_params.get("portal_token"),
-    )
+    channel = _portal_channel(db, current_channel=current_channel)
     rows = (
         db.query(PartnerChannel)
         .filter(PartnerChannel.parent_channel_id == channel.id)
@@ -1807,12 +1839,7 @@ def portal_channel_tree(
     db: Session = Depends(db_dep),
     current_channel: PartnerChannel | None = Depends(optional_partner),
 ) -> APIResp:
-    channel = _portal_channel(
-        db,
-        current_channel=current_channel,
-        channel_code=request.query_params.get("ch") or request.query_params.get("channel_code"),
-        portal_token=request.query_params.get("pk") or request.query_params.get("portal_token"),
-    )
+    channel = _portal_channel(db, current_channel=current_channel)
     return ok(data={"item": _channel_tree_payload(db, channel=channel, request=request)})
 
 
@@ -1823,12 +1850,7 @@ def portal_team_summary(
     db: Session = Depends(db_dep),
     current_channel: PartnerChannel | None = Depends(optional_partner),
 ) -> APIResp:
-    channel = _portal_channel(
-        db,
-        current_channel=current_channel,
-        channel_code=request.query_params.get("ch") or request.query_params.get("channel_code"),
-        portal_token=request.query_params.get("pk") or request.query_params.get("portal_token"),
-    )
+    channel = _portal_channel(db, current_channel=current_channel)
     channel_ids = _scope_channel_ids(db, channel=channel, scope=scope)
     return ok(data=_team_summary_payload(db, channel_ids=channel_ids, scope=scope))
 
@@ -1842,12 +1864,7 @@ def portal_analytics(
     current_channel: PartnerChannel | None = Depends(optional_partner),
     redis_client=Depends(get_redis),
 ) -> APIResp:
-    channel = _portal_channel(
-        db,
-        current_channel=current_channel,
-        channel_code=request.query_params.get("ch") or request.query_params.get("channel_code"),
-        portal_token=request.query_params.get("pk") or request.query_params.get("portal_token"),
-    )
+    channel = _portal_channel(db, current_channel=current_channel)
     cache_key = _analytics_cache_key("portal", channel_id=int(channel.id), days=int(days), scope=_normalize_scope(scope))
     cached = _analytics_cache_get(redis_client, cache_key)
     if cached is not None:
@@ -1869,12 +1886,7 @@ def portal_customers(
     db: Session = Depends(db_dep),
     current_channel: PartnerChannel | None = Depends(optional_partner),
 ) -> APIResp:
-    channel = _portal_channel(
-        db,
-        current_channel=current_channel,
-        channel_code=request.query_params.get("ch") or request.query_params.get("channel_code"),
-        portal_token=request.query_params.get("pk") or request.query_params.get("portal_token"),
-    )
+    channel = _portal_channel(db, current_channel=current_channel)
     channel_ids = _scope_channel_ids(db, channel=channel, scope=scope)
     return ok(
         data=_customer_list_payload(
@@ -1896,12 +1908,7 @@ def portal_create_subchannel(
     db: Session = Depends(db_dep),
     current_channel: PartnerChannel | None = Depends(optional_partner),
 ) -> APIResp:
-    channel = _portal_channel(
-        db,
-        current_channel=current_channel,
-        channel_code=request.query_params.get("ch") or request.query_params.get("channel_code"),
-        portal_token=request.query_params.get("pk") or request.query_params.get("portal_token"),
-    )
+    channel = _portal_channel(db, current_channel=current_channel)
     child = create_partner_channel(
         db,
         name=str(payload.get("name") or ""),
@@ -1925,12 +1932,7 @@ def portal_update_subchannel(
     db: Session = Depends(db_dep),
     current_channel: PartnerChannel | None = Depends(optional_partner),
 ) -> APIResp:
-    channel = _portal_channel(
-        db,
-        current_channel=current_channel,
-        channel_code=request.query_params.get("ch") or request.query_params.get("channel_code"),
-        portal_token=request.query_params.get("pk") or request.query_params.get("portal_token"),
-    )
+    channel = _portal_channel(db, current_channel=current_channel)
     try:
         child = _portal_managed_channel(channel, channel_id, db)
     except ValueError as exc:
@@ -1956,12 +1958,7 @@ def portal_subchannel_policies(
     db: Session = Depends(db_dep),
     current_channel: PartnerChannel | None = Depends(optional_partner),
 ) -> APIResp:
-    channel = _portal_channel(
-        db,
-        current_channel=current_channel,
-        channel_code=request.query_params.get("ch") or request.query_params.get("channel_code"),
-        portal_token=request.query_params.get("pk") or request.query_params.get("portal_token"),
-    )
+    channel = _portal_channel(db, current_channel=current_channel)
     try:
         child = _portal_managed_channel(channel, channel_id, db)
     except ValueError as exc:
@@ -1999,12 +1996,7 @@ def portal_upsert_subchannel_policy(
     db: Session = Depends(db_dep),
     current_channel: PartnerChannel | None = Depends(optional_partner),
 ) -> APIResp:
-    channel = _portal_channel(
-        db,
-        current_channel=current_channel,
-        channel_code=request.query_params.get("ch") or request.query_params.get("channel_code"),
-        portal_token=request.query_params.get("pk") or request.query_params.get("portal_token"),
-    )
+    channel = _portal_channel(db, current_channel=current_channel)
     try:
         child = _portal_managed_channel(channel, channel_id, db)
     except ValueError as exc:
@@ -2036,22 +2028,12 @@ def _portal_refresh_subchannel_link(
     request: Request,
     db: Session = Depends(db_dep),
     current_channel: PartnerChannel | None = Depends(optional_partner),
-    auth_store=Depends(get_redis),
 ) -> APIResp:
-    channel = _portal_channel(
-        db,
-        current_channel=current_channel,
-        channel_code=request.query_params.get("ch") or request.query_params.get("channel_code"),
-        portal_token=request.query_params.get("pk") or request.query_params.get("portal_token"),
-    )
+    channel = _portal_channel(db, current_channel=current_channel)
     try:
         child = _portal_managed_channel(channel, channel_id, db)
     except ValueError as exc:
         return ok(data=None, message=str(exc))
-    child = rotate_partner_portal_token(db, channel=child)
-    _clear_partner_session(auth_store, channel_id=int(child.id))
-    db.commit()
-    db.refresh(child)
     return ok(data=_channel_item_payload(db, child, request=request))
 
 
@@ -2062,12 +2044,7 @@ def _portal_reset_subchannel_password(
     current_channel: PartnerChannel | None = Depends(optional_partner),
     auth_store=Depends(get_redis),
 ) -> APIResp:
-    channel = _portal_channel(
-        db,
-        current_channel=current_channel,
-        channel_code=request.query_params.get("ch") or request.query_params.get("channel_code"),
-        portal_token=request.query_params.get("pk") or request.query_params.get("portal_token"),
-    )
+    channel = _portal_channel(db, current_channel=current_channel)
     try:
         child = _portal_managed_channel(channel, channel_id, db)
     except ValueError as exc:
@@ -2085,15 +2062,42 @@ def portal_refresh_subchannel_link(
     request: Request,
     db: Session = Depends(db_dep),
     current_channel: PartnerChannel | None = Depends(optional_partner),
-    auth_store=Depends(get_redis),
 ) -> APIResp:
     return _portal_refresh_subchannel_link(
         channel_id,
         request,
         db=db,
         current_channel=current_channel,
-        auth_store=auth_store,
     )
+
+
+@router.get("/portal/subchannels/{channel_id}/miniapp-qrcode", response_model=APIResp)
+def portal_subchannel_miniapp_qrcode(
+    channel_id: int,
+    request: Request,
+    db: Session = Depends(db_dep),
+    current_channel: PartnerChannel | None = Depends(optional_partner),
+    redis_client=Depends(get_redis),
+) -> APIResp:
+    channel = _portal_channel(db, current_channel=current_channel)
+    try:
+        child = _portal_managed_channel(channel, channel_id, db)
+    except ValueError as exc:
+        return ok(data=None, message=str(exc))
+    login_cfg = _get_login_config(db)
+    return ok(data=_channel_miniapp_qrcode_payload(child, login_cfg=login_cfg, redis_client=redis_client))
+
+
+@router.get("/portal/miniapp-qrcode", response_model=APIResp)
+def portal_current_channel_miniapp_qrcode(
+    request: Request,
+    db: Session = Depends(db_dep),
+    current_channel: PartnerChannel | None = Depends(optional_partner),
+    redis_client=Depends(get_redis),
+) -> APIResp:
+    channel = _portal_channel(db, current_channel=current_channel)
+    login_cfg = _get_login_config(db)
+    return ok(data=_channel_miniapp_qrcode_payload(channel, login_cfg=login_cfg, redis_client=redis_client))
 
 
 @router.post("/portal/subchannels/{channel_id}/portal-password/reset", response_model=APIResp)
@@ -2118,15 +2122,10 @@ def _admin_refresh_partner_portal_link(
     payload: dict = Body(default_factory=dict),
     _: AdminUser = Depends(require_admin_permission("configs:manage")),
     db: Session = Depends(db_dep),
-    auth_store=Depends(get_redis),
 ) -> APIResp:
-    channel = db.query(PartnerChannel).filter(PartnerChannel.id == channel_id).with_for_update().first()
+    channel = db.query(PartnerChannel).filter(PartnerChannel.id == channel_id).first()
     if channel is None:
         return ok(data=None, message="渠道不存在")
-    channel = rotate_partner_portal_token(db, channel=channel)
-    _clear_partner_session(auth_store, channel_id=int(channel.id))
-    db.commit()
-    db.refresh(channel)
     return ok(data=_channel_item_payload(db, channel))
 
 
@@ -2157,14 +2156,12 @@ def admin_refresh_partner_portal_link(
     payload: dict = Body(default_factory=dict),
     _: AdminUser = Depends(require_admin_permission("configs:manage")),
     db: Session = Depends(db_dep),
-    auth_store=Depends(get_redis),
 ) -> APIResp:
     return _admin_refresh_partner_portal_link(
         channel_id,
         payload=payload,
         _=_,
         db=db,
-        auth_store=auth_store,
     )
 
 
@@ -2183,3 +2180,17 @@ def admin_reset_partner_portal_password(
         db=db,
         auth_store=auth_store,
     )
+
+
+@router.get("/admin/channels/{channel_id}/miniapp-qrcode", response_model=APIResp)
+def admin_get_partner_miniapp_qrcode(
+    channel_id: int,
+    _: AdminUser = Depends(require_admin_permission("orders:view")),
+    db: Session = Depends(db_dep),
+    redis_client=Depends(get_redis),
+) -> APIResp:
+    channel = db.query(PartnerChannel).filter(PartnerChannel.id == channel_id).first()
+    if channel is None:
+        raise BizError(code=4488, message="渠道不存在")
+    login_cfg = _get_login_config(db)
+    return ok(data=_channel_miniapp_qrcode_payload(channel, login_cfg=login_cfg, redis_client=redis_client))

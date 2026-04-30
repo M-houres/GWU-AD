@@ -7984,3 +7984,113 @@
     - 验证结果
       - 后端已通过 `python -m py_compile app/api/auth.py app/api/admin.py`
       - 前端已通过 `npm run build`
+
+- 2026-04-28 19:38:13
+  - 小程序本地联调配置收口
+    - 小程序工程
+      - `miniapp/project.config.json` 已切换为正式 `AppID`：`wxf330c17322dfbd98`
+      - 新增本地 `project.private.config.json`，关闭开发阶段域名校验
+      - `miniapp/config/env.js` 的 `develop` 环境改为默认请求本机 `http://127.0.0.1:8000/api/v1`
+    - 登录链路
+      - 小程序登录页补充“开发调试登录 / 内测登录 / 正式微信登录”状态识别
+      - 修正本地 `develop` 环境下 mock 登录可见但不可点的问题
+      - 本地数据库已写入 `wechat_miniprogram_login_enabled = true`
+    - 支付材料
+      - 已确认 `C:\Users\m\Desktop\001项目\格物学术资料\_cert_20260401` 包含 `apiclient_cert.pem / apiclient_key.pem / apiclient_cert.p12`
+      - 本地支付配置已写入商户号、证书序列号、APIv3 Key、商户私钥
+      - 当前未手填微信支付平台公钥，但后端可使用商户证书自动拉取平台证书，不阻塞本地联调
+    - 脚本与文档
+      - 新增本地初始化脚本：`backend/scripts/bootstrap_local_miniapp.py`
+      - 新增本地联调说明：`docs/MINIAPP_LOCAL_SETUP.md`
+    - 当前待办
+      - 启动本地后端并实测小程序登录链路
+      - 梳理“Web 端与小程序端用户数据是否共用”以及“小程序如何纳入渠道分销体系”的现状和方案
+    - 验证结果
+      - 本地脚本已通过 `python -m py_compile backend/scripts/bootstrap_local_miniapp.py`
+      - 本地数据库已回读确认 `login / miniapp / payment` 配置落地
+
+- 2026-04-28 22:13:20
+  - Web / 小程序账号归一与渠道邀请收口
+    - 登录归一
+      - `backend/app/schemas.py` 为手机号登录、小程序登录、小程序手机号快捷登录补充 `channel_code / channel_token / referrer_code`
+      - `backend/app/api/auth.py` 在 Web 登录、`/auth/refresh`、小程序登录、小程序手机号快捷登录统一返回服务端 `partner_tracking`
+      - 登录成功后即尝试绑定渠道归属，避免只在首单时才写渠道关系
+    - 渠道归属
+      - `backend/app/services/partner_rebate_service.py` 新增公开 helper：`get_bound_channel_payload / bind_partner_channel_from_request / bind_partner_channel`
+      - `GET /api/v1/users/me`、`GET /api/v1/users/me/summary`、登录返回均改为下发服务端真实渠道归属，不再只依赖端侧本地缓存判断
+    - 邀请绑定
+      - 新增 `backend/app/services/invite_service.py`，统一收口邀请码生成、绑定、奖励发放、里程碑奖励
+      - `POST /api/v1/users/me/invite/bind` 改为复用共享 service，避免手动绑定与登录自动绑定两套逻辑分叉
+      - 小程序登录时上送的 `referrer_code` 现在会在后端自动尝试绑定邀请关系
+      - 若邀请人已归属某渠道，而被邀请人尚未绑定渠道，则被邀请人在邀请码绑定成功后自动继承邀请人的渠道归属，绑定来源记为 `invite`
+    - 兼容接口
+      - 新增 `GET /api/v1/users/me/invite-code`，兼容小程序现有调用
+      - `/api/v1/users/me/invite` 同步补充 `invite_link`
+    - 验证结果
+      - 后端已通过 `python -m py_compile backend/app/api/auth.py backend/app/api/users.py backend/app/services/partner_rebate_service.py backend/app/services/invite_service.py backend/app/schemas.py`
+      - 后端已通过 `pytest tests/test_auth_phone_login_flow.py tests/test_auth_risk_controls.py tests/test_user_promo_center.py -q`
+
+  - 小程序登录按官方链路收紧
+    - 官方链路核对
+      - 已对照微信开放文档确认当前后端使用的是官方推荐链路：`wx.login -> code2Session`，手机号授权使用 `getPhoneNumber -> getuserphonenumber`
+      - 结合项目目标，正式账号体系继续坚持“手机号为主身份”，不把纯微信 `openid` 直接视为最终正式账号
+    - 小程序前端
+      - `miniapp/pages/login/index.wxml`、`miniapp/pages/login/index.js` 调整为正式环境优先展示“微信手机号快捷登录”
+      - 当小程序已具备手机号快捷登录能力时，纯微信一键登录不再作为正式主入口，只保留为开发/内测兜底
+      - 登录页提示文案同步改为“为统一 Web / 小程序账号、积分、订单、邀请关系，正式环境优先使用手机号快捷登录”
+    - 渠道透传
+      - `miniapp/utils/auth.js` 登录请求新增自动透传本地 `channel_code / channel_token`
+      - 小程序从渠道链接进入后，登录时即可完成渠道归属绑定，不必等到首单
+    - 验证结果
+      - 后端已通过 `pytest tests/test_auth_risk_controls.py tests/test_partner_rebate_flow.py tests/test_user_promo_center.py -q`
+      - 小程序登录脚本已通过 `node --check miniapp/utils/auth.js` 与 `node --check miniapp/pages/login/index.js`
+
+  - 历史小程序账号并档与服务端渠道显示收口
+    - 历史账号并档
+      - 新增 `backend/app/services/user_merge_service.py`
+      - 当小程序手机号快捷登录命中“同一微信身份已有历史虚拟号账号、同一手机号又已有正式账号”时，不再报“不同账户”，改为自动把历史虚拟号账号并档到手机号正式账号
+      - 并档范围覆盖用户任务、订单、通知、积分流水、邀请关系、渠道归属、返佣记录等核心 `user_id` 资产
+      - 历史虚拟号账号会被置为已合并旧账号并禁用，避免再次被当作有效正式账号使用
+    - 小程序个人中心
+      - `miniapp/pages/profile/index.js` 的渠道归属展示已切到服务端 `user.partner_tracking`
+      - 展示文案优先显示服务端 `channel_name`，不再只看本地缓存的 `channel_code`
+    - 验证结果
+      - 后端已通过 `pytest tests/test_auth_phone_login_flow.py tests/test_auth_risk_controls.py tests/test_partner_rebate_flow.py tests/test_user_promo_center.py -q`
+      - 小程序个人中心脚本已通过 `node --check miniapp/pages/profile/index.js`
+
+- 2026-04-30 19:21:46
+  - 小程序登录、隐私授权与聊天文件选择收口
+    - 登录链路
+      - `miniapp/pages/login/index.js`、`miniapp/pages/login/index.wxml`、`miniapp/pages/login/index.wxss` 继续收口登录页交互
+      - 将“协议勾选”和“微信隐私授权”拆成两步，避免用户误以为已同意协议就等于已完成微信隐私授权
+      - 修正 `agreePrivacyAuthorization` 回调处理，不再把失败授权误当作成功
+      - 手机号快捷登录在首次被微信隐私授权拦截时，前端改为明确提示“请再点一次登录”
+    - 隐私接口接入
+      - `miniapp/app.js` 统一封装 `ensurePrivacyAuthorization` 与 `openPrivacyContract`
+      - `miniapp/app.json` 仅保留 `__usePrivacyCheck__ = true`，移除错误尝试过的 `requiredPrivateInfos` 配置，修复开发者工具 `getAppConfig` 报错
+      - `miniapp/pages/legal/privacy/index.wxml` 隐私页文案同步补齐手机号快捷验证与聊天文件选择用途说明
+    - 聊天文件选择与上传链路
+      - `miniapp/pages/home/index.js` 继续固定走 `wx.chooseMessageFile`
+      - `choose_file` 登录返回续做改为重新进入 `onChooseFile()`，不再绕开隐私授权
+      - `chooseMessageFile` 调用改为 `type: "file"` 并补齐 `extension`
+      - 前端新增 `privacyagreement` 专用报错提示，明确区分“微信平台隐私声明缺项”和“本地代码错误”
+      - 上传链路继续沿用前一轮已补齐的原始文件名透传与扩展名兼容处理
+    - 微信公众平台隐私指引协助
+      - 已指导在微信公众平台“小程序隐私保护指引”中增加两项处理信息：
+        - `手机号`
+        - `选中的文件`
+      - 用途文案已按当前小程序真实能力收口为“手机号快捷登录 / 账号绑定 / 登录校验 / 风控”和“从微信聊天记录中主动选择论文文件用于检测、降 AIGC、降重、结果查询下载”
+      - 当前平台状态为“审核中”，说明微信侧配置已提交但尚未最终生效
+    - 文档与清单
+      - 更新 `miniapp/README.md`
+      - 更新 `miniapp/QA_CHECKLIST.md`
+      - 更新 `docs/MINIAPP_GO_LIVE_CHECKLIST.md`
+      - 将 `chooseMessageFile:fail api scope is not declared in the privacyagreement` 明确记录为微信公众平台隐私声明阻塞项，不再误导为前端 JS 问题
+    - 验证结果
+      - 小程序全量 JS 已通过 `Get-ChildItem miniapp -Recurse -Filter *.js | ForEach-Object { node --check $_.FullName }`
+      - 后端已通过 `PYTHONPATH=backend .venv\\Scripts\\python.exe -m pytest tests/test_auth_phone_login_flow.py -q`
+      - 后端已通过 `PYTHONPATH=backend .venv\\Scripts\\python.exe -m pytest tests/test_task_submission_chain.py -q`
+      - 后端已通过 `PYTHONPATH=backend .venv\\Scripts\\python.exe -m pytest tests/test_user_promo_center.py -q`
+      - 后端已通过 `PYTHONPATH=backend .venv\\Scripts\\python.exe -m pytest tests/test_auth_risk_controls.py -q`
+      - 后端已通过 `PYTHONPATH=backend .venv\\Scripts\\python.exe -m pytest tests/test_task_filename.py -q`
+      - 后端已通过 `PYTHONPATH=backend .venv\\Scripts\\python.exe -m pytest tests/test_utils_file_magic.py -q`

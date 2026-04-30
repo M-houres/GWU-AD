@@ -7,6 +7,7 @@ from fastapi.responses import FileResponse
 from sqlalchemy import desc
 from sqlalchemy.orm import Session
 
+from app.client_source import MINIPROGRAM_CLIENT_SOURCE
 from app.config import get_settings
 from app.constants import ALLOWED_EXTENSIONS, MAX_FILE_SIZE_MB
 from app.deps import client_source_dep, current_user, db_dep, get_redis
@@ -61,27 +62,30 @@ logger = logging.getLogger("app.api.tasks")
 TASK_CHAIN_GUARD_TIMEOUT_MESSAGE = "任务链路保护触发：处理超时未完成，请重试"
 
 TASK_PAPER_EXTENSIONS: dict[TaskType, set[str]] = {
-    TaskType.AIGC_DETECT: {".docx", ".pdf", ".txt"},
-    TaskType.DEDUP: {".docx"},
-    TaskType.REWRITE: {".docx"},
+    TaskType.AIGC_DETECT: {".doc", ".docx", ".pdf", ".txt"},
+    TaskType.DEDUP: {".doc", ".docx"},
+    TaskType.REWRITE: {".doc", ".docx"},
 }
 TASK_REPORT_EXTENSIONS: dict[TaskType, set[str]] = {
     TaskType.AIGC_DETECT: set(),
-    TaskType.DEDUP: {".docx", ".pdf"},
-    TaskType.REWRITE: {".docx", ".pdf"},
+    TaskType.DEDUP: {".doc", ".docx", ".pdf"},
+    TaskType.REWRITE: {".doc", ".docx", ".pdf"},
 }
 TASK_PAPER_MIME_TYPES: dict[TaskType, set[str]] = {
     TaskType.AIGC_DETECT: {
+        "application/msword",
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         "application/pdf",
         "text/plain",
         "application/octet-stream",
     },
     TaskType.DEDUP: {
+        "application/msword",
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         "application/octet-stream",
     },
     TaskType.REWRITE: {
+        "application/msword",
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         "application/octet-stream",
     },
@@ -89,11 +93,13 @@ TASK_PAPER_MIME_TYPES: dict[TaskType, set[str]] = {
 TASK_REPORT_MIME_TYPES: dict[TaskType, set[str]] = {
     TaskType.AIGC_DETECT: set(),
     TaskType.DEDUP: {
+        "application/msword",
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         "application/pdf",
         "application/octet-stream",
     },
     TaskType.REWRITE: {
+        "application/msword",
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         "application/pdf",
         "application/octet-stream",
@@ -225,7 +231,7 @@ def _validate_paper_extension(task_type: TaskType, ext: str) -> None:
     allowed = TASK_PAPER_EXTENSIONS[task_type]
     if ext not in allowed:
         if task_type in {TaskType.DEDUP, TaskType.REWRITE}:
-            raise BizError(code=4104, message="仅支持 Word 文档（.docx）")
+            raise BizError(code=4104, message="仅支持 Word 文档（.doc / .docx）")
         raise BizError(code=4104, message=f"文件格式不支持，仅支持{_format_exts(allowed)}")
 
 
@@ -237,10 +243,31 @@ def _validate_report_extension(task_type: TaskType, ext: str) -> None:
         raise BizError(code=4106, message=f"报告文件格式不支持，仅支持{_format_exts(allowed)}")
 
 
-def _validate_upload_content_type(upload: UploadFile, *, allowed: set[str], label: str, code: int) -> None:
+def _resolve_upload_filename(upload: UploadFile | None, *, provided_name: str = "", fallback_name: str = "unnamed") -> str:
+    normalized_provided = safe_display_filename(provided_name) if provided_name else ""
+    normalized_upload_name = safe_display_filename(upload.filename) if upload and upload.filename else ""
+    if normalized_provided:
+        if Path(normalized_provided).suffix:
+            return normalized_provided
+        upload_ext = Path(normalized_upload_name).suffix.lower()
+        return f"{normalized_provided}{upload_ext}" if upload_ext else normalized_provided
+    return normalized_upload_name or safe_display_filename(fallback_name)
+
+
+def _validate_upload_content_type(
+    upload: UploadFile,
+    *,
+    allowed: set[str],
+    label: str,
+    code: int,
+    client_source: str = "",
+) -> None:
     content_type = str(upload.content_type or "").split(";")[0].strip().lower()
-    if not content_type or content_type not in allowed:
-        raise BizError(code=code, message=f"{label} MIME 类型不支持")
+    if content_type and content_type in allowed:
+        return
+    if client_source == MINIPROGRAM_CLIENT_SOURCE:
+        return
+    raise BizError(code=code, message=f"{label} MIME 类型不支持")
 
 
 def _validate_report_content(task_type: TaskType, path: Path) -> None:
@@ -354,12 +381,23 @@ def submit_task(
         raise BizError(code=4104, message="请上传文件或粘贴文本")
 
     if paper_upload is not None:
-        ext = Path(paper_upload.filename or "").suffix.lower()
+        upload_name = _resolve_upload_filename(
+            paper_upload,
+            provided_name=source_filename,
+            fallback_name=f"source{Path(paper_upload.filename or '').suffix.lower() or '.tmp'}",
+        )
+        ext = Path(upload_name).suffix.lower()
         if ext not in ALLOWED_EXTENSIONS:
             raise BizError(code=4104, message="文件格式不支持")
         _validate_paper_extension(t, ext)
-        _validate_upload_content_type(paper_upload, allowed=TASK_PAPER_MIME_TYPES[t], label="主文稿", code=4104)
-        src_name, src_storage_name = _build_storage_name(paper_upload.filename or f"source{ext}", f"source{ext}")
+        _validate_upload_content_type(
+            paper_upload,
+            allowed=TASK_PAPER_MIME_TYPES[t],
+            label="主文稿",
+            code=4104,
+            client_source=client_source,
+        )
+        src_name, src_storage_name = _build_storage_name(upload_name, f"source{ext}")
     else:
         if t not in {TaskType.DEDUP, TaskType.REWRITE}:
             raise BizError(code=4104, message="当前任务仅支持上传文件")
@@ -439,7 +477,13 @@ def submit_task(
             if rpt_ext not in ALLOWED_EXTENSIONS:
                 raise BizError(code=4106, message="报告文件格式不支持")
             _validate_report_extension(t, rpt_ext)
-            _validate_upload_content_type(report, allowed=TASK_REPORT_MIME_TYPES[t], label="辅助报告", code=4106)
+            _validate_upload_content_type(
+                report,
+                allowed=TASK_REPORT_MIME_TYPES[t],
+                label="辅助报告",
+                code=4106,
+                client_source=client_source,
+            )
             _, report_storage_name = _build_storage_name(report.filename, f"report{rpt_ext or '.tmp'}")
             report_file_path = upload_dir / report_storage_name
             _save_upload_to(report_file_path, report, max_bytes)

@@ -68,5 +68,5 @@ PACKAGE_CONFIG = {
 }
 
 
-ALLOWED_EXTENSIONS = {".docx", ".pdf", ".txt"}
+ALLOWED_EXTENSIONS = {".doc", ".docx", ".pdf", ".txt"}
 MAX_FILE_SIZE_MB = 20

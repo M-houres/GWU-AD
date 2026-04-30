@@ -106,6 +106,85 @@ def test_submit_task_stores_metadata_and_unique_storage_paths(
         app.dependency_overrides.pop(current_user, None)
 
 
+def test_submit_task_accepts_miniprogram_temp_filename_when_source_filename_has_real_extension(
+    client,
+    db_session: Session,
+    monkeypatch,
+    settings_override,
+) -> None:
+    user = User(phone="13800007779", nickname="miniapp-upload-user", credits=10000)
+    db_session.add(user)
+    db_session.commit()
+    db_session.refresh(user)
+    monkeypatch.setattr("app.worker_tasks.process_task_async.delay", lambda *_args, **_kwargs: None)
+    app.dependency_overrides[current_user] = lambda: user
+    try:
+        resp = client.post(
+            "/api/v1/tasks/submit",
+            data={
+                "task_type": "dedup",
+                "platform": "cnki",
+                "paper_title": "小程序临时文件名上传测试",
+                "authors": "测试作者",
+                "source_filename": "wechat-source.docx",
+            },
+            files={
+                "paper": (
+                    "wxfile://tmp_1710000000000",
+                    _make_docx_bytes("这是用于验证小程序临时文件名上传兼容性的正文内容。"),
+                    "application/octet-stream",
+                )
+            },
+            headers={"X-Client-Source": "miniprogram"},
+        )
+        assert resp.status_code == 200
+        payload = resp.json()["data"]
+        task = db_session.get(Task, payload["id"])
+        assert task is not None
+        assert task.source_filename == "wechat-source.docx"
+        assert Path(task.source_path).name.endswith("_wechat-source.docx")
+    finally:
+        app.dependency_overrides.pop(current_user, None)
+
+
+def test_submit_task_keeps_web_mime_validation_strict_for_non_miniprogram(
+    client,
+    db_session: Session,
+    monkeypatch,
+    settings_override,
+) -> None:
+    user = User(phone="13800007780", nickname="web-upload-user", credits=10000)
+    db_session.add(user)
+    db_session.commit()
+    db_session.refresh(user)
+    monkeypatch.setattr("app.worker_tasks.process_task_async.delay", lambda *_args, **_kwargs: None)
+    app.dependency_overrides[current_user] = lambda: user
+    try:
+        resp = client.post(
+            "/api/v1/tasks/submit",
+            data={
+                "task_type": "dedup",
+                "platform": "cnki",
+                "paper_title": "Web MIME 严格校验测试",
+                "authors": "测试作者",
+                "source_filename": "web-source.docx",
+            },
+            files={
+                "paper": (
+                    "web-source.docx",
+                    _make_docx_bytes("这是用于验证 Web 端 MIME 严格校验的正文内容。"),
+                    "application/zip",
+                )
+            },
+        )
+        assert resp.status_code == 400
+        body = resp.json()
+        assert body["code"] == 4104
+        assert "MIME" in body["message"]
+    finally:
+        app.dependency_overrides.pop(current_user, None)
+
+
 def test_submit_recover_by_idempotency_key(
     client,
     db_session: Session,
@@ -288,10 +367,13 @@ def test_process_task_preserves_submission_metadata(
     monkeypatch.setattr(
         worker_tasks.ProcessingEngine,
         "process",
-        lambda *_args, **_kwargs: SimpleNamespace(
-            output_path=str(tmp_path / "out.docx"),
-            result_json={"summary": "done", "change_ratio": 18.5},
-        ),
+        lambda *_args, **_kwargs: (
+            (tmp_path / "out.docx").write_bytes(source_path.read_bytes()),
+            SimpleNamespace(
+                output_path=str(tmp_path / "out.docx"),
+                result_json={"summary": "done", "change_ratio": 18.5},
+            ),
+        )[1],
     )
 
     @contextmanager

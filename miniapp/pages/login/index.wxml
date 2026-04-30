@@ -2,11 +2,13 @@
   <view class="login-bg-orb login-bg-orb--top"></view>
   <view class="login-bg-orb login-bg-orb--bottom"></view>
 
-  <view class="login-hero">
-    <view class="login-hero-top">
+    <view class="login-hero">
+      <view class="login-hero-top">
+      <view class="login-brand-logo-shell">
+        <image class="login-brand-logo" src="/assets/login-bear-logo-transparent.png" mode="aspectFit" />
+      </view>
       <view class="login-brand-copy">
-        <view class="login-brand-name">格物学术</view>
-        <view class="login-brand-sub">微信学术工作台</view>
+        <view class="login-brand-name">{{ runtimeCopy.login.brand_name }}</view>
       </view>
     </view>
 
@@ -19,25 +21,38 @@
       <view class="login-sheet-title">{{ loginTitle }}</view>
     </view>
 
-    <label class="login-policy">
-      <checkbox checked="{{ agreedPolicy }}" bindtap="onTogglePolicy" />
-      <text>我已阅读并同意服务协议与隐私条款</text>
-    </label>
+    <view wx:if="{{ !loginAvailable }}" class="login-status-card">
+      <view class="login-status-title">{{ loginUnavailableTitle }}</view>
+      <view class="login-status-desc">{{ loginUnavailableDesc }}</view>
+    </view>
+
+    <view wx:if="{{ loginModeLabel }}" class="login-mode-tip">{{ loginModeLabel }}</view>
+
+    <view class="login-policy" bindtap="onTogglePolicy">
+      <view class="login-policy-check {{ agreedPolicy ? 'login-policy-check--active' : '' }}">
+        <text wx:if="{{ agreedPolicy }}" class="login-policy-check__icon">✓</text>
+      </view>
+      <view class="login-policy-text">
+        <text>我已阅读并同意</text>
+        <text class="login-policy-link" catchtap="openTermsPage">《服务协议》</text>
+        <text>与</text>
+        <text class="login-policy-link" catchtap="openPrivacyPage">《隐私政策》</text>
+      </view>
+    </view>
+
+    <button
+      wx:if="{{ needWechatPrivacyAuthorization }}"
+      class="login-privacy-btn"
+      open-type="agreePrivacyAuthorization"
+      bindagreeprivacyauthorization="onAgreePrivacyAuthorization"
+    >
+      {{ wechatPrivacyReady ? "微信隐私授权已完成" : "点击完成微信隐私授权" }}
+    </button>
 
     <view class="login-action-stack">
       <button
-        class="login-primary-btn"
-        hover-class="is-press-btn"
-        loading="{{ loading }}"
-        disabled="{{ loading }}"
-        bindtap="onTapWeChatLogin"
-      >
-        {{ loading ? "登录中..." : "微信一键登录" }}
-      </button>
-
-      <button
         wx:if="{{ phoneQuickLoginReady }}"
-        class="login-secondary-btn"
+        class="login-primary-btn"
         hover-class="is-press-btn"
         loading="{{ loading }}"
         disabled="{{ loading }}"
@@ -46,6 +61,17 @@
         bindgetphonenumber="onTapPhoneQuickLogin"
       >
         {{ loading ? "登录中..." : "微信手机号快捷登录" }}
+      </button>
+
+      <button
+        wx:if="{{ showWeChatLoginButton }}"
+        class="{{ phoneQuickLoginReady ? 'login-secondary-btn' : 'login-primary-btn' }}"
+        hover-class="is-press-btn"
+        loading="{{ loading }}"
+        disabled="{{ loading || (!loginAvailable && !loginLoadFailed) }}"
+        bindtap="onTapWeChatLogin"
+      >
+        {{ loginLoadFailed ? (loading ? "刷新中..." : "刷新登录配置") : (miniProgramMockReady ? (loading ? "登录中..." : "进入开发调试") : (miniProgramInternalTestReady ? (loading ? "登录中..." : "进入内测登录") : (loading ? "登录中..." : "微信登录"))) }}
       </button>
     </view>
   </view>

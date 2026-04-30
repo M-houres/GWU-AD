@@ -34,7 +34,7 @@
                       @dragleave.prevent="dragActive = false"
                       @drop.prevent="onDrop"
                     >
-                      <input class="hidden" type="file" accept=".docx,.pdf,.txt" @change="onPaperInput" />
+                      <input class="hidden" type="file" accept=".doc,.docx,.pdf,.txt" @change="onPaperInput" />
                       <div class="aigc-upload__inner">
                         <div class="aigc-upload__icon" aria-hidden="true">
                           <svg viewBox="0 0 24 24">
@@ -51,7 +51,7 @@
                         <p class="aigc-upload__title">请将待检测文档拖拽至区域，或<span>点击上传</span></p>
                       </div>
                     </label>
-                    <p class="aigc-upload__ext">支持 .docx / .pdf / .txt，单文件上限 20MB</p>
+                    <p class="aigc-upload__ext">支持 .doc / .docx / .pdf / .txt，单文件上限 20MB</p>
                     <p class="aigc-upload__note">基于大量数据训练，仿版与官方结果相差一般在10%以内</p>
                     <p v-if="paperFile" class="aigc-upload__file">
                       {{ paperFile.name }}（{{ humanSize(paperFile.size) }}）
@@ -315,8 +315,8 @@ function setPaperFile(file) {
   if (!file) return
 
   const ext = file.name.includes(".") ? file.name.slice(file.name.lastIndexOf(".")).toLowerCase() : ""
-  if (![".docx", ".pdf", ".txt"].includes(ext)) {
-    fieldErrors.paper = "仅支持 .docx / .pdf / .txt 文件"
+  if (![".doc", ".docx", ".pdf", ".txt"].includes(ext)) {
+    fieldErrors.paper = "仅支持 .doc / .docx / .pdf / .txt 文件"
     return
   }
   if (file.size > 20 * 1024 * 1024) {

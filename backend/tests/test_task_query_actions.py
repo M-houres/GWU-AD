@@ -63,6 +63,33 @@ def test_list_user_tasks_filters_and_paginates(db_session) -> None:
     assert payload["items"][0]["source_filename"] == "a.docx"
 
 
+def test_list_user_tasks_returns_descending_page_slice(db_session) -> None:
+    user = User(phone="13800008901", nickname="page-user", credits=1000)
+    db_session.add(user)
+    db_session.flush()
+
+    filenames = ["first.docx", "second.docx", "third.docx", "fourth.docx"]
+    for filename in filenames:
+        db_session.add(
+            Task(
+                user_id=user.id,
+                task_type=TaskType.DEDUP,
+                platform="cnki",
+                status=TaskStatus.COMPLETED,
+                source_filename=filename,
+                source_path=f"/tmp/{filename}",
+                char_count=100,
+                cost_credits=20,
+            )
+        )
+    db_session.commit()
+
+    payload = list_user_tasks(db_session, user_id=user.id, page=2, page_size=2)
+
+    assert payload["pagination"]["total"] == 4
+    assert [item["source_filename"] for item in payload["items"]] == ["second.docx", "first.docx"]
+
+
 def test_list_user_tasks_rejects_bad_filter_values(db_session) -> None:
     try:
         list_user_tasks(db_session, user_id=1, page=1, page_size=20, task_type="bad")

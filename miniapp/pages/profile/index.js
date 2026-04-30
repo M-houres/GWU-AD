@@ -10,8 +10,33 @@ const DEFAULT_NOTICE = {
   content: "当前暂无公告内容。",
   version: 1,
 }
+const DEFAULT_RUNTIME_COPY = {
+  profile: {
+    guest_subtitle: "登录后可查看账户、权益和充值进度。",
+    user_subtitle: "账户、充值、公告集中管理。",
+    guest_section_title: "登录后进入个人中心",
+    guest_section_desc: "账户信息、积分充值、订单进度和系统公告会在登录后显示。",
+    guest_login_button_text: "去登录",
+    account_section_title: "账户信息",
+    promo_section_title: "推广领积分",
+    promo_section_desc: "邀请好友、参与活动，领取积分奖励。",
+    system_section_title: "公告与操作",
+  },
+}
 
 const PACKAGE_BADGES = ["轻量", "常用", "进阶", "高频"]
+
+function createEmptyPromoSummary() {
+  return {
+    inviteCode: "",
+    inviteLink: "",
+    validInviteCount: 0,
+    totalRewardPoints: 0,
+    nextMilestoneLabel: "暂无",
+    nextMilestoneHint: "进入推广中心查看活动详情",
+    enabled: true,
+  }
+}
 
 function getProviderLabel(value, providers = []) {
   const matched = providers.find((item) => item.value === value)
@@ -24,15 +49,6 @@ function pickDefaultProvider(providers = []) {
     if (providers.some((item) => item.value === value)) return value
   }
   return providers[0] ? providers[0].value : "wechat"
-}
-
-function formatQuotaText(quota = {}) {
-  const limit = Number(quota.daily_free_limit || 0)
-  const remaining = Number(quota.free_remaining_today)
-  if (!Number.isFinite(limit) || limit <= 0 || !Number.isFinite(remaining)) {
-    return "每日免费 6 篇"
-  }
-  return `今日剩余 ${Math.max(remaining, 0)} / ${limit}`
 }
 
 function normalizePackages(items = []) {
@@ -49,6 +65,37 @@ function normalizePayError(error) {
     return "当前账号缺少微信支付身份，请退出后重新微信登录"
   }
   return message
+}
+
+function pickText(value, fallback = "") {
+  const text = String(value || "").trim()
+  return text && !looksLikeMojibake(text) ? text : fallback
+}
+
+function looksLikeMojibake(text) {
+  if (!text) return false
+  const suspiciousTokens = ["æ", "ç", "è", "é", "å", "ä", "ã", "ï¼", "�"]
+  if (suspiciousTokens.some((token) => text.includes(token))) return true
+  const latin1Count = Array.from(text).filter((char) => char >= "\u00c0" && char <= "\u00ff").length
+  return latin1Count >= 2 && latin1Count / Math.max(text.length, 1) > 0.1
+}
+
+function normalizeRuntimeCopy(raw) {
+  const source = raw && typeof raw === "object" ? raw : {}
+  const profile = source.profile && typeof source.profile === "object" ? source.profile : {}
+  return {
+    profile: {
+      guest_subtitle: pickText(profile.guest_subtitle, DEFAULT_RUNTIME_COPY.profile.guest_subtitle),
+      user_subtitle: pickText(profile.user_subtitle, DEFAULT_RUNTIME_COPY.profile.user_subtitle),
+      guest_section_title: pickText(profile.guest_section_title, DEFAULT_RUNTIME_COPY.profile.guest_section_title),
+      guest_section_desc: pickText(profile.guest_section_desc, DEFAULT_RUNTIME_COPY.profile.guest_section_desc),
+      guest_login_button_text: pickText(profile.guest_login_button_text, DEFAULT_RUNTIME_COPY.profile.guest_login_button_text),
+      account_section_title: pickText(profile.account_section_title, DEFAULT_RUNTIME_COPY.profile.account_section_title),
+      promo_section_title: pickText(profile.promo_section_title, DEFAULT_RUNTIME_COPY.profile.promo_section_title),
+      promo_section_desc: pickText(profile.promo_section_desc, DEFAULT_RUNTIME_COPY.profile.promo_section_desc),
+      system_section_title: pickText(profile.system_section_title, DEFAULT_RUNTIME_COPY.profile.system_section_title),
+    },
+  }
 }
 
 Page({
@@ -81,6 +128,8 @@ Page({
     qrcodeDataUrl: "",
     paymentParams: null,
     partnerTrackingLabel: "",
+    promoSummary: createEmptyPromoSummary(),
+    runtimeCopy: DEFAULT_RUNTIME_COPY,
   },
 
   countdownTimer: null,
@@ -90,6 +139,7 @@ Page({
     if (ensureLogin()) {
       this.syncProfile(getUser() || {})
       this.loadProfile()
+      this.loadPromoSummary()
       this.consumePendingAction()
       this.loadPackages()
     } else {
@@ -119,7 +169,6 @@ Page({
         profileItems: [
           { label: "手机号", value: user.phone || "未绑定" },
           { label: "当前积分", value: String(Number(user.credits || 0)) },
-          { label: "AIGC权益", value: formatQuotaText(quota) },
         ],
         partnerTrackingLabel: this.formatPartnerTrackingLabel(),
       })
@@ -152,13 +201,14 @@ Page({
       qrcodeDataUrl: "",
       paymentParams: null,
       partnerTrackingLabel: "",
+      promoSummary: createEmptyPromoSummary(),
     })
   },
 
   formatPartnerTrackingLabel() {
-    const tracking = getPartnerTracking()
+    const tracking = this.data.user && this.data.user.partner_tracking
     if (!tracking || !tracking.channel_code) return ""
-    return `当前渠道归属：${tracking.channel_code}`
+    return `当前渠道归属：${tracking.channel_name || tracking.channel_code}`
   },
 
   consumePendingAction() {
@@ -180,20 +230,50 @@ Page({
   async loadProfile() {
     if (!ensureLogin()) return
     try {
-      const [options, profile, summary] = await Promise.all([
+      const [options, profile] = await Promise.all([
         request({ url: "/auth/options", method: "GET", silent: true }),
         request({ url: "/users/me", method: "GET", silent: true }),
-        request({ url: "/users/me/summary", method: "GET", silent: true }),
       ])
 
       const notice = options && options.notice ? options.notice : this.data.notice
+      const runtimeCopy = normalizeRuntimeCopy(options && options.miniapp_runtime)
 
-      this.syncProfile(profile || {}, (summary && summary.aigc_quota) || {})
+      this.syncProfile(profile || {}, {})
       this.setData({
         notice,
+        runtimeCopy,
         showNotice: !!(notice && notice.enabled !== false && (notice.title || notice.content)),
       })
       setUser(profile)
+    } catch (_) {
+      // keep current view
+    }
+  },
+
+  async loadPromoSummary() {
+    if (!ensureLogin()) return
+    try {
+      const [options, inviteInfo] = await Promise.all([
+        request({ url: "/auth/options", method: "GET", silent: true }),
+        request({ url: "/users/me/invite", method: "GET", silent: true }),
+      ])
+
+      const promoCenter = options && options.promo_center ? options.promo_center : {}
+      const inviteSummary = inviteInfo && inviteInfo.invite_summary ? inviteInfo.invite_summary : {}
+      const nextMilestone = inviteSummary && inviteSummary.next_milestone ? inviteSummary.next_milestone : null
+      this.setData({
+        promoSummary: {
+          inviteCode: String(inviteInfo && inviteInfo.invite_code ? inviteInfo.invite_code : "").trim(),
+          inviteLink: String(inviteInfo && inviteInfo.invite_link ? inviteInfo.invite_link : "").trim(),
+          validInviteCount: Number(inviteSummary.valid_invite_count || 0),
+          totalRewardPoints: Number(inviteSummary.total_reward_points || 0),
+          nextMilestoneLabel: nextMilestone && nextMilestone.label ? String(nextMilestone.label).trim() : "暂无",
+          nextMilestoneHint: nextMilestone
+            ? `再邀请 ${Math.max(Number(nextMilestone.remaining_count || 0), 0)} 人可解锁`
+            : "进入推广中心查看活动详情",
+          enabled: !(promoCenter && promoCenter.enabled === false),
+        },
+      })
     } catch (_) {
       // keep current view
     }
@@ -245,6 +325,7 @@ Page({
   onReload() {
     if (ensureLogin()) {
       this.loadProfile()
+      this.loadPromoSummary()
       this.loadPackages()
     } else {
       this.syncGuestProfile()
@@ -260,6 +341,27 @@ Page({
     this.setData({
       selectedProvider,
       selectedProviderLabel: getProviderLabel(selectedProvider, this.data.providers),
+    })
+  },
+
+  onOpenPromoCenter() {
+    if (!ensureLogin()) {
+      requireAuth({ targetTab: "profile", action: "open_profile" })
+      return
+    }
+    wx.navigateTo({ url: "/pages/promo-center/index" })
+  },
+
+  onCopyPromoInviteCode() {
+    const inviteCode = String(this.data.promoSummary.inviteCode || "").trim()
+    if (!inviteCode) {
+      wx.showToast({ title: "邀请码暂未生成", icon: "none" })
+      return
+    }
+    wx.setClipboardData({
+      data: inviteCode,
+      success: () => wx.showToast({ title: "邀请码已复制", icon: "success" }),
+      fail: () => wx.showToast({ title: "复制失败", icon: "none" }),
     })
   },
 
@@ -281,6 +383,7 @@ Page({
             return {
               channel_code: tracking.channel_code,
               channel_token: tracking.channel_token,
+              channel_scene: tracking.channel_scene,
             }
           })(),
         },

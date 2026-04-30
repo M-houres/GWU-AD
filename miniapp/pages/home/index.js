@@ -18,6 +18,46 @@ const {
 
 const DEFAULT_AIGC_DAILY_FREE_LIMIT = 6
 const MAX_FILE_SIZE = 20 * 1024 * 1024
+const DEFAULT_RUNTIME_COPY = {
+  home: {
+    hero_title: "格物学术",
+    hero_subtitle: "全文检测、降AIGC、降重处理，在同一个学术工作台里完成。",
+    invite_label: "邀请好友",
+    invite_note: "好友首次登录时会自动带入邀请码，邀请关系会被记录。",
+    copy_invite_button_text: "复制邀请码",
+    share_button_text: "邀请好友",
+    share_title: "格物学术 | 检测、降AIGC与降重",
+  },
+}
+
+function pickText(value, fallback = "") {
+  const text = String(value || "").trim()
+  return text && !looksLikeMojibake(text) ? text : fallback
+}
+
+function looksLikeMojibake(text) {
+  if (!text) return false
+  const suspiciousTokens = ["æ", "ç", "è", "é", "å", "ä", "ã", "ï¼", "�"]
+  if (suspiciousTokens.some((token) => text.includes(token))) return true
+  const latin1Count = Array.from(text).filter((char) => char >= "\u00c0" && char <= "\u00ff").length
+  return latin1Count >= 2 && latin1Count / Math.max(text.length, 1) > 0.1
+}
+
+function normalizeRuntimeCopy(raw) {
+  const source = raw && typeof raw === "object" ? raw : {}
+  const home = source.home && typeof source.home === "object" ? source.home : {}
+  return {
+    home: {
+      hero_title: pickText(home.hero_title, DEFAULT_RUNTIME_COPY.home.hero_title),
+      hero_subtitle: pickText(home.hero_subtitle, DEFAULT_RUNTIME_COPY.home.hero_subtitle),
+      invite_label: pickText(home.invite_label, DEFAULT_RUNTIME_COPY.home.invite_label),
+      invite_note: pickText(home.invite_note, DEFAULT_RUNTIME_COPY.home.invite_note),
+      copy_invite_button_text: pickText(home.copy_invite_button_text, DEFAULT_RUNTIME_COPY.home.copy_invite_button_text),
+      share_button_text: pickText(home.share_button_text, DEFAULT_RUNTIME_COPY.home.share_button_text),
+      share_title: pickText(home.share_title, DEFAULT_RUNTIME_COPY.home.share_title),
+    },
+  }
+}
 
 const TASK_OPTIONS = [
   {
@@ -26,7 +66,7 @@ const TASK_OPTIONS = [
     helper: "提交后生成全文检测结果与报告，并自动优先抵扣每日免费额度。",
     note: "全文检测",
     badge: "每日免费",
-    uploadHint: "支持 .docx / .pdf / .txt，默认从微信聊天记录选择。",
+    uploadHint: "支持 .doc / .docx / .pdf / .txt，默认从微信聊天记录选择。",
   },
   {
     value: "rewrite",
@@ -34,7 +74,7 @@ const TASK_OPTIONS = [
     helper: "围绕疑似 AI 表达做改写优化，尽量降低生成痕迹并保持论文语气稳定。",
     note: "降AIGC改写",
     badge: "重点优化",
-    uploadHint: "仅支持 .docx，默认从微信聊天记录选择。",
+    uploadHint: "仅支持 .doc / .docx，默认从微信聊天记录选择。",
   },
   {
     value: "dedup",
@@ -42,7 +82,7 @@ const TASK_OPTIONS = [
     helper: "围绕重复内容做改写降重，尽量保留原意与论文结构。",
     note: "降重改写",
     badge: "降重",
-    uploadHint: "仅支持 .docx，默认从微信聊天记录选择。",
+    uploadHint: "仅支持 .doc / .docx，默认从微信聊天记录选择。",
   },
 ]
 
@@ -72,8 +112,13 @@ function getPlatformOptions(taskType = "") {
 }
 
 function getAllowedExtensions(taskType = "") {
-  if (taskType === "aigc_detect") return [".docx", ".pdf", ".txt"]
-  return [".docx"]
+  if (taskType === "aigc_detect") return [".doc", ".docx", ".pdf", ".txt"]
+  return [".doc", ".docx"]
+}
+
+function getChooseMessageExtensions(taskType = "") {
+  const allowed = getAllowedExtensions(taskType)
+  return Array.from(new Set(allowed.flatMap((ext) => [ext, ext.slice(1)]).filter(Boolean)))
 }
 
 function getFilename(path = "") {
@@ -86,6 +131,55 @@ function deriveTitleFromFilename(filename = "") {
   return String(filename || "")
     .replace(/\.[^.]+$/, "")
     .trim()
+}
+
+function normalizeChosenFile(rawFile = {}) {
+  const path = String(rawFile.path || rawFile.tempFilePath || "").trim()
+  const name = String(rawFile.name || getFilename(path) || "").trim()
+  const size = Number(rawFile.size || 0)
+  return {
+    path,
+    name,
+    size: Number.isFinite(size) ? size : 0,
+  }
+}
+
+function resolveSelectedFileExtension(file = {}, allowed = []) {
+  const candidates = [String(file.name || "").trim(), String(file.path || "").trim()]
+  const allowedList = Array.isArray(allowed) ? allowed.slice().sort((left, right) => right.length - left.length) : []
+
+  for (const source of candidates) {
+    const normalized = source.toLowerCase()
+    if (!normalized) continue
+
+    for (const ext of allowedList) {
+      if (normalized.endsWith(ext) || normalized.endsWith(ext.slice(1))) {
+        return ext
+      }
+    }
+
+    const dotIndex = normalized.lastIndexOf(".")
+    if (dotIndex >= 0) {
+      return normalized.slice(dotIndex)
+    }
+  }
+
+  return ""
+}
+
+function getChooseFileErrorMessage(err) {
+  const raw = String(err && err.errMsg ? err.errMsg : "").trim()
+  const lower = raw.toLowerCase()
+  if (!raw) return "文件选择失败，请在微信内重试"
+  if (lower.includes("cancel")) return ""
+  if (lower.includes("privacyagreement")) {
+    return "当前小程序后台的微信隐私声明还没把聊天文件选择接口配置完整，所以微信直接拦截了 chooseMessageFile"
+  }
+  if (lower.includes("permission")) return "文件选择失败，请检查微信文件访问权限"
+  if (lower.includes("unsupported") || lower.includes("not supported")) {
+    return "当前微信版本不支持从聊天记录选择文件，请升级微信后重试"
+  }
+  return `文件选择失败：${raw}`
 }
 
 function buildQuotaView(quota = {}) {
@@ -151,14 +245,15 @@ Page({
     quotaChipText: `AIGC 每日免费 ${DEFAULT_AIGC_DAILY_FREE_LIMIT} 篇`,
     quotaPanelTitle: `今日可免费检测 ${DEFAULT_AIGC_DAILY_FREE_LIMIT} 篇`,
     quotaPanelDesc: "AIGC 检测每日前 6 篇免费，超出免费次数后再按字数计费。",
+    runtimeCopy: DEFAULT_RUNTIME_COPY,
   },
 
-  onLoad(options = {}) {
+  async onLoad(options = {}) {
     const sharedRef = String(options.ref || options.invite_code || "").trim().toUpperCase()
     if (sharedRef) {
       setReferrerCode(sharedRef)
     }
-    capturePartnerTracking(options)
+    await capturePartnerTracking(options)
     this.restoreDraft()
     this.syncSelectedMeta()
   },
@@ -256,7 +351,7 @@ Page({
     clearPendingAuth()
 
     if (pending.action === "choose_file") {
-      wx.nextTick(() => this.chooseFileDirect())
+      wx.nextTick(() => this.onChooseFile())
       return
     }
 
@@ -299,12 +394,16 @@ Page({
 
   async reloadProfile() {
     try {
-      const profile = await request({ url: "/users/me", method: "GET", silent: true })
+      const [profile, options] = await Promise.all([
+        request({ url: "/users/me", method: "GET", silent: true }),
+        request({ url: "/auth/options", method: "GET", silent: true }),
+      ])
       if (!profile) return
 
       this.setData({
         user: profile,
         creditChipText: buildCreditChipText(profile, false),
+        runtimeCopy: normalizeRuntimeCopy(options && options.miniapp_runtime),
       })
       setUser(profile)
     } catch (_) {
@@ -359,8 +458,8 @@ Page({
 
   validateFile(file) {
     if (!file || !file.path) return "请选择正文文件"
-    const ext = file.name && file.name.includes(".") ? file.name.slice(file.name.lastIndexOf(".")).toLowerCase() : ""
     const allowed = getAllowedExtensions(this.data.selectedTaskType)
+    const ext = resolveSelectedFileExtension(file, allowed)
     if (!allowed.includes(ext)) {
       return `当前服务仅支持 ${allowed.join(" / ")} 文件`
     }
@@ -371,11 +470,13 @@ Page({
   },
 
   chooseFileDirect() {
+    const allowedExtensions = getChooseMessageExtensions(this.data.selectedTaskType)
     wx.chooseMessageFile({
       count: 1,
       type: "file",
+      extension: allowedExtensions,
       success: (res) => {
-        const file = (res.tempFiles || [])[0]
+        const file = normalizeChosenFile((res.tempFiles || [])[0] || {})
         if (!file) return
 
         const errorMessage = this.validateFile(file)
@@ -394,8 +495,15 @@ Page({
         })
         this.persistDraft()
       },
-      fail: () => {
-        wx.showToast({ title: "文件选择失败", icon: "none" })
+      fail: (err) => {
+        console.warn("miniapp_choose_message_file_failed", err)
+        const message = getChooseFileErrorMessage(err)
+        if (!message) return
+        wx.showModal({
+          title: "文件选择失败",
+          content: message,
+          showCancel: false,
+        })
       },
     })
   },
@@ -403,6 +511,22 @@ Page({
   onChooseFile() {
     this.persistDraft()
     if (!requireAuth({ targetTab: "home", action: "choose_file" })) return
+    const app = getApp()
+    if (app && typeof app.ensurePrivacyAuthorization === "function") {
+      app.ensurePrivacyAuthorization((granted, err) => {
+        if (!granted) {
+          const message = getChooseFileErrorMessage(err || {})
+          wx.showModal({
+            title: "需要隐私授权",
+            content: message || "选择微信文件前，请先同意小程序隐私授权。",
+            showCancel: false,
+          })
+          return
+        }
+        this.chooseFileDirect()
+      })
+      return
+    }
     this.chooseFileDirect()
   },
 
@@ -482,6 +606,7 @@ Page({
           platform: this.data.selectedPlatform,
           paper_title: this.data.paperTitle.trim(),
           authors: this.data.authors.trim(),
+          source_filename: this.data.paperName || getFilename(this.data.paperPath),
         },
       })
 
@@ -515,7 +640,7 @@ Page({
     const inviteCode = String(this.data.inviteInfo.inviteCode || "").trim()
     const query = inviteCode ? `?ref=${encodeURIComponent(inviteCode)}` : ""
     return {
-      title: "格物学术 | 检测、降AIGC与降重",
+      title: this.data.runtimeCopy.home.share_title,
       path: `/pages/home/index${query}`,
     }
   },

@@ -1,0 +1,330 @@
+<view class="page-shell page-shell--promo">
+  <view class="content-stack promo-stack">
+    <view class="hero-panel hero-panel--light promo-hero">
+      <view class="eyebrow">{{ guestMode ? "推广中心" : heroCard.kicker }}</view>
+      <view class="hero-title">{{ guestMode ? "推广中心" : heroCard.title }}</view>
+      <view class="hero-subtitle">{{ guestMode ? "登录后查看推广活动和合作入口。" : heroCard.subtitle }}</view>
+      <view class="promo-hero-facts" wx:if="{{ !guestMode && heroCard.facts.length }}">
+        <view class="promo-hero-fact" wx:for="{{ heroCard.facts }}" wx:key="label">
+          <view class="promo-hero-fact-label">{{ item.label }}</view>
+          <view class="promo-hero-fact-value">{{ item.value }}</view>
+        </view>
+      </view>
+    </view>
+
+    <view class="surface surface--compact" wx:if="{{ guestMode }}">
+      <view class="section-head">
+        <view class="section-copy">
+          <view class="section-kicker">登录后可见</view>
+          <view class="section-title">登录后进入推广中心</view>
+          <view class="section-desc">邀请记录、积分奖励和渠道合作信息会在登录后展示。</view>
+        </view>
+      </view>
+      <view class="button-group button-group--single">
+        <view class="button-item">
+          <button class="promo-btn" hover-class="is-press-btn" bindtap="onGoLogin">去登录</button>
+        </view>
+      </view>
+    </view>
+
+    <block wx:else>
+      <view class="surface surface--compact" wx:if="{{ errorText }}">
+        <view class="promo-alert promo-alert--danger">{{ errorText }}</view>
+      </view>
+
+      <view class="surface surface--compact" wx:if="{{ hintText }}">
+        <view class="promo-alert promo-alert--success">{{ hintText }}</view>
+      </view>
+
+      <view class="surface surface--compact">
+        <view class="promo-tabs">
+          <view
+            class="promo-tab {{ activeTab === item.key ? 'promo-tab--active' : '' }}"
+            wx:for="{{ enabledCards }}"
+            wx:key="key"
+            data-key="{{ item.key }}"
+            bindtap="onSelectTab"
+            hover-class="is-press-pill"
+          >
+            <view class="promo-tab-badge">{{ item.badge || "活动" }}</view>
+            <view class="promo-tab-title">{{ item.title }}</view>
+            <view class="promo-tab-pair" wx:for="{{ item.highlights }}" wx:key="label">
+              <view class="promo-tab-pair-label">{{ item.label }}</view>
+              <view class="promo-tab-pair-value">{{ item.value }}</view>
+            </view>
+          </view>
+        </view>
+      </view>
+
+      <view class="surface surface--compact" wx:if="{{ activeTab === 'invite' }}">
+        <view class="section-head">
+          <view class="section-copy">
+            <view class="section-kicker">邀请好友</view>
+            <view class="section-title">邀请摘要</view>
+            <view class="section-desc">奖励规则与 web 端、后台配置保持一致。</view>
+          </view>
+          <button class="promo-btn promo-btn--large promo-head-btn" bindtap="onReload" disabled="{{ loading }}">{{ loading ? '刷新中' : '刷新数据' }}</button>
+        </view>
+
+        <view class="promo-stat-grid">
+          <view class="promo-stat-card">
+            <view class="promo-stat-label">有效邀请</view>
+            <view class="promo-stat-value">{{ inviteState.validInviteCount }}</view>
+            <view class="promo-stat-desc">已计入奖励人数</view>
+          </view>
+          <view class="promo-stat-card">
+            <view class="promo-stat-label">累计奖励积分</view>
+            <view class="promo-stat-value">{{ inviteState.totalRewardPoints }}</view>
+            <view class="promo-stat-desc">已到账积分</view>
+          </view>
+          <view class="promo-stat-card">
+            <view class="promo-stat-label">下一档奖励</view>
+            <view class="promo-stat-value">{{ inviteState.nextMilestoneLabel }}</view>
+            <view class="promo-stat-desc">{{ inviteState.nextMilestoneHint }}</view>
+          </view>
+        </view>
+
+        <view class="promo-keyline">
+          <view class="promo-keyline-label">我的邀请码</view>
+          <view class="promo-keyline-value">{{ inviteState.inviteCode || "登录后生成" }}</view>
+        </view>
+
+        <view class="promo-chip-row" wx:if="{{ promoConfig.reward_rules.invite.milestones.length }}">
+          <view class="promo-chip" wx:for="{{ promoConfig.reward_rules.invite.milestones }}" wx:key="label">
+            满{{ item.threshold }}人额外 +{{ item.reward_points }}积分
+          </view>
+        </view>
+
+        <view class="promo-bind-panel">
+          <view class="promo-bind-title">{{ promoConfig.pages.invite.bind_code_label }}</view>
+          <view class="promo-bind-status" wx:if="{{ inviteState.boundRelation }}">已绑定邀请码，本账号无需重复填写</view>
+          <view class="promo-bind-row">
+            <input
+              class="promo-input"
+              type="text"
+              maxlength="16"
+              placeholder="{{ promoConfig.pages.invite.bind_code_placeholder }}"
+              value="{{ inviteBindCode }}"
+              disabled="{{ submittingBind || !!inviteState.boundRelation }}"
+              bindinput="onInputInviteCode"
+            />
+            <button
+              class="promo-btn promo-btn--large promo-bind-btn"
+              hover-class="is-press-btn"
+              loading="{{ submittingBind }}"
+              disabled="{{ submittingBind || !inviteBindCode || !!inviteState.boundRelation }}"
+              bindtap="onSubmitInviteBind"
+            >
+              {{ inviteState.boundRelation ? '已绑定' : (submittingBind ? '绑定中' : '绑定邀请码') }}
+            </button>
+          </view>
+        </view>
+
+        <view class="promo-rule-list">
+          <view class="promo-subtitle">活动规则</view>
+          <view class="promo-rule-item" wx:for="{{ promoConfig.pages.invite.rule_lines }}" wx:key="index">{{ item }}</view>
+        </view>
+
+        <view class="promo-actions promo-actions-inline">
+          <button class="promo-btn promo-btn--compact" open-type="share" hover-class="is-press-btn">立即邀请</button>
+          <button class="promo-btn promo-btn--compact" hover-class="is-press-btn" bindtap="onCopyInviteCode">复制邀请码</button>
+          <button class="promo-btn promo-btn--compact" hover-class="is-press-btn" bindtap="onCopyShareText">复制邀请文案</button>
+        </view>
+      </view>
+
+      <view class="surface surface--compact promo-placeholder-section" wx:elif="{{ activeTab === 'like' }}">
+        <view class="section-head">
+          <view class="section-copy">
+            <view class="section-kicker">集赞有奖</view>
+            <view class="section-title">{{ promoConfig.pages.like.title || "集赞有奖" }}</view>
+            <view class="section-desc">{{ promoConfig.pages.like.subtitle || "奖励档位与后台配置一致，提交截图后进入审核。" }}</view>
+          </view>
+        </view>
+        <view class="promo-stat-grid">
+          <view class="promo-stat-card" wx:for="{{ promoConfig.reward_rules.like.tiers }}" wx:key="label">
+            <view class="promo-stat-label">{{ item.label || (item.threshold + "赞") }}</view>
+            <view class="promo-stat-value">{{ item.reward_points }}</view>
+            <view class="promo-stat-desc">积分奖励</view>
+          </view>
+        </view>
+        <view class="promo-rule-list">
+          <view class="promo-subtitle">活动规则</view>
+          <view class="promo-rule-item" wx:for="{{ promoConfig.pages.like.rule_lines }}" wx:key="index">{{ item }}</view>
+        </view>
+
+        <view class="promo-submit-panel">
+          <view class="promo-subtitle">上传截图</view>
+          <view class="promo-submit-note">{{ promoConfig.pages.like.review_notice || "截图需清晰完整，审核通过后发放奖励。" }}</view>
+          <textarea
+            class="promo-textarea promo-textarea--compact"
+            maxlength="500"
+            placeholder="选填：补充说明或分享文案"
+            value="{{ likeShareText }}"
+            disabled="{{ likeSubmitting }}"
+            bindinput="onInputLikeShareText"
+          />
+          <view class="promo-file-row">
+            <view class="promo-file-name">{{ likeScreenshotName || "未选择截图" }}</view>
+          </view>
+          <view class="promo-actions promo-actions-inline promo-actions-inline--tight">
+            <button class="promo-btn promo-btn--compact" hover-class="is-press-btn" disabled="{{ likeSubmitting }}" bindtap="onChooseLikeScreenshot">{{ likeScreenshotName ? '更换截图' : '上传截图' }}</button>
+            <button
+              class="promo-btn promo-btn--compact"
+              hover-class="is-press-btn"
+              loading="{{ likeSubmitting }}"
+              disabled="{{ likeSubmitting || !likeScreenshotPath }}"
+              bindtap="onSubmitLikeSubmission"
+            >
+              {{ likeSubmitting ? '提交中' : '提交审核' }}
+            </button>
+          </view>
+        </view>
+
+        <view class="promo-history-list-block">
+          <view class="promo-subtitle">我的截图记录</view>
+          <view class="promo-history-list" wx:if="{{ likeSubmissions.length }}">
+            <view class="promo-history-card" wx:for="{{ likeSubmissions }}" wx:key="id">
+              <view class="promo-history-head">
+                <view class="promo-history-title">{{ item.original_filename || "截图记录" }}</view>
+                <view class="promo-status-tag {{ item.status_class }}">{{ item.status_text }}</view>
+              </view>
+              <view class="promo-history-meta">更新时间：{{ item.updated_at_text }}</view>
+              <view class="promo-history-meta" wx:if="{{ item.share_text }}">备注：{{ item.share_text }}</view>
+              <view class="promo-history-meta" wx:if="{{ item.review_note }}">审核备注：{{ item.review_note }}</view>
+            </view>
+          </view>
+          <view class="promo-empty-state" wx:else>还没有截图记录</view>
+        </view>
+      </view>
+
+      <view class="surface surface--compact promo-placeholder-section" wx:elif="{{ activeTab === 'create' }}">
+        <view class="section-head">
+          <view class="section-copy">
+            <view class="section-kicker">创作有奖</view>
+            <view class="section-title">{{ promoConfig.pages.create.title || "创作有奖" }}</view>
+            <view class="section-desc">{{ promoConfig.pages.create.subtitle || "选择发布平台并提交作品链接，审核通过后发放对应奖励。" }}</view>
+          </view>
+        </view>
+        <view class="promo-stat-grid">
+          <view class="promo-stat-card" wx:for="{{ promoConfig.reward_rules.create.tiers }}" wx:key="label">
+            <view class="promo-stat-label">{{ item.label || "奖励档位" }}</view>
+            <view class="promo-stat-value">{{ item.reward_points }}</view>
+            <view class="promo-stat-desc">{{ item.business_label }}</view>
+          </view>
+        </view>
+        <view class="promo-rule-list">
+          <view class="promo-subtitle">活动规则</view>
+          <view class="promo-rule-item" wx:for="{{ promoConfig.pages.create.rule_lines }}" wx:key="index">{{ item }}</view>
+        </view>
+
+        <view class="promo-submit-panel">
+          <view class="promo-subtitle">选择发布平台</view>
+          <view class="promo-chip-row">
+            <view
+              class="promo-chip-select {{ createForm.platform === item.key ? 'active' : '' }} {{ createSubmitting ? 'is-disabled' : '' }}"
+              wx:for="{{ promoConfig.pages.create.platforms }}"
+              wx:key="key"
+              wx:if="{{ item.enabled !== false }}"
+              data-value="{{ item.key }}"
+              bindtap="onSelectCreatePlatform"
+            >
+              {{ item.label }}
+            </view>
+          </view>
+
+          <view class="promo-subtitle promo-subtitle--compact">选择奖励档位</view>
+          <view class="promo-chip-row">
+            <view
+              class="promo-chip-select {{ createForm.tierKey === item.tier_key ? 'active' : '' }} {{ createSubmitting ? 'is-disabled' : '' }}"
+              wx:for="{{ promoConfig.reward_rules.create.tiers }}"
+              wx:key="label"
+              data-value="{{ item.tier_key }}"
+              bindtap="onSelectCreateTier"
+            >
+              {{ item.business_label }}
+            </view>
+          </view>
+
+          <input
+            class="promo-input promo-input--block"
+            maxlength="500"
+            placeholder="请输入已发布作品链接"
+            value="{{ createForm.shareLink }}"
+            disabled="{{ createSubmitting }}"
+            data-field="shareLink"
+            bindinput="onInputCreateField"
+          />
+          <button
+            class="promo-btn promo-btn--large promo-submit-btn"
+            hover-class="is-press-btn"
+            loading="{{ createSubmitting }}"
+            disabled="{{ createSubmitting || !createForm.platform || !createForm.shareLink }}"
+            bindtap="onSubmitCreateSubmission"
+          >
+            {{ createSubmitting ? '提交中' : '提交审核' }}
+          </button>
+        </view>
+
+        <view class="promo-submit-panel" wx:if="{{ currentTemplate }}">
+          <view class="promo-subtitle">{{ promoConfig.pages.create.template_title || "推荐文案模板" }}</view>
+          <view class="promo-template-box">{{ currentTemplate }}</view>
+          <view class="promo-actions promo-actions-inline promo-actions-inline--tight">
+            <button class="promo-btn promo-btn--compact" hover-class="is-press-btn" disabled="{{ createSubmitting }}" bindtap="onRotateTemplate">换一条</button>
+            <button class="promo-btn promo-btn--compact" hover-class="is-press-btn" disabled="{{ createSubmitting }}" bindtap="onCopyCurrentTemplate">复制创作文案</button>
+          </view>
+        </view>
+
+        <view class="promo-history-list-block">
+          <view class="promo-subtitle">我的提交记录</view>
+          <view class="promo-history-list" wx:if="{{ createSubmissions.length }}">
+            <view class="promo-history-card" wx:for="{{ createSubmissions }}" wx:key="id">
+              <view class="promo-history-head">
+                <view class="promo-history-title">{{ item.platform_label }}</view>
+                <view class="promo-status-tag {{ item.status_class }}">{{ item.status_text }}</view>
+              </view>
+              <view class="promo-history-meta">奖励档位：{{ item.tier_label }}</view>
+              <view class="promo-history-meta">链接：{{ item.share_link }}</view>
+              <view class="promo-history-meta">更新时间：{{ item.updated_at_text }}</view>
+              <view class="promo-history-meta" wx:if="{{ item.review_note }}">审核备注：{{ item.review_note }}</view>
+            </view>
+          </view>
+          <view class="promo-empty-state" wx:else>还没有提交记录</view>
+        </view>
+      </view>
+
+      <view class="surface surface--compact" wx:elif="{{ activeTab === 'partner' }}">
+        <view class="section-head">
+          <view class="section-copy">
+            <view class="section-kicker">渠道合作</view>
+            <view class="section-title">合作入口</view>
+            <view class="section-desc">{{ promoConfig.pages.partner.description || promoConfig.pages.partner.subtitle }}</view>
+          </view>
+        </view>
+
+        <view class="promo-contact-list">
+          <view class="promo-contact-card" wx:for="{{ promoConfig.pages.partner.contacts }}" wx:key="title">
+            <view class="promo-contact-top">
+              <view>
+                <view class="promo-contact-title">{{ item.title }}</view>
+                <view class="promo-contact-desc">{{ item.description }}</view>
+              </view>
+              <button
+                wx:if="{{ item.wechat_id }}"
+                class="promo-btn promo-btn--compact promo-inline-btn"
+                hover-class="is-press-btn"
+                data-value="{{ item.wechat_id }}"
+                bindtap="onCopyWechatId"
+              >
+                复制微信号
+              </button>
+            </view>
+            <view class="promo-contact-wechat" wx:if="{{ item.wechat_id }}">微信号：{{ item.wechat_id }}</view>
+            <image class="promo-contact-qrcode" wx:if="{{ item.qrcode_url_resolved }}" src="{{ item.qrcode_url_resolved }}" mode="aspectFit" />
+            <view class="promo-contact-empty" wx:if="{{ !item.qrcode_url }}">二维码由运营后台统一配置后展示</view>
+            <view class="promo-contact-empty" wx:elif="{{ item.qrcode_url && !item.qrcode_url_resolved }}">当前环境未挂出该二维码资源，发布环境会按后台地址展示</view>
+          </view>
+        </view>
+      </view>
+    </block>
+  </view>
+</view>

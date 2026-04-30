@@ -166,7 +166,7 @@
                 <th>经营状态</th>
                 <th>团队规模</th>
                 <th>返佣 / 客户</th>
-                <th>分发信息</th>
+                <th>渠道入口</th>
                 <th>操作</th>
               </tr>
             </thead>
@@ -202,13 +202,16 @@
                   </div>
                 </td>
                 <td>
-                  <div class="partner-admin-links">
-                    <span>{{ item.portal_link || item.portal_login_link || "-" }}</span>
-                    <span>{{ item.order_link || "-" }}</span>
-                    <div class="partner-admin-link-actions">
-                      <button class="partner-admin-text-btn" @click="copyChannelBundle(item)">复制门户整段</button>
-                      <button class="partner-admin-text-btn" @click="copyChannelCustomerShare(item)">复制客户文案</button>
-                    </div>
+                  <div class="partner-admin-generate-actions">
+                    <button class="scholar-button scholar-button--secondary scholar-button--compact" @click="openChannelPortalLinkPanel(item)">
+                      {{ portalButtonLabel(item) }}
+                    </button>
+                    <button class="scholar-button scholar-button--secondary scholar-button--compact" @click="openChannelCustomerLinkPanel(item)">
+                      {{ customerLinkButtonLabel(item) }}
+                    </button>
+                    <button class="scholar-button scholar-button--secondary scholar-button--compact" @click="openChannelCustomerQrPanel(item)">
+                      {{ customerQrButtonLabel(item) }}
+                    </button>
                   </div>
                 </td>
                 <td>
@@ -216,7 +219,6 @@
                     <button class="scholar-button scholar-button--compact" @click="openInsightPanel(item)">查看详情</button>
                     <button class="scholar-button scholar-button--secondary scholar-button--compact" @click="startEditChannel(item)">编辑</button>
                     <button class="scholar-button scholar-button--secondary scholar-button--compact" @click="openPolicyPanel(item)">返佣设置</button>
-                    <button class="scholar-button scholar-button--secondary scholar-button--compact" :disabled="!canManage" @click="resetPortalPassword(item)">刷新链接</button>
                     <button class="scholar-button scholar-button--secondary scholar-button--compact partner-admin-danger-btn" :disabled="!canManage" @click="deleteChannel(item)">删除</button>
                   </div>
                 </td>
@@ -226,6 +228,48 @@
               </tr>
             </tbody>
           </table>
+        </div>
+      </section>
+
+      <section v-if="miniappQrPanel.visible" class="partner-admin-panel">
+        <div class="partner-admin-section-head">
+          <div>
+            <div class="partner-admin-kicker">渠道物料</div>
+            <h3>{{ miniappQrPanel.title || "-" }}</h3>
+          </div>
+          <button class="scholar-button scholar-button--secondary" @click="closeMiniappQrPanel">关闭</button>
+        </div>
+
+        <div v-if="miniappQrPanel.loading" class="partner-admin-empty">正在生成专用物料...</div>
+        <div v-else-if="miniappQrPanel.kind === 'qrcode' && miniappQrPanel.data" class="partner-admin-qrcode-panel">
+          <div class="partner-admin-qrcode-card">
+            <img :src="miniappQrPanel.data.qrcode_data_url" alt="渠道获客小程序码" class="partner-admin-qrcode-image" />
+          </div>
+          <div class="partner-admin-qrcode-copy">
+            <div class="partner-admin-stack">
+              <span>{{ miniappQrPanel.channel?.name || "-" }} 的专用获客小程序码已生成</span>
+              <span>可直接发给客户扫码使用</span>
+            </div>
+            <p v-if="miniappQrPanel.data.fallback_reason" class="partner-admin-message">{{ miniappQrPanel.data.fallback_reason }}</p>
+            <div class="partner-admin-actions">
+              <button class="scholar-button scholar-button--secondary" @click="copyText(miniappQrPanel.data.miniapp_order_path, '小程序入口已复制')">复制小程序入口</button>
+              <button class="scholar-button scholar-button--secondary" @click="refreshMaterialPanel">重新生成</button>
+            </div>
+          </div>
+        </div>
+        <div v-else-if="miniappQrPanel.kind === 'link'" class="partner-admin-result-panel">
+          <div class="partner-admin-result-box">
+            <strong>{{ miniappQrPanel.resultTitle || "专用链接已生成" }}</strong>
+            <p>{{ miniappQrPanel.link || "-" }}</p>
+          </div>
+          <div class="partner-admin-actions">
+            <button class="scholar-button scholar-button--secondary" @click="copyText(miniappQrPanel.link || '', miniappQrPanel.copyMessage || '链接已复制')">复制链接</button>
+            <button class="scholar-button scholar-button--secondary" @click="refreshMaterialPanel">重新生成</button>
+            <button class="scholar-button scholar-button--secondary" @click="closeMiniappQrPanel">关闭</button>
+          </div>
+        </div>
+        <div v-else class="partner-admin-empty">
+          当前暂无可展示的物料结果
         </div>
       </section>
 
@@ -580,6 +624,18 @@ const insightPanel = reactive({
   created_from: "",
   created_to: "",
   pagination: { page: 1, page_size: 20, total: 0, pages: 0 },
+})
+const miniappQrPanel = reactive({
+  visible: false,
+  loading: false,
+  kind: "",
+  title: "",
+  resultTitle: "",
+  copyMessage: "",
+  action: "",
+  channel: null,
+  data: null,
+  link: "",
 })
 
 const policyForm = reactive({
@@ -938,20 +994,20 @@ async function copyText(value, message) {
 
 async function resetPortalPassword(item) {
   if (!canManage.value) return
-  const confirmed = window.confirm(`确认刷新 ${item.name || item.channel_code || "该渠道"} 的门户链接吗？刷新后旧链接将失效。`)
+  const confirmed = window.confirm(`确认重置 ${item.name || item.channel_code || "该渠道"} 的门户密码吗？重置后需用新密码登录。`)
   if (!confirmed) return
   hintText.value = ""
   errorText.value = ""
   try {
-    const data = await adminHttp.post(`/partners/admin/channels/${item.id}/portal-link/refresh`)
+    const data = await adminHttp.post(`/partners/admin/channels/${item.id}/portal-password/reset`)
     const bundle = buildChannelBundle({ ...item, ...data })
     if (bundle) {
       await copyText(bundle, "渠道门户信息已复制")
     }
-    hintText.value = "渠道门户链接已刷新并复制"
+    hintText.value = "渠道门户密码已重置并复制"
     await Promise.all([loadChannels(), loadAnalytics()])
   } catch (error) {
-    errorText.value = String(error?.message || "刷新门户链接失败")
+    errorText.value = String(error?.message || "重置门户密码失败")
   }
 }
 
@@ -982,62 +1038,141 @@ async function deleteChannel(item) {
   }
 }
 
-function buildChannelBundle(item) {
-  const name = String(item?.name || "").trim()
-  const portalLink = String(item?.portal_link || item?.portal_login_link || "").trim()
-  const orderLink = String(item?.order_link || "").trim()
-  const miniappOrderPath = String(item?.miniapp_order_path || "").trim()
-  const miniappPortalPath = String(item?.miniapp_portal_path || "").trim()
-  const lines = [
-    name ? `渠道名称：${name}` : "",
-    portalLink ? `门户链接：${portalLink}` : "",
-    orderLink ? `推广链接：${orderLink}` : "",
-    miniappOrderPath ? `小程序推广路径：${miniappOrderPath}` : "",
-    miniappPortalPath ? `小程序后台路径：${miniappPortalPath}` : "",
-  ].filter(Boolean)
-  return lines.join("\n")
+async function openMiniappQrPanel(item) {
+  miniappQrPanel.visible = true
+  miniappQrPanel.loading = true
+  miniappQrPanel.kind = "qrcode"
+  miniappQrPanel.title = `${String(item?.name || "-")} 的专用获客小程序码`
+  miniappQrPanel.resultTitle = "专用获客小程序码"
+  miniappQrPanel.copyMessage = "小程序入口已复制"
+  miniappQrPanel.action = "customer_qrcode"
+  miniappQrPanel.channel = item
+  miniappQrPanel.data = null
+  miniappQrPanel.link = ""
+  hintText.value = ""
+  errorText.value = ""
+  try {
+    const data = await adminHttp.get(`/partners/admin/channels/${item.id}/miniapp-qrcode`)
+    miniappQrPanel.data = data || null
+  } catch (error) {
+    errorText.value = String(error?.message || "加载小程序码失败")
+  } finally {
+    miniappQrPanel.loading = false
+  }
 }
 
-function buildCustomerShareBundle(item) {
-  const name = String(item?.name || "").trim() || "当前渠道"
-  const orderLink = String(item?.order_link || "").trim()
-  const miniappOrderPath = String(item?.miniapp_order_path || "").trim()
-  const lines = [
-    `你好，我是 ${name}。`,
-    "这是我的专属办理入口，直接从这里进入即可：",
-    orderLink ? `推广链接：${orderLink}` : "",
-    miniappOrderPath ? `小程序路径：${miniappOrderPath}` : "",
-  ].filter(Boolean)
-  return lines.join("\n")
+function closeMiniappQrPanel() {
+  miniappQrPanel.visible = false
+  miniappQrPanel.loading = false
+  miniappQrPanel.kind = ""
+  miniappQrPanel.title = ""
+  miniappQrPanel.resultTitle = ""
+  miniappQrPanel.copyMessage = ""
+  miniappQrPanel.action = ""
+  miniappQrPanel.channel = null
+  miniappQrPanel.data = null
+  miniappQrPanel.link = ""
 }
 
-async function copyChannelBundle(item) {
+function portalButtonLabel(item) {
+  return Number(item?.level || 1) === 1 ? "生成一级渠道登录入口" : "生成二级渠道登录入口"
+}
+
+function customerLinkButtonLabel(item) {
+  return Number(item?.level || 1) === 1 ? "生成一级渠道网页获客链接" : "生成二级渠道网页获客链接"
+}
+
+function customerQrButtonLabel(item) {
+  return Number(item?.level || 1) === 1 ? "生成一级渠道获客小程序码" : "生成二级渠道获客小程序码"
+}
+
+function openLinkResultPanel(item, options) {
+  miniappQrPanel.visible = true
+  miniappQrPanel.loading = false
+  miniappQrPanel.kind = "link"
+  miniappQrPanel.title = options.title
+  miniappQrPanel.resultTitle = options.resultTitle
+  miniappQrPanel.copyMessage = options.copyMessage
+  miniappQrPanel.action = options.action
+  miniappQrPanel.channel = item
+  miniappQrPanel.data = null
+  miniappQrPanel.link = options.link
+}
+
+async function openChannelPortalLinkPanel(item) {
   if (!canManage.value) return
   hintText.value = ""
   errorText.value = ""
   try {
     const data = await adminHttp.post(`/partners/admin/channels/${item.id}/portal-link/refresh`)
-    const bundle = buildChannelBundle({ ...item, ...data })
-    if (!bundle) {
-      errorText.value = "暂无可复制的门户信息"
+    const merged = { ...item, ...data }
+    const link = String(merged?.portal_login_link || merged?.portal_link || "").trim()
+    if (!link) {
+      errorText.value = "生成渠道登录入口失败"
       return
     }
-    await copyText([`你好，这是 ${String(item?.name || item?.channel_code || "该渠道")} 的渠道门户信息：`, bundle].filter(Boolean).join("\n"), "渠道门户信息已复制")
-    hintText.value = `已刷新 ${item.name || item.channel_code || "该渠道"} 的门户链接并复制完整信息`
+    openLinkResultPanel(item, {
+      title: portalButtonLabel(item),
+      resultTitle: "专用登录入口已生成",
+      copyMessage: "渠道登录入口已复制",
+      action: "portal_link",
+      link,
+    })
+    hintText.value = `${item.name || item.channel_code || "该渠道"} 的登录入口已生成`
     await Promise.all([loadChannels(), loadAnalytics()])
   } catch (error) {
-    errorText.value = String(error?.message || "复制门户信息失败")
+    errorText.value = String(error?.message || "生成渠道登录入口失败")
   }
 }
 
-async function copyChannelCustomerShare(item) {
-  const bundle = buildCustomerShareBundle(item)
-  if (!bundle) {
-    errorText.value = "暂无可复制的客户分发文案"
+async function openChannelCustomerLinkPanel(item) {
+  const link = String(item?.order_link || "").trim()
+  if (!link) {
+    errorText.value = "生成网页获客链接失败"
     hintText.value = ""
     return
   }
-  await copyText(bundle, "客户分发文案已复制")
+  openLinkResultPanel(item, {
+    title: customerLinkButtonLabel(item),
+    resultTitle: "专用网页获客链接已生成",
+    copyMessage: "网页获客链接已复制",
+    action: "customer_link",
+    link,
+  })
+  hintText.value = `${item.name || item.channel_code || "该渠道"} 的网页获客链接已生成`
+  errorText.value = ""
+}
+
+async function openChannelCustomerQrPanel(item) {
+  await openMiniappQrPanel(item)
+}
+
+async function refreshMaterialPanel() {
+  if (!miniappQrPanel.channel) return
+  if (miniappQrPanel.action === "portal_link") {
+    await openChannelPortalLinkPanel(miniappQrPanel.channel)
+    return
+  }
+  if (miniappQrPanel.action === "customer_link") {
+    await openChannelCustomerLinkPanel(miniappQrPanel.channel)
+    return
+  }
+  if (miniappQrPanel.action === "customer_qrcode") {
+    await openMiniappQrPanel(miniappQrPanel.channel)
+  }
+}
+
+function buildChannelBundle(item) {
+  const lines = [
+    `渠道名称：${String(item?.name || "").trim() || "-"}`,
+    `渠道编码：${String(item?.channel_code || "").trim() || "-"}`,
+    `登录账号：${String(item?.portal_account || item?.channel_code || "").trim() || "-"}`,
+    `登录密码：${String(item?.portal_password || "").trim() || "-"}`,
+    `Web 登录入口：${String(item?.portal_login_link || item?.portal_link || "").trim() || "-"}`,
+    `Web 下单链接：${String(item?.order_link || "").trim() || "-"}`,
+    `小程序下单路径：${String(item?.miniapp_order_path || "").trim() || "-"}`,
+  ]
+  return lines.join("\n")
 }
 
 async function openPolicyPanel(item) {
@@ -1445,6 +1580,33 @@ function formatTime(value) {
   justify-content: space-between;
 }
 
+.partner-admin-qrcode-panel {
+  margin-top: 14px;
+  display: grid;
+  gap: 18px;
+  grid-template-columns: 280px minmax(0, 1fr);
+  align-items: start;
+}
+
+.partner-admin-qrcode-card {
+  border: 1px solid #e2ebf8;
+  border-radius: 20px;
+  background: #f8fbff;
+  padding: 18px;
+}
+
+.partner-admin-qrcode-image {
+  display: block;
+  width: 100%;
+  border-radius: 16px;
+  background: #ffffff;
+}
+
+.partner-admin-qrcode-copy {
+  display: grid;
+  gap: 12px;
+}
+
 .partner-admin-message {
   margin: 10px 0 0;
   font-size: 13px;
@@ -1513,6 +1675,11 @@ function formatTime(value) {
   line-height: 1.5;
 }
 
+.partner-admin-generate-actions {
+  display: grid;
+  gap: 8px;
+}
+
 .partner-admin-link-actions,
 .partner-admin-row-actions {
   display: flex;
@@ -1531,6 +1698,32 @@ function formatTime(value) {
 
 .partner-admin-danger-btn {
   color: #b33636;
+}
+
+.partner-admin-result-panel {
+  margin-top: 14px;
+  display: grid;
+  gap: 14px;
+}
+
+.partner-admin-result-box {
+  padding: 16px 18px;
+  border: 1px solid #dbe7fb;
+  border-radius: 18px;
+  background: #f8fbff;
+}
+
+.partner-admin-result-box strong {
+  color: #17365f;
+  font-size: 14px;
+}
+
+.partner-admin-result-box p {
+  margin: 10px 0 0;
+  color: #5f7593;
+  font-size: 13px;
+  line-height: 1.7;
+  word-break: break-all;
 }
 
 .partner-admin-policy-cards {
@@ -1584,7 +1777,8 @@ function formatTime(value) {
   .partner-admin-stats,
   .partner-admin-chart-grid,
   .partner-admin-top-grid,
-  .partner-admin-policy-cards {
+  .partner-admin-policy-cards,
+  .partner-admin-qrcode-panel {
     grid-template-columns: 1fr;
   }
 }

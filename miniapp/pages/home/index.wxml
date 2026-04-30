@@ -1,8 +1,8 @@
 <view class="page-shell page-shell--home">
   <view class="content-stack">
     <view class="hero-panel home-hero">
-      <view class="hero-title">格物学术</view>
-      <view class="hero-subtitle">全文检测、降AIGC、降重处理，在同一个学术工作台里完成。</view>
+      <view class="hero-title">{{ runtimeCopy.home.hero_title }}</view>
+      <view class="hero-subtitle">{{ runtimeCopy.home.hero_subtitle }}</view>
 
       <view class="hero-meta">
         <view class="hero-chip">{{ creditChipText }}</view>
@@ -12,15 +12,15 @@
       <view class="invite-panel" wx:if="{{ !guestMode }}">
         <view class="invite-head">
           <view>
-            <view class="invite-label">邀请好友</view>
-            <view class="invite-note">好友首次登录时会自动带入邀请码，邀请关系会被记录。</view>
+            <view class="invite-label">{{ runtimeCopy.home.invite_label }}</view>
+            <view class="invite-note">{{ runtimeCopy.home.invite_note }}</view>
           </view>
           <view class="invite-code">{{ inviteInfo.inviteCode || "待生成" }}</view>
         </view>
 
         <view class="invite-actions">
-          <button class="hero-sub-btn" hover-class="is-press-btn" bindtap="onCopyInviteCode">复制邀请码</button>
-          <button class="hero-main-btn" hover-class="is-press-btn" open-type="share">邀请好友</button>
+          <button class="hero-sub-btn" hover-class="is-press-btn" bindtap="onCopyInviteCode">{{ runtimeCopy.home.copy_invite_button_text }}</button>
+          <button class="hero-main-btn" hover-class="is-press-btn" open-type="share">{{ runtimeCopy.home.share_button_text }}</button>
         </view>
       </view>
     </view>
@@ -92,14 +92,14 @@
             <view class="sheet-step">第三步</view>
             <view class="sheet-label upload-title">上传文件</view>
           </view>
-          <view class="upload-tip">默认从微信聊天记录中选择</view>
+          <view class="upload-tip">优先从微信聊天记录中选择</view>
         </view>
         <view class="upload-file {{ paperName ? 'upload-file--selected' : '' }}">
           {{ paperName || "尚未选择文件" }}
         </view>
         <view class="helper-text">{{ uploadRuleText }}</view>
         <view class="helper-text" wx:if="{{ paperName && !paperTitle }}">选择文件后会自动读取文件名作为篇名。</view>
-        <button class="secondary-btn upload-action" hover-class="is-press-btn" bindtap="onChooseFile">从微信聊天记录选择</button>
+        <button class="secondary-btn upload-action" hover-class="is-press-btn" bindtap="onChooseFile">选择微信文件</button>
       </view>
 
       <view class="sheet-block sheet-block--info">

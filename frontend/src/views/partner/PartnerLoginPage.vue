@@ -3,51 +3,66 @@
     <section class="partner-login__shell">
       <article class="partner-login__intro">
         <p class="partner-login__eyebrow">渠道门户</p>
-        <h1 class="partner-login__title">免密进入渠道后台</h1>
-        <p class="partner-login__desc">渠道端统一通过专属门户链接进入，不再需要账号密码。</p>
+        <h1 class="partner-login__title">渠道后台登录</h1>
+        <p class="partner-login__desc">渠道后台已统一改为账号密码登录。平台或上级分配渠道账号和初始密码后，从这里进入。</p>
 
         <div class="partner-login__tips">
           <div class="partner-login__tip-card">
-            <strong>通常会收到</strong>
-            <span>专属门户链接</span>
-            <span>推广链接</span>
-            <span>小程序路径</span>
+            <strong>登录需要</strong>
+            <span>渠道账号</span>
+            <span>门户密码</span>
+            <span>首次密码请妥善保存</span>
           </div>
           <div class="partner-login__tip-card">
-            <strong>进入后可做的事</strong>
+            <strong>登录后可做的事</strong>
             <span>查看收益和订单</span>
-            <span>复制推广信息</span>
-            <span>新建直属下级</span>
+            <span>复制推广入口</span>
+            <span>管理直属下级</span>
           </div>
         </div>
       </article>
 
       <section class="partner-login__card">
         <header class="partner-login__card-head">
-          <h2>粘贴门户链接</h2>
-          <span>粘贴平台发给你的专属门户链接，系统会自动完成进入。</span>
+          <h2>账号密码登录</h2>
+          <span>请输入平台分配的渠道账号和门户密码。</span>
         </header>
 
-        <form class="partner-login__form" @submit.prevent="submitEntry">
+        <form class="partner-login__form" @submit.prevent="submitLogin">
           <label class="partner-login__field">
-            <span>粘贴专属门户链接</span>
-            <textarea
-              v-model.trim="portalLink"
-              class="partner-login__textarea"
-              placeholder="例如：https://xxx.com/app/partner/login-entry/xxxxx"
+            <span>渠道账号</span>
+            <input
+              v-model.trim="account"
+              class="partner-login__input"
+              type="text"
+              maxlength="32"
+              placeholder="例如：CHROOT01"
+              autocomplete="username"
+            />
+          </label>
+
+          <label class="partner-login__field">
+            <span>门户密码</span>
+            <input
+              v-model="password"
+              class="partner-login__input"
+              type="password"
+              maxlength="64"
+              placeholder="请输入门户密码"
+              autocomplete="current-password"
             />
           </label>
 
           <button class="partner-login__submit" :disabled="loading">
-            {{ loading ? "进入中..." : "进入渠道后台" }}
+            {{ loading ? "登录中..." : "进入渠道后台" }}
           </button>
         </form>
 
         <p v-if="errorText" class="partner-login__error">{{ errorText }}</p>
 
         <div class="partner-login__helper">
-          <span>如果没有门户链接，请让上级或平台重新发送。</span>
-          <span>如果链接失效，请让上级或平台刷新后重新发送。</span>
+          <span>如果忘记密码，请联系平台管理员或上级渠道重置。</span>
+          <span>收到的后台链接现在只用于打开登录页，不再支持免密直达。</span>
         </div>
       </section>
     </section>
@@ -55,7 +70,7 @@
 </template>
 
 <script setup>
-import { ref } from "vue"
+import { onMounted, ref } from "vue"
 import { useRoute, useRouter } from "vue-router"
 
 import { partnerHttp } from "../../lib/http"
@@ -65,43 +80,37 @@ import { setPartnerInfo, setPartnerRefreshToken, setPartnerToken } from "../../l
 const route = useRoute()
 const router = useRouter()
 
-const portalLink = ref("")
+const account = ref("")
+const password = ref("")
 const loading = ref(false)
 const errorText = ref("")
 
-function extractPortalCredential(rawValue) {
-  const raw = String(rawValue || "").trim()
-  if (!raw) return null
-  const candidates = [raw]
-  if (raw.includes("?")) {
-    candidates.push(raw.slice(raw.indexOf("?") + 1))
-  }
-  for (const item of candidates) {
-    try {
-      const url = new URL(item)
-      const channelCode = String(url.searchParams.get("ch") || url.searchParams.get("channel_code") || "").trim()
-      const portalToken = String(url.searchParams.get("pk") || url.searchParams.get("portal_token") || "").trim()
-      if (channelCode && portalToken) {
-        return { channelCode, portalToken }
-      }
-    } catch {}
-    const params = new URLSearchParams(item.startsWith("?") ? item.slice(1) : item)
-    const channelCode = String(params.get("ch") || params.get("channel_code") || "").trim()
-    const portalToken = String(params.get("pk") || params.get("portal_token") || "").trim()
-    if (channelCode && portalToken) {
-      return { channelCode, portalToken }
-    }
-  }
-  return null
+function normalizeAccount(value) {
+  return String(value || "")
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9_-]/g, "")
+    .slice(0, 32)
 }
 
-async function exchangeByCredential({ channelCode, portalToken }) {
+onMounted(() => {
+  account.value = normalizeAccount(route.query.account || route.query.channel_code || route.query.ch || "")
+})
+
+async function submitLogin() {
+  const normalizedAccount = normalizeAccount(account.value)
+  const plainPassword = String(password.value || "")
+  if (!normalizedAccount || !plainPassword) {
+    errorText.value = "请输入渠道账号和密码"
+    return
+  }
+
   loading.value = true
   errorText.value = ""
   try {
-    const data = await partnerHttp.post("/partners/portal/auth/exchange", {
-      channel_code: channelCode,
-      portal_token: portalToken,
+    const data = await partnerHttp.post("/partners/portal/auth/login", {
+      account: normalizedAccount,
+      password: plainPassword,
     })
     setPartnerToken(data.token)
     setPartnerRefreshToken(data.refresh_token)
@@ -112,15 +121,6 @@ async function exchangeByCredential({ channelCode, portalToken }) {
   } finally {
     loading.value = false
   }
-}
-
-async function submitEntry() {
-  const credential = extractPortalCredential(portalLink.value)
-  if (!credential) {
-    errorText.value = "请输入完整的专属门户链接"
-    return
-  }
-  await exchangeByCredential(credential)
 }
 </script>
 
@@ -245,19 +245,17 @@ async function submitEntry() {
   font-weight: 700;
 }
 
-.partner-login__textarea {
-  min-height: 118px;
-  padding: 14px;
+.partner-login__input {
+  min-height: 48px;
+  padding: 0 14px;
   border-radius: 14px;
   border: 1px solid #c8d7ea;
   background: #fff;
   color: #12345c;
   font-size: 14px;
-  line-height: 1.7;
-  resize: vertical;
 }
 
-.partner-login__textarea:focus {
+.partner-login__input:focus {
   outline: none;
   border-color: #2563eb;
   box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.12);

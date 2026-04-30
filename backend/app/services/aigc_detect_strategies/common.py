@@ -238,6 +238,147 @@ def split_sentences(text: str) -> list[str]:
     return [item.strip() for item in re.split(r"[。！？!?；;\n]+", str(text or "")) if item.strip()]
 
 
+def _compact_text(text: str) -> str:
+    return re.sub(r"\s+", "", str(text or "")).strip()
+
+
+def _is_front_heading(text: str) -> bool:
+    compact = _compact_text(text)
+    lowered = compact.lower()
+    if not compact:
+        return False
+    if lowered in {
+        "摘要",
+        "摘要:",
+        "摘要：",
+        "中文摘要",
+        "英文摘要",
+        "关键词",
+        "关键词:",
+        "关键词：",
+        "关键字",
+        "关键字:",
+        "关键字：",
+        "【关键词】",
+        "【关键字】",
+        "abstract",
+        "abstract:",
+        "abstract：",
+        "keywords",
+        "keywords:",
+        "keywords：",
+        "引言",
+        "引言:",
+        "引言：",
+        "绪论",
+        "绪论:",
+        "绪论：",
+        "前言",
+        "前言:",
+        "前言：",
+        "导论",
+        "导论:",
+        "导论：",
+        "结论",
+        "结论:",
+        "结论：",
+        "结语",
+        "结语:",
+        "结语：",
+        "参考文献",
+        "参考文献:",
+        "参考文献：",
+        "附录",
+        "附录:",
+        "附录：",
+        "致谢",
+        "致谢:",
+        "致谢：",
+    }:
+        return True
+    if len(compact) <= 12:
+        for prefix in ("摘要", "关键词", "关键字", "引言", "绪论", "前言", "结论", "结语", "参考文献", "附录", "致谢"):
+            if compact.startswith(prefix):
+                return True
+    return False
+
+
+def _is_outline_heading(text: str) -> bool:
+    compact = _compact_text(text)
+    if not compact or len(compact) > 40:
+        return False
+    if re.match(r"^\d+(?:\.\d+){0,3}[、.．]?", compact):
+        return True
+    if re.match(r"^第[一二三四五六七八九十百零0-9]+[章节部分篇]", compact):
+        return True
+    if re.match(r"^[一二三四五六七八九十百零]+[、.．]", compact):
+        return True
+    if re.match(r"^[（(][一二三四五六七八九十百零0-9]+[)）]", compact):
+        return True
+    return False
+
+
+def _is_title_like(text: str, *, nonempty_index: int) -> bool:
+    content = str(text or "").strip()
+    if nonempty_index != 1 or not content:
+        return False
+    if len(content) > 64:
+        return False
+    return not re.search(r"[。！？；;]", content)
+
+
+def _is_subtitle_like(text: str, *, nonempty_index: int, previous_kind: str) -> bool:
+    content = str(text or "").strip()
+    if not content or nonempty_index > 3:
+        return False
+    if previous_kind not in {"title", "subtitle"}:
+        return False
+    if content.startswith(("——", "—", "--", "-", "副标题")):
+        return True
+    return len(content) <= 48 and not re.search(r"[。！？；;]", content)
+
+
+def _is_keyword_body(text: str, *, previous_kind: str) -> bool:
+    content = str(text or "").strip()
+    if previous_kind != "keyword_heading" or not content:
+        return False
+    if len(content) > 120:
+        return False
+    return any(token in content for token in ("；", ";", "、", "，"))
+
+
+def _classify_part(text: str, *, nonempty_index: int, previous_kind: str) -> str:
+    content = str(text or "").strip()
+    if not content:
+        return "blank"
+    if _is_title_like(content, nonempty_index=nonempty_index):
+        return "title"
+    if _is_subtitle_like(content, nonempty_index=nonempty_index, previous_kind=previous_kind):
+        return "subtitle"
+    if _is_front_heading(content):
+        compact = _compact_text(content).lower()
+        if compact.startswith(("关键词", "关键字")) or compact.startswith("keywords"):
+            return "keyword_heading"
+        return "front_heading"
+    if _is_keyword_body(content, previous_kind=previous_kind):
+        return "keyword_body"
+    if _is_outline_heading(content):
+        return "outline_heading"
+    return "body"
+
+
+def _join_split_parts(left: str, right: str) -> str:
+    left_text = str(left or "").strip()
+    right_text = str(right or "").strip()
+    if not left_text:
+        return right_text
+    if not right_text:
+        return left_text
+    if re.search(r"[\u4e00-\u9fff（([“‘]$", left_text) or re.match(r"^[\u4e00-\u9fff，。；：！？、）】》」]", right_text):
+        return f"{left_text}{right_text}"
+    return f"{left_text} {right_text}".strip()
+
+
 def split_paragraphs(text: str) -> list[str]:
     clean = normalize_text(text)
     if not clean:
@@ -246,19 +387,42 @@ def split_paragraphs(text: str) -> list[str]:
     if len(raw_parts) <= 1:
         raw_parts = [part.strip() for part in re.split(r"(?<=[。！？!?])\s*", clean) if part.strip()]
     paragraphs: list[str] = []
+    paragraph_kinds: list[str] = []
     buffer = ""
+    buffer_kind = "body"
+    previous_kind = "blank"
+    nonempty_index = 0
     for part in raw_parts:
-        candidate = f"{buffer}{part}" if buffer else part
+        nonempty_index += 1
+        part_kind = _classify_part(part, nonempty_index=nonempty_index, previous_kind=previous_kind)
+        if part_kind != "body":
+            if buffer:
+                paragraphs.append(buffer)
+                paragraph_kinds.append(buffer_kind)
+                buffer = ""
+                buffer_kind = "body"
+            paragraphs.append(part)
+            paragraph_kinds.append(part_kind)
+            previous_kind = part_kind
+            continue
+        candidate = _join_split_parts(buffer, part) if buffer else part
         if count_billable_chars(candidate) < 40:
             buffer = candidate
+            buffer_kind = "body"
+            previous_kind = part_kind
             continue
         paragraphs.append(candidate)
+        paragraph_kinds.append("body")
         buffer = ""
+        buffer_kind = "body"
+        previous_kind = part_kind
     if buffer:
-        if paragraphs and count_billable_chars(buffer) < 30:
-            paragraphs[-1] = f"{paragraphs[-1]}{buffer}"
+        last_kind = paragraph_kinds[-1] if paragraph_kinds else ""
+        if paragraphs and count_billable_chars(buffer) < 30 and buffer_kind == "body" and last_kind == "body":
+            paragraphs[-1] = _join_split_parts(paragraphs[-1], buffer)
         else:
             paragraphs.append(buffer)
+            paragraph_kinds.append(buffer_kind)
     return paragraphs or [clean]
 
 
@@ -455,4 +619,3 @@ def text_stats(text: str) -> dict[str, Any]:
         "sentence_count": len(sentences),
         "avg_sentence_length": avg_sentence_length,
     }
-

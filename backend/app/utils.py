@@ -1,6 +1,9 @@
 import random
 import re
+import shutil
 import string
+import subprocess
+from os import environ
 from pathlib import Path
 import zipfile
 
@@ -36,6 +39,7 @@ def safe_display_filename(name: str) -> str:
 
 
 _DOCX_REQUIRED_MEMBERS = {"[Content_Types].xml", "word/document.xml"}
+_DOC_REQUIRED_HEADER = b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"
 
 
 def detect_file_magic(path: Path) -> str:
@@ -56,6 +60,8 @@ def detect_file_magic(path: Path) -> str:
         except zipfile.BadZipFile:
             return ""
         return ".docx" if _DOCX_REQUIRED_MEMBERS.issubset(members) else ""
+    if head.startswith(_DOC_REQUIRED_HEADER):
+        return ".doc"
     try:
         raw = path.read_bytes()
         if not raw.strip():
@@ -69,10 +75,46 @@ def detect_file_magic(path: Path) -> str:
     return ""
 
 
+def _resolve_antiword_map_file() -> str | None:
+    antiword_home = str(environ.get("ANTIWORDHOME") or "").strip()
+    candidates = []
+    if antiword_home:
+        candidates.append(Path(antiword_home) / "UTF-8.txt")
+    candidates.extend(
+        [
+            Path("/usr/share/antiword/UTF-8.txt"),
+            Path("/usr/local/share/antiword/UTF-8.txt"),
+        ]
+    )
+    for candidate in candidates:
+        if candidate.exists():
+            return str(candidate)
+    return None
+
+
+def _extract_text_from_doc(path: Path) -> str:
+    antiword_bin = shutil.which("antiword")
+    if not antiword_bin:
+        raise ValueError("legacy .doc extractor unavailable")
+
+    command = [antiword_bin]
+    map_file = _resolve_antiword_map_file()
+    if map_file:
+        command.extend(["-m", map_file])
+    command.append(str(path))
+    result = subprocess.run(command, capture_output=True, check=False)
+    if result.returncode != 0:
+        message = result.stderr.decode("utf-8", errors="ignore").strip() or "antiword failed"
+        raise ValueError(message)
+    return result.stdout.decode("utf-8", errors="ignore").replace("\ufeff", "").strip()
+
+
 def extract_text_from_file(path: Path) -> str:
     suffix = path.suffix.lower()
     if suffix == ".txt":
         return path.read_text(encoding="utf-8", errors="ignore")
+    if suffix == ".doc":
+        return _extract_text_from_doc(path)
     if suffix == ".docx":
         doc = Document(str(path))
         parts: list[str] = [p.text for p in doc.paragraphs if p.text]

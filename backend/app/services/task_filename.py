@@ -29,6 +29,8 @@ def _resolve_output_ext(task_type: str, source_filename: str | None, output_path
     if task_type == TaskType.AIGC_DETECT.value:
         return ".pdf"
     source_ext = Path(str(source_filename or "")).suffix.lower()
+    if task_type in {TaskType.REWRITE.value, TaskType.DEDUP.value} and source_ext == ".doc":
+        return ".docx"
     if source_ext:
         return source_ext
     return ".docx"

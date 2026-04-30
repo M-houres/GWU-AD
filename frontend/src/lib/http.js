@@ -354,8 +354,7 @@ partnerHttp.interceptors.response.use(
     const originalRequest = error?.config || {}
     const isRefreshEndpoint = String(originalRequest.url || "").includes("/partners/portal/auth/refresh")
     const isLoginEndpoint = String(originalRequest.url || "").includes("/partners/portal/auth/login")
-    const isExchangeEndpoint = String(originalRequest.url || "").includes("/partners/portal/auth/exchange")
-    if (error?.response?.status === 401 && !originalRequest._retry && !isRefreshEndpoint && !isLoginEndpoint && !isExchangeEndpoint) {
+    if (error?.response?.status === 401 && !originalRequest._retry && !isRefreshEndpoint && !isLoginEndpoint) {
       originalRequest._retry = true
       try {
         await refreshPartnerSession()
@@ -369,7 +368,7 @@ partnerHttp.interceptors.response.use(
         return normalizeError(refreshError)
       }
     }
-    if (error?.response?.status === 401 && !isLoginEndpoint && !isExchangeEndpoint) {
+    if (error?.response?.status === 401 && !isLoginEndpoint) {
       const hadToken = Boolean(getPartnerToken())
       clearPartnerSession()
       if (hadToken) {

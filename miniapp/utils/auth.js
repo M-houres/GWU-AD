@@ -1,6 +1,17 @@
 const env = require("../config/env")
 const { request } = require("./request")
-const { setRefreshToken, setToken, setUser, getToken, clearAuthState } = require("./storage")
+const { setRefreshToken, setToken, setUser, getToken, clearAuthState, getPartnerTracking } = require("./storage")
+
+function buildLoginPayload({ referrerCode = "", deviceFingerprint = "" } = {}) {
+  const tracking = getPartnerTracking() || {}
+  return {
+    referrer_code: referrerCode || undefined,
+    device_fingerprint: deviceFingerprint || undefined,
+    channel_code: tracking.channel_code || undefined,
+    channel_token: tracking.channel_token || undefined,
+    channel_scene: tracking.channel_scene || undefined,
+  }
+}
 
 function shouldUseMockMiniLogin() {
   return env.currentEnv === "develop"
@@ -12,11 +23,7 @@ function loginWithMiniProgram({ referrerCode = "", deviceFingerprint = "" } = {}
       const data = await request({
         url: "/auth/wx/mini-login",
         method: "POST",
-        data: {
-          code,
-          referrer_code: referrerCode || undefined,
-          device_fingerprint: deviceFingerprint || undefined,
-        },
+        data: { code, ...buildLoginPayload({ referrerCode, deviceFingerprint }) },
       })
       if (data && data.token) setToken(data.token)
       if (data && data.refresh_token) setRefreshToken(data.refresh_token)
@@ -46,6 +53,26 @@ function loginWithMiniProgram({ referrerCode = "", deviceFingerprint = "" } = {}
   })
 }
 
+function loginWithMiniProgramInternalTest({ referrerCode = "", deviceFingerprint = "" } = {}) {
+  return new Promise((resolve, reject) => {
+    request({
+      url: "/auth/wx/mini-login",
+      method: "POST",
+      data: {
+        code: `internal_test_${Date.now()}`,
+        ...buildLoginPayload({ referrerCode, deviceFingerprint }),
+      },
+    })
+      .then((data) => {
+        if (data && data.token) setToken(data.token)
+        if (data && data.refresh_token) setRefreshToken(data.refresh_token)
+        if (data && data.user) setUser(data.user)
+        resolve(data)
+      })
+      .catch(reject)
+  })
+}
+
 function loginWithMiniProgramPhone({ phoneCode = "", referrerCode = "", deviceFingerprint = "" } = {}) {
   return new Promise((resolve, reject) => {
     if (!phoneCode) {
@@ -60,8 +87,7 @@ function loginWithMiniProgramPhone({ phoneCode = "", referrerCode = "", deviceFi
         data: {
           login_code: loginCode,
           phone_code: phoneCode,
-          referrer_code: referrerCode || undefined,
-          device_fingerprint: deviceFingerprint || undefined,
+          ...buildLoginPayload({ referrerCode, deviceFingerprint }),
         },
       })
       if (data && data.token) setToken(data.token)
@@ -98,6 +124,7 @@ function logout() {
 
 module.exports = {
   loginWithMiniProgram,
+  loginWithMiniProgramInternalTest,
   loginWithMiniProgramPhone,
   ensureLogin,
   logout,

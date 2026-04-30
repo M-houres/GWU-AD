@@ -630,6 +630,7 @@ def create_order(
         package_name=package_name,
         explicit_channel_code=req.channel_code,
         explicit_channel_token=req.channel_token,
+        explicit_channel_scene=req.channel_scene,
     )
 
     pay_url = _default_mock_pay_url(order_no, request)

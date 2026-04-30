@@ -95,7 +95,17 @@
           </button>
         </view>
         <view class="record-action-item">
-          <button class="primary-btn" hover-class="is-press-btn" data-id="{{ item.id }}" data-status="{{ item.status }}" bindtap="onTapDownload">下载结果</button>
+          <button
+            class="primary-btn"
+            hover-class="is-press-btn"
+            loading="{{ downloadingId === item.id }}"
+            disabled="{{ !!downloadingId }}"
+            data-id="{{ item.id }}"
+            data-status="{{ item.status }}"
+            bindtap="onTapDownload"
+          >
+            {{ downloadingId === item.id ? "下载中..." : "下载结果" }}
+          </button>
         </view>
       </view>
 

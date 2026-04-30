@@ -1,7 +1,7 @@
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
-from app.models import CreditTransaction, CreditType, SystemConfig, User
+from app.models import CreditTransaction, CreditType, Notification, SystemConfig, Task, User
 from app.security import create_token
 
 
@@ -57,6 +57,38 @@ def test_auth_options_follow_runtime_login_config(client: TestClient, db_session
     assert data["notice"]["level"] == "warning"
     assert data["notice"]["version"] == 9
     assert data["notice"]["updated_at"] == "2026-04-11T09:00:00Z"
+
+
+def test_auth_options_filters_mojibake_miniapp_runtime_copy(client: TestClient, db_session: Session) -> None:
+    db_session.add(
+        SystemConfig(
+            category="system",
+            config_key="miniapp",
+            config_value={
+                "runtime_copy": {
+                    "login": {
+                        "brand_name": "æ ¼ç‰©å­¦æœ¯",
+                        "prefer_phone_title": "è¯·ä½¿ç”¨æ‰‹æœºå·å¿«æ·ç™»å½•",
+                    },
+                    "home": {
+                        "hero_title": "æ ¼ç‰©å­¦æœ¯",
+                    },
+                    "profile": {
+                        "guest_login_button_text": "åŽ»ç™»å½•",
+                    },
+                }
+            },
+        )
+    )
+    db_session.commit()
+
+    resp = client.get("/api/v1/auth/options")
+    assert resp.status_code == 200
+    runtime = resp.json()["data"]["miniapp_runtime"]
+    assert runtime["login"]["brand_name"] == "格物学术"
+    assert runtime["login"]["prefer_phone_title"] == "请使用手机号快捷登录"
+    assert runtime["home"]["hero_title"] == "格物学术"
+    assert runtime["profile"]["guest_login_button_text"] == "去登录"
 
 
 def test_phone_login_creates_user_once_and_grants_initial_credits_once(client: TestClient, db_session: Session) -> None:
@@ -164,7 +196,7 @@ def test_banned_user_token_cannot_access_user_endpoints(client: TestClient, db_s
     assert resp.json()["message"] == "user banned"
 
 
-def test_wx_miniprogram_phone_login_rejects_conflicting_accounts(
+def test_wx_miniprogram_phone_login_merges_legacy_openid_user_into_phone_user(
     client: TestClient,
     db_session: Session,
     monkeypatch,
@@ -180,7 +212,7 @@ def test_wx_miniprogram_phone_login_rejects_conflicting_accounts(
             },
         )
     )
-    openid_user = User(phone="13800006102", nickname="openid-user", credits=0, wechat_openid_mp="mp_openid_conflict")
+    openid_user = User(phone="19100061020", nickname="openid-user", credits=0, wechat_openid_mp="mp_openid_conflict")
     phone_user = User(phone="13800006103", nickname="phone-user", credits=0)
     db_session.add_all([openid_user, phone_user])
     db_session.commit()
@@ -199,7 +231,91 @@ def test_wx_miniprogram_phone_login_rejects_conflicting_accounts(
         json={"login_code": "mock_login_code", "phone_code": "mock_phone_code"},
         headers={"x-forwarded-for": "10.10.10.13", "user-agent": "pytest-auth"},
     )
-    assert resp.status_code == 400
+    assert resp.status_code == 200
     body = resp.json()
-    assert body["code"] == 4016
-    assert "不同账户" in body["message"]
+    assert body["code"] == 0
+    assert int(body["data"]["user"]["id"]) == int(phone_user.id)
+
+    db_session.refresh(phone_user)
+    db_session.refresh(openid_user)
+    assert phone_user.wechat_openid_mp == "mp_openid_conflict"
+    assert openid_user.is_banned is True
+    assert str(openid_user.phone).startswith("del")
+
+
+def test_wx_miniprogram_phone_login_merge_transfers_legacy_assets(
+    client: TestClient,
+    db_session: Session,
+    monkeypatch,
+) -> None:
+    db_session.add(
+        SystemConfig(
+            category="system",
+            config_key="login",
+            config_value={
+                "wechat_miniprogram_login_enabled": True,
+                "wechat_miniprogram_app_id": "wx_mini_app",
+                "wechat_miniprogram_app_secret": "wx_mini_secret",
+            },
+        )
+    )
+    openid_user = User(phone="19100061021", nickname="legacy-openid", credits=1200, wechat_openid_mp="mp_openid_merge")
+    phone_user = User(phone="13800006104", nickname="phone-user-2", credits=300)
+    db_session.add_all([openid_user, phone_user])
+    db_session.commit()
+    db_session.refresh(openid_user)
+    db_session.refresh(phone_user)
+
+    db_session.add_all(
+        [
+            Notification(user_id=openid_user.id, title="n1", content="c1"),
+            Task(
+                user_id=openid_user.id,
+                task_type="aigc_detect",
+                platform="cnki",
+                source="miniprogram",
+                status="completed",
+                source_filename="a.txt",
+                source_path="/tmp/a.txt",
+            ),
+            CreditTransaction(
+                user_id=openid_user.id,
+                tx_type=CreditType.SHARE_REWARD,
+                delta=100,
+                balance_before=1100,
+                balance_after=1200,
+                reason="legacy",
+                related_id="legacy:merge:1",
+                source="miniprogram",
+            ),
+        ]
+    )
+    db_session.commit()
+
+    monkeypatch.setattr(
+        "app.api.auth._resolve_miniprogram_openid_unionid",
+        lambda *_args, **_kwargs: ("mp_openid_merge", "union_merge"),
+    )
+    monkeypatch.setattr(
+        "app.api.auth._resolve_miniprogram_phone_number",
+        lambda *_args, **_kwargs: "13800006104",
+    )
+
+    resp = client.post(
+        "/api/v1/auth/wx/mini-phone-login",
+        json={"login_code": "mock_login_code2", "phone_code": "mock_phone_code2"},
+        headers={"x-forwarded-for": "10.10.10.14", "user-agent": "pytest-auth"},
+    )
+    assert resp.status_code == 200
+
+    transferred_notification = db_session.query(Notification).filter(Notification.user_id == phone_user.id).first()
+    transferred_task = db_session.query(Task).filter(Task.user_id == phone_user.id).first()
+    transferred_tx = (
+        db_session.query(CreditTransaction)
+        .filter(CreditTransaction.user_id == phone_user.id, CreditTransaction.related_id == "legacy:merge:1")
+        .first()
+    )
+
+    assert transferred_notification is not None
+    assert transferred_task is not None
+    assert transferred_tx is not None

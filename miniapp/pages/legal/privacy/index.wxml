@@ -1,8 +1,16 @@
 <view class="legal-page">
   <view class="legal-card">
     <view class="legal-title">隐私政策</view>
-    <view class="legal-text">平台仅在提供登录、支付、文档处理与结果下载所必需的范围内收集手机号、账号标识、订单信息和上传文档。</view>
-    <view class="legal-text">上传文档仅用于当前任务处理、结果生成与用户查询，不会超出服务范围另作公开传播用途。</view>
+    <button
+      wx:if="{{ false }}"
+      id="agree-btn"
+      open-type="agreePrivacyAuthorization"
+    ></button>
+    <view class="legal-text">平台仅在提供登录、支付、文档处理与结果下载所必需的范围内收集手机号、账号标识、订单信息以及用户主动选择的聊天文件。</view>
+    <view class="legal-text">微信手机号快捷验证仅用于完成账号登录、绑定和风控校验，不用于超出服务范围的其他用途。</view>
+    <view class="legal-text">用户从微信聊天会话中主动选择的论文文件，仅用于当前任务处理、结果生成与用户查询，不会超出服务范围另作公开传播用途。</view>
     <view class="legal-text">用户可通过账号注销功能终止账号使用；注销后，平台会清除当前账号的登录身份，并清理关联任务文件。</view>
+    <view class="legal-text">如需查看微信侧展示的完整隐私保护指引，可在微信授权弹窗中直接查看，或点击下方入口。</view>
+    <button class="legal-link-btn" bindtap="openWechatPrivacyContract">查看微信隐私保护指引</button>
   </view>
 </view>

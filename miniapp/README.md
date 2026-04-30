@@ -18,7 +18,7 @@
 - Tab 页面：`home / records / profile`
 - 登录页：`login`
 - 当前版本已将任务提交、充值、记录详情整合进三页结构
-- 当前仅保留 `home / records / profile / login` 四个可达页面，任务提交、记录详情、充值流程都已收口
+- 当前仅保留 `home / records / profile / promo-center / login` 五个业务页面，任务提交、记录详情、充值流程都已收口
 
 ## 已对接接口
 
@@ -54,5 +54,17 @@
 
 1. 微信公众平台配置合法请求域名（HTTPS）
 2. 后台启用小程序登录并配置 `AppID / AppSecret`
-3. 后台支付配置填写微信支付参数并完成联调
-4. 按 `QA_CHECKLIST.md` 完成完整回归
+3. 微信公众平台完成“用户隐私保护指引/隐私声明”配置，至少覆盖：
+   - `getPhoneNumber` 微信手机号快捷验证
+   - `chooseMessageFile` 从微信聊天记录选择文件
+4. 后台支付配置填写微信支付参数并完成联调
+5. 按 `QA_CHECKLIST.md` 完成完整回归
+
+## 已知高优先级平台阻塞
+
+- 如果真机报错 `chooseMessageFile:fail api scope is not declared in the privacyagreement`：
+  - 不是前端上传代码错误
+  - 是微信公众平台的隐私声明未把聊天文件选择相关范围配置完整
+- 如果手机号快捷登录授权时报 `privacyagreement`：
+  - 不是登录接口本身错误
+  - 是微信公众平台的隐私声明未把手机号快捷验证相关范围配置完整

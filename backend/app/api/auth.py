@@ -30,6 +30,9 @@ from app.security import (
     new_session_version,
 )
 from app.services.credit_service import change_credits
+from app.services.invite_service import bind_invite_code_for_user
+from app.services.partner_rebate_service import bind_partner_channel_from_request, get_bound_channel_payload
+from app.services.user_merge_service import merge_miniprogram_legacy_user_if_needed
 from app.services.user_navigation_service import default_user_navigation_config, normalize_user_navigation_config
 from app.utils import gen_code, is_phone_valid
 from app.utils_qrcode import build_qrcode_data_url
@@ -41,6 +44,43 @@ WX_LOGIN_TTL_SECONDS = 120
 DEFAULT_NOTICE_TITLE = "系统公告"
 DEFAULT_HEADER_NOTICE_TEXT = "平台系统持续优化中，任务提交后请在个人中心查看处理进度。"
 USER_ACCESS_COOKIE_NAME = "gw_user_access"
+_MINIAPP_RUNTIME_COPY_DEFAULTS = {
+    "login": {
+        "brand_name": "格物学术",
+        "brand_subtitle": "论文检测与处理服务",
+        "agreement_text": "我已阅读并同意服务协议与隐私条款",
+        "login_unavailable_title": "暂时无法完成登录",
+        "login_unavailable_desc": "当前登录服务正在维护，请稍后重试或联系管理员处理。",
+        "formal_mode_label": "当前为正式微信登录",
+        "internal_test_mode_label": "当前为内测登录",
+        "mock_mode_label": "当前为本地开发调试登录",
+        "prefer_phone_title": "请使用手机号快捷登录",
+        "prefer_phone_content": "为了统一 Web 端和小程序端账号、积分、订单和邀请关系，正式环境请优先使用微信手机号快捷登录。",
+        "policy_required_title": "请先同意协议",
+        "policy_required_content": "继续登录前，请先勾选服务协议与隐私条款。",
+        "phone_auth_missing_title": "未完成授权",
+    },
+    "home": {
+        "hero_title": "格物学术",
+        "hero_subtitle": "全文检测、降AIGC、降重处理，在同一个学术工作台里完成。",
+        "invite_label": "邀请好友",
+        "invite_note": "好友首次登录时会自动带入邀请码，邀请关系会被记录。",
+        "copy_invite_button_text": "复制邀请码",
+        "share_button_text": "邀请好友",
+        "share_title": "格物学术 | 检测、降AIGC与降重",
+    },
+    "profile": {
+        "guest_subtitle": "登录后可查看账户、权益和充值进度。",
+        "user_subtitle": "账户、充值、公告集中管理。",
+        "guest_section_title": "登录后进入个人中心",
+        "guest_section_desc": "账户信息、积分充值、订单进度和系统公告会在登录后显示。",
+        "guest_login_button_text": "去登录",
+        "account_section_title": "账户信息",
+        "promo_section_title": "推广领积分",
+        "promo_section_desc": "邀请好友、参与活动，领取积分奖励。",
+        "system_section_title": "公告与操作",
+    },
+}
 _LOGIN_CONFIG_DEFAULTS = {
     "sms_provider": "custom_webhook",
     "sms_api_key": "",
@@ -202,6 +242,13 @@ def _user_payload(user: User) -> dict:
     }
 
 
+def _user_payload_with_partner(db: Session, user: User) -> dict:
+    payload = _user_payload(user)
+    payload["partner_tracking"] = get_bound_channel_payload(db, user_id=int(user.id))
+    payload["phone_bound"] = bool(is_phone_valid(str(user.phone or "")))
+    return payload
+
+
 def _read_system_config_raw(db: Session, key: str) -> dict:
     row = (
         db.query(SystemConfig)
@@ -211,6 +258,68 @@ def _read_system_config_raw(db: Session, key: str) -> dict:
     if row is None or not isinstance(row.config_value, dict):
         return {}
     return row.config_value
+
+
+def _pick_runtime_text(value, fallback: str, max_len: int) -> str:
+    text = str(value or "").strip()
+    if not text or _looks_like_mojibake(text):
+        text = fallback
+    return text[:max_len]
+
+
+def _looks_like_mojibake(text: str) -> bool:
+    if not text:
+        return False
+    suspicious_tokens = ("æ", "ç", "è", "é", "å", "ä", "ã", "ï¼", "�")
+    if any(token in text for token in suspicious_tokens):
+        return True
+    latin1_chars = sum(1 for ch in text if "\u00c0" <= ch <= "\u00ff")
+    return latin1_chars >= 2 and latin1_chars / max(len(text), 1) > 0.1
+
+
+def _normalize_miniapp_runtime_copy(raw: dict | None) -> dict:
+    source = raw if isinstance(raw, dict) else {}
+    login = source.get("login") if isinstance(source.get("login"), dict) else {}
+    home = source.get("home") if isinstance(source.get("home"), dict) else {}
+    profile = source.get("profile") if isinstance(source.get("profile"), dict) else {}
+    defaults = _MINIAPP_RUNTIME_COPY_DEFAULTS
+    return {
+        "login": {
+            "brand_name": _pick_runtime_text(login.get("brand_name"), defaults["login"]["brand_name"], 32),
+            "brand_subtitle": _pick_runtime_text(login.get("brand_subtitle"), defaults["login"]["brand_subtitle"], 64),
+            "agreement_text": _pick_runtime_text(login.get("agreement_text"), defaults["login"]["agreement_text"], 80),
+            "login_unavailable_title": _pick_runtime_text(login.get("login_unavailable_title"), defaults["login"]["login_unavailable_title"], 32),
+            "login_unavailable_desc": _pick_runtime_text(login.get("login_unavailable_desc"), defaults["login"]["login_unavailable_desc"], 200),
+            "formal_mode_label": _pick_runtime_text(login.get("formal_mode_label"), defaults["login"]["formal_mode_label"], 40),
+            "internal_test_mode_label": _pick_runtime_text(login.get("internal_test_mode_label"), defaults["login"]["internal_test_mode_label"], 40),
+            "mock_mode_label": _pick_runtime_text(login.get("mock_mode_label"), defaults["login"]["mock_mode_label"], 40),
+            "prefer_phone_title": _pick_runtime_text(login.get("prefer_phone_title"), defaults["login"]["prefer_phone_title"], 32),
+            "prefer_phone_content": _pick_runtime_text(login.get("prefer_phone_content"), defaults["login"]["prefer_phone_content"], 200),
+            "policy_required_title": _pick_runtime_text(login.get("policy_required_title"), defaults["login"]["policy_required_title"], 32),
+            "policy_required_content": _pick_runtime_text(login.get("policy_required_content"), defaults["login"]["policy_required_content"], 120),
+            "phone_auth_missing_title": _pick_runtime_text(login.get("phone_auth_missing_title"), defaults["login"]["phone_auth_missing_title"], 32),
+        },
+        "home": {
+            "hero_title": _pick_runtime_text(home.get("hero_title"), defaults["home"]["hero_title"], 32),
+            "hero_subtitle": _pick_runtime_text(home.get("hero_subtitle"), defaults["home"]["hero_subtitle"], 120),
+            "invite_label": _pick_runtime_text(home.get("invite_label"), defaults["home"]["invite_label"], 24),
+            "invite_note": _pick_runtime_text(home.get("invite_note"), defaults["home"]["invite_note"], 120),
+            "copy_invite_button_text": _pick_runtime_text(home.get("copy_invite_button_text"), defaults["home"]["copy_invite_button_text"], 24),
+            "share_button_text": _pick_runtime_text(home.get("share_button_text"), defaults["home"]["share_button_text"], 24),
+            "share_title": _pick_runtime_text(home.get("share_title"), defaults["home"]["share_title"], 64),
+        },
+        "profile": {
+            "guest_subtitle": _pick_runtime_text(profile.get("guest_subtitle"), defaults["profile"]["guest_subtitle"], 80),
+            "user_subtitle": _pick_runtime_text(profile.get("user_subtitle"), defaults["profile"]["user_subtitle"], 80),
+            "guest_section_title": _pick_runtime_text(profile.get("guest_section_title"), defaults["profile"]["guest_section_title"], 40),
+            "guest_section_desc": _pick_runtime_text(profile.get("guest_section_desc"), defaults["profile"]["guest_section_desc"], 120),
+            "guest_login_button_text": _pick_runtime_text(profile.get("guest_login_button_text"), defaults["profile"]["guest_login_button_text"], 20),
+            "account_section_title": _pick_runtime_text(profile.get("account_section_title"), defaults["profile"]["account_section_title"], 32),
+            "promo_section_title": _pick_runtime_text(profile.get("promo_section_title"), defaults["profile"]["promo_section_title"], 32),
+            "promo_section_desc": _pick_runtime_text(profile.get("promo_section_desc"), defaults["profile"]["promo_section_desc"], 120),
+            "system_section_title": _pick_runtime_text(profile.get("system_section_title"), defaults["profile"]["system_section_title"], 32),
+        },
+    }
 
 
 def _get_login_config(db: Session) -> dict:
@@ -271,6 +380,14 @@ def _public_site_filing_payload(db: Session) -> dict:
         "police_filing_no": police_filing_no[:128],
         "police_filing_url": police_filing_url[:256],
     }
+
+
+def _public_miniapp_runtime_payload(db: Session) -> dict:
+    miniapp_value = _read_system_config_raw(db, "miniapp")
+    runtime_copy = {}
+    if isinstance(miniapp_value, dict):
+        runtime_copy = miniapp_value.get("runtime_copy") if isinstance(miniapp_value.get("runtime_copy"), dict) else {}
+    return _normalize_miniapp_runtime_copy(runtime_copy)
 
 
 def _get_user_navigation_config(db: Session) -> dict:
@@ -1232,6 +1349,21 @@ def _upsert_miniprogram_phone_user(
             raise BizError(code=4012, message="账号已封禁")
 
     if openid_user and phone_user and openid_user.id != phone_user.id:
+        merged_user, merged = merge_miniprogram_legacy_user_if_needed(
+            db,
+            openid_user=openid_user,
+            phone_user=phone_user,
+        )
+        if merged and merged_user is not None:
+            user = merged_user
+            user.phone = phone
+            user.wechat_openid_mp = openid
+            if unionid and not user.wechat_unionid:
+                user.wechat_unionid = unionid
+            if not user.source:
+                user.source = source
+            db.flush()
+            return user, False
         raise BizError(code=4016, message="当前微信与手机号已关联不同账户，请使用原登录方式")
 
     user = openid_user or phone_user
@@ -1293,6 +1425,7 @@ def auth_options(db: Session = Depends(db_dep)) -> APIResp:
             "notice": notice,
             "user_navigation": user_navigation,
             "promo_center": promo_center,
+            "miniapp_runtime": _public_miniapp_runtime_payload(db),
             "site_filing": _public_site_filing_payload(db),
         }
     )
@@ -1459,6 +1592,23 @@ def login(
         elif not user.source:
             user.source = client_source
 
+        bind_partner_channel_from_request(
+            db,
+            request=request,
+            user_id=int(user.id),
+            explicit_channel_code=req.channel_code,
+            explicit_channel_token=req.channel_token,
+            explicit_channel_scene=req.channel_scene,
+            bind_source="login",
+        )
+        if req.referrer_code:
+            bind_invite_code_for_user(
+                db,
+                user=user,
+                invite_code=req.referrer_code,
+                source=str(client_source or "web"),
+                strict=False,
+            )
         redis_client.setex(f"user:fp:{user.id}", 30 * 24 * 3600, fp)
         db.commit()
     except Exception:
@@ -1476,7 +1626,7 @@ def login(
             "token": token,
             "refresh_token": refresh_token,
             "is_new_user": is_new_user,
-            "user": _user_payload(user),
+            "user": _user_payload_with_partner(db, user),
         }
     )
 
@@ -1509,7 +1659,7 @@ def refresh_user_token(
         raise BizError(code=4014, message="refresh token revoked", http_status=401)
 
     token, next_refresh_token = _issue_user_auth(redis_client, response, user)
-    return ok(data={"token": token, "refresh_token": next_refresh_token, "user": _user_payload(user)})
+    return ok(data={"token": token, "refresh_token": next_refresh_token, "user": _user_payload_with_partner(db, user)})
 
 
 @router.post("/logout", response_model=APIResp)
@@ -1569,6 +1719,23 @@ def wx_mini_login(
                 max_value=1_000_000,
             ),
         )
+        bind_partner_channel_from_request(
+            db,
+            request=request,
+            user_id=int(user.id),
+            explicit_channel_code=req.channel_code,
+            explicit_channel_token=req.channel_token,
+            explicit_channel_scene=req.channel_scene,
+            bind_source="mini_login",
+        )
+        if req.referrer_code:
+            bind_invite_code_for_user(
+                db,
+                user=user,
+                invite_code=req.referrer_code,
+                source="miniprogram",
+                strict=False,
+            )
         redis_client.setex(f"user:fp:{user.id}", 30 * 24 * 3600, fp)
         db.commit()
     except Exception:
@@ -1583,7 +1750,7 @@ def wx_mini_login(
             "refresh_token": refresh_token,
             "is_new_user": is_new_user,
             "scene": "miniprogram",
-            "user": _user_payload(user),
+            "user": _user_payload_with_partner(db, user),
         }
     )
 
@@ -1636,6 +1803,23 @@ def wx_mini_phone_login(
                 max_value=1_000_000,
             ),
         )
+        bind_partner_channel_from_request(
+            db,
+            request=request,
+            user_id=int(user.id),
+            explicit_channel_code=req.channel_code,
+            explicit_channel_token=req.channel_token,
+            explicit_channel_scene=req.channel_scene,
+            bind_source="mini_phone_login",
+        )
+        if req.referrer_code:
+            bind_invite_code_for_user(
+                db,
+                user=user,
+                invite_code=req.referrer_code,
+                source="miniprogram",
+                strict=False,
+            )
         redis_client.setex(f"user:fp:{user.id}", 30 * 24 * 3600, fp)
         db.commit()
     except Exception:
@@ -1651,7 +1835,7 @@ def wx_mini_phone_login(
             "is_new_user": is_new_user,
             "scene": "miniprogram",
             "login_type": "phone_quick",
-            "user": _user_payload(user),
+            "user": _user_payload_with_partner(db, user),
         }
     )
 

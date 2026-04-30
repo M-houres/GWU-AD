@@ -12,12 +12,50 @@ from app.models import (
     PartnerPolicy,
     PartnerRebateLedger,
     Task,
+    SystemConfig,
     User,
 )
 from app.security import hash_password
-from app.services.partner_rebate_service import create_partner_channel, update_partner_channel, upsert_partner_policy
+from app.services.partner_rebate_service import build_channel_scene_value, create_partner_channel, update_partner_channel, upsert_partner_policy
 from app.services.worker_task_support import refund_task
 from app.exceptions import BizError
+
+
+def _issue_partner_portal_token(client, db_session, channel: PartnerChannel, *, admin_id: int, admin_username: str) -> tuple[str, str]:
+    db_session.add(
+        AdminUser(
+            id=admin_id,
+            username=admin_username,
+            password_hash=hash_password("Passw0rd!123"),
+            role="super_admin",
+            is_active=True,
+            permissions_json=[],
+        )
+    )
+    db_session.commit()
+    db_session.refresh(channel)
+
+    app.dependency_overrides[current_admin] = lambda: SimpleNamespace(
+        id=admin_id,
+        username=admin_username,
+        role="super_admin",
+        is_active=True,
+        permissions_json=["*"],
+    )
+    try:
+        reset_resp = client.post(f"/api/v1/partners/admin/channels/{channel.id}/portal-password/reset")
+        assert reset_resp.status_code == 200
+        portal_password = str(reset_resp.json()["data"]["portal_password"])
+    finally:
+        app.dependency_overrides.pop(current_admin, None)
+
+    login_resp = client.post(
+        "/api/v1/partners/portal/auth/login",
+        json={"account": channel.channel_code, "password": portal_password},
+    )
+    assert login_resp.status_code == 200
+    login_data = login_resp.json()["data"]
+    return str(login_data["token"]), str(login_data["refresh_token"])
 
 
 def _submit_dedup_text_task(client) -> int:
@@ -84,6 +122,151 @@ def test_partner_linked_order_creates_attribution_and_consume_rebate(client, db_
     )
     assert ledger is not None
     assert ledger.rebate_amount_fen > 0
+
+
+def test_partner_scene_order_creates_attribution(client, db_session) -> None:
+    user = User(phone="13800003111", nickname="partner-scene-buyer", credits=0)
+    channel = PartnerChannel(
+        channel_code="CHSCORD1",
+        name="场景下单渠道",
+        contact_name="商务",
+        contact_phone="13800138111",
+        status="active",
+        order_token="order-scene-token-001",
+        portal_token="portal-scene-token-001",
+        default_rebate_rate_bp=1500,
+    )
+    db_session.add_all([user, channel])
+    db_session.commit()
+    db_session.refresh(user)
+    db_session.refresh(channel)
+
+    app.dependency_overrides[current_user] = lambda: user
+    try:
+        create_resp = client.post(
+            "/api/v1/billing/create-order",
+            json={
+                "package_name": "体验包",
+                "provider": "mock",
+                "channel_scene": build_channel_scene_value(channel),
+            },
+            headers={"X-Client-Source": "miniprogram"},
+        )
+        assert create_resp.status_code == 200
+        order_no = create_resp.json()["data"]["order_no"]
+    finally:
+        app.dependency_overrides.pop(current_user, None)
+
+    order = db_session.query(Order).filter(Order.order_no == order_no).first()
+    assert order is not None
+    attribution = db_session.query(PartnerOrderAttribution).filter(PartnerOrderAttribution.order_id == order.id).first()
+    assert attribution is not None
+    assert attribution.channel_id == channel.id
+    assert attribution.attribution_source in {"link", "binding"}
+
+
+def test_miniprogram_phone_login_binds_partner_tracking(client, db_session) -> None:
+    from app.config import get_settings
+
+    settings = get_settings()
+    old_env = settings.app_env
+    settings.app_env = "dev"
+    db_session.add(
+        SystemConfig(
+            category="system",
+            config_key="login",
+            config_value={
+                "wechat_miniprogram_login_enabled": True,
+                "wechat_miniprogram_app_id": "wx-mini-dev-009",
+                "wechat_miniprogram_app_secret": "mini-dev-secret-009",
+            },
+        )
+    )
+    channel = PartnerChannel(
+        channel_code="CHLOGIN01",
+        name="登录渠道",
+        contact_name="商务",
+        contact_phone="13800138009",
+        status="active",
+        order_token="login-token-001",
+        portal_token="portal-token-009",
+        default_rebate_rate_bp=1200,
+    )
+    db_session.add(channel)
+    db_session.commit()
+
+    try:
+        resp = client.post(
+            "/api/v1/auth/wx/mini-phone-login",
+            json={
+                "login_code": "mock_login_code_009",
+                "phone_code": "mock_phone_13800009999",
+                "channel_code": "CHLOGIN01",
+                "channel_token": "login-token-001",
+            },
+            headers={"X-Client-Source": "miniprogram"},
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["code"] == 0
+        tracking = body["data"]["user"]["partner_tracking"]
+        assert tracking is not None
+        assert tracking["channel_code"] == "CHLOGIN01"
+        assert tracking["bind_source"] == "mini_phone_login"
+    finally:
+        settings.app_env = old_env
+
+
+def test_miniprogram_phone_login_binds_partner_tracking_by_scene(client, db_session) -> None:
+    from app.config import get_settings
+
+    settings = get_settings()
+    old_env = settings.app_env
+    settings.app_env = "dev"
+    db_session.add(
+        SystemConfig(
+            category="system",
+            config_key="login",
+            config_value={
+                "wechat_miniprogram_login_enabled": True,
+                "wechat_miniprogram_app_id": "wx-mini-dev-010",
+                "wechat_miniprogram_app_secret": "mini-dev-secret-010",
+            },
+        )
+    )
+    channel = PartnerChannel(
+        channel_code="CHSCENE01",
+        name="场景渠道",
+        contact_name="商务",
+        contact_phone="13800138010",
+        status="active",
+        order_token="scene-token-001",
+        portal_token="scene-portal-001",
+        default_rebate_rate_bp=1200,
+    )
+    db_session.add(channel)
+    db_session.commit()
+    db_session.refresh(channel)
+
+    try:
+        resp = client.post(
+            "/api/v1/auth/wx/mini-phone-login",
+            json={
+                "login_code": "mock_login_code_010",
+                "phone_code": "mock_phone_13800001010",
+                "channel_scene": build_channel_scene_value(channel),
+            },
+            headers={"X-Client-Source": "miniprogram"},
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["code"] == 0
+        tracking = body["data"]["user"]["partner_tracking"]
+        assert tracking is not None
+        assert tracking["channel_code"] == "CHSCENE01"
+        assert tracking["bind_source"] == "mini_phone_login"
+    finally:
+        settings.app_env = old_env
 
 
 def test_task_refund_creates_partner_rebate_reversal(client, db_session) -> None:
@@ -165,24 +348,13 @@ def test_partner_portal_and_statement_settlement(client, db_session) -> None:
     finally:
         app.dependency_overrides.pop(current_user, None)
 
-    db_session.add(
-        AdminUser(
-            id=2,
-            username="admin2",
-            password_hash=hash_password("Passw0rd!123"),
-            role="super_admin",
-            is_active=True,
-            permissions_json=[],
-        )
-    )
-    db_session.commit()
+    portal_token, _ = _issue_partner_portal_token(client, db_session, channel, admin_id=2, admin_username="admin2")
+    portal_headers = {"Authorization": f"Bearer {portal_token}"}
     app.dependency_overrides[current_admin] = lambda: SimpleNamespace(
         id=2, username="admin2", role="super_admin", is_active=True, permissions_json=["*"]
     )
     try:
-        month = client.get("/api/v1/partners/portal/overview", params={"ch": "CHREBATE03", "pk": "portal-token-003"}).json()[
-            "data"
-        ]["statement_month"]
+        month = client.get("/api/v1/partners/portal/overview", headers=portal_headers).json()["data"]["statement_month"]
         gen_resp = client.post(
             "/api/v1/partners/admin/statements/generate",
             json={"channel_id": channel.id, "statement_month": month},
@@ -212,7 +384,7 @@ def test_partner_portal_and_statement_settlement(client, db_session) -> None:
 
         withdraw_apply = client.post(
             "/api/v1/partners/portal/withdraw-apply",
-            params={"ch": "CHREBATE03", "pk": "portal-token-003"},
+            headers=portal_headers,
             json={"apply_amount_cny": 100, "note": "4月结算提现"},
         )
         assert withdraw_apply.status_code == 200
@@ -235,7 +407,7 @@ def test_partner_portal_and_statement_settlement(client, db_session) -> None:
 
     portal_orders = client.get(
         "/api/v1/partners/portal/orders",
-        params={"ch": "CHREBATE03", "pk": "portal-token-003"},
+        headers=portal_headers,
     )
     assert portal_orders.status_code == 200
     order_nos = [item["order_no"] for item in portal_orders.json()["data"]["items"]]
@@ -243,14 +415,14 @@ def test_partner_portal_and_statement_settlement(client, db_session) -> None:
 
     portal_statements = client.get(
         "/api/v1/partners/portal/statements",
-        params={"ch": "CHREBATE03", "pk": "portal-token-003"},
+        headers=portal_headers,
     )
     assert portal_statements.status_code == 200
     assert len(portal_statements.json()["data"]["items"]) >= 1
 
     portal_withdrawals = client.get(
         "/api/v1/partners/portal/withdrawals",
-        params={"ch": "CHREBATE03", "pk": "portal-token-003"},
+        headers=portal_headers,
     )
     assert portal_withdrawals.status_code == 200
     withdrawal_items = portal_withdrawals.json()["data"]["items"]
@@ -259,15 +431,15 @@ def test_partner_portal_and_statement_settlement(client, db_session) -> None:
 
     portal_overview = client.get(
         "/api/v1/partners/portal/overview",
-        params={"ch": "CHREBATE03", "pk": "portal-token-003"},
+        headers=portal_headers,
     )
     assert portal_overview.status_code == 200
     overview_data = portal_overview.json()["data"]
     assert "miniapp_order_path" in overview_data
-    assert "miniapp_portal_path" in overview_data
+    assert "miniapp_portal_path" not in overview_data
 
 
-def test_partner_portal_login_and_legacy_exchange(client, db_session) -> None:
+def test_partner_portal_login_and_password_only_access(client, db_session) -> None:
     channel = PartnerChannel(
         channel_code="CHLOGIN01",
         name="登录渠道",
@@ -348,16 +520,25 @@ def test_partner_portal_login_and_legacy_exchange(client, db_session) -> None:
         json={"account": channel.channel_code, "password": "NewPassw0rd!456"},
     )
     assert relogin_resp.status_code == 200
+    relogin_token = str(relogin_resp.json()["data"]["token"])
+    assert relogin_token
 
     exchange_resp = client.post(
         "/api/v1/partners/portal/auth/exchange",
         json={"channel_code": channel.channel_code, "portal_token": channel.portal_token},
     )
-    assert exchange_resp.status_code == 200
-    exchange_token = str(exchange_resp.json()["data"]["token"])
+    assert exchange_resp.status_code == 410
+
+    client.cookies.clear()
+    legacy_overview_resp = client.get(
+        "/api/v1/partners/portal/overview",
+        params={"ch": channel.channel_code, "pk": channel.portal_token},
+    )
+    assert legacy_overview_resp.status_code == 401
+
     customers_resp = client.get(
         "/api/v1/partners/portal/customers",
-        headers={"Authorization": f"Bearer {exchange_token}"},
+        headers={"Authorization": f"Bearer {relogin_token}"},
     )
     assert customers_resp.status_code == 200
 
@@ -567,16 +748,21 @@ def test_partner_team_summary_and_customer_scope(client, db_session) -> None:
     finally:
         app.dependency_overrides.pop(current_user, None)
 
+    portal_token, _ = _issue_partner_portal_token(client, db_session, root, admin_id=31, admin_username="admin-team-summary")
+    portal_headers = {"Authorization": f"Bearer {portal_token}"}
+
     team_summary = client.get(
         "/api/v1/partners/portal/team-summary",
-        params={"ch": root.channel_code, "pk": root.portal_token, "scope": "subtree"},
+        headers=portal_headers,
+        params={"scope": "subtree"},
     )
     assert team_summary.status_code == 200
     assert team_summary.json()["data"]["order_count"] >= 1
 
     customers_resp = client.get(
         "/api/v1/partners/portal/customers",
-        params={"ch": root.channel_code, "pk": root.portal_token, "scope": "subtree"},
+        headers=portal_headers,
+        params={"scope": "subtree"},
     )
     assert customers_resp.status_code == 200
     customer_items = customers_resp.json()["data"]["items"]
@@ -674,9 +860,12 @@ def test_portal_create_subchannel_returns_initial_portal_password(client, db_ses
     db_session.commit()
     db_session.refresh(root)
 
+    portal_token, _ = _issue_partner_portal_token(client, db_session, root, admin_id=32, admin_username="admin-portal-child")
+    portal_headers = {"Authorization": f"Bearer {portal_token}"}
+
     resp = client.post(
         "/api/v1/partners/portal/subchannels",
-        params={"ch": root.channel_code, "pk": root.portal_token},
+        headers=portal_headers,
         json={
             "name": "二级渠道门户",
             "contact_name": "李四",
@@ -692,7 +881,7 @@ def test_portal_create_subchannel_returns_initial_portal_password(client, db_ses
 
     reset_resp = client.post(
         f"/api/v1/partners/portal/subchannels/{data['id']}/portal-password/reset",
-        params={"ch": root.channel_code, "pk": root.portal_token},
+        headers=portal_headers,
     )
     assert reset_resp.status_code == 200
     reset_data = reset_resp.json()["data"]

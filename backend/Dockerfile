@@ -8,6 +8,9 @@ ENV PIP_TRUSTED_HOST=pypi.tuna.tsinghua.edu.cn
 WORKDIR /app
 
 COPY backend/requirements.txt /app/requirements.txt
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends antiword \
+    && rm -rf /var/lib/apt/lists/*
 RUN pip install --no-cache-dir --retries 10 --default-timeout=120 -r /app/requirements.txt
 
 COPY backend /app

@@ -576,6 +576,141 @@
                 </label>
               </div>
             </section>
+
+            <section class="rounded-2xl border border-[#dce4eb] bg-white p-4">
+              <div class="text-sm font-semibold text-[#1f2c35]">运行文案</div>
+              <div class="mt-1 text-xs leading-5 text-[#5f6d79]">
+                这里的文案会直接下发到小程序登录页、首页、我的页。改字后前端重新拉配置即可生效，不需要重新提审代码。
+              </div>
+
+              <div class="mt-4 text-sm font-semibold text-[#1f2c35]">登录页</div>
+              <div class="mt-3 grid gap-3 md:grid-cols-2">
+                <label class="space-y-1 text-sm">
+                  <span>品牌名称</span>
+                  <input v-model.trim="forms.miniapp.runtime_copy.login.brand_name" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" />
+                </label>
+                <label class="space-y-1 text-sm">
+                  <span>品牌副标题</span>
+                  <input v-model.trim="forms.miniapp.runtime_copy.login.brand_subtitle" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" />
+                </label>
+                <label class="space-y-1 text-sm md:col-span-2">
+                  <span>协议提示文案</span>
+                  <input v-model.trim="forms.miniapp.runtime_copy.login.agreement_text" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" />
+                </label>
+                <label class="space-y-1 text-sm">
+                  <span>未开通标题</span>
+                  <input v-model.trim="forms.miniapp.runtime_copy.login.login_unavailable_title" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" />
+                </label>
+                <label class="space-y-1 text-sm">
+                  <span>手机号优先弹窗标题</span>
+                  <input v-model.trim="forms.miniapp.runtime_copy.login.prefer_phone_title" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" />
+                </label>
+                <label class="space-y-1 text-sm md:col-span-2">
+                  <span>未开通说明</span>
+                  <textarea v-model.trim="forms.miniapp.runtime_copy.login.login_unavailable_desc" rows="3" maxlength="200" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2"></textarea>
+                </label>
+                <label class="space-y-1 text-sm md:col-span-2">
+                  <span>手机号优先弹窗内容</span>
+                  <textarea v-model.trim="forms.miniapp.runtime_copy.login.prefer_phone_content" rows="3" maxlength="200" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2"></textarea>
+                </label>
+                <label class="space-y-1 text-sm">
+                  <span>正式登录模式提示</span>
+                  <input v-model.trim="forms.miniapp.runtime_copy.login.formal_mode_label" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" />
+                </label>
+                <label class="space-y-1 text-sm">
+                  <span>内测登录模式提示</span>
+                  <input v-model.trim="forms.miniapp.runtime_copy.login.internal_test_mode_label" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" />
+                </label>
+                <label class="space-y-1 text-sm">
+                  <span>本地调试模式提示</span>
+                  <input v-model.trim="forms.miniapp.runtime_copy.login.mock_mode_label" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" />
+                </label>
+                <label class="space-y-1 text-sm">
+                  <span>协议未勾选标题</span>
+                  <input v-model.trim="forms.miniapp.runtime_copy.login.policy_required_title" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" />
+                </label>
+                <label class="space-y-1 text-sm md:col-span-2">
+                  <span>协议未勾选内容</span>
+                  <input v-model.trim="forms.miniapp.runtime_copy.login.policy_required_content" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" />
+                </label>
+                <label class="space-y-1 text-sm">
+                  <span>手机号授权失败标题</span>
+                  <input v-model.trim="forms.miniapp.runtime_copy.login.phone_auth_missing_title" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" />
+                </label>
+              </div>
+
+              <div class="mt-5 text-sm font-semibold text-[#1f2c35]">首页</div>
+              <div class="mt-3 grid gap-3 md:grid-cols-2">
+                <label class="space-y-1 text-sm">
+                  <span>首页主标题</span>
+                  <input v-model.trim="forms.miniapp.runtime_copy.home.hero_title" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" />
+                </label>
+                <label class="space-y-1 text-sm">
+                  <span>邀请区标题</span>
+                  <input v-model.trim="forms.miniapp.runtime_copy.home.invite_label" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" />
+                </label>
+                <label class="space-y-1 text-sm md:col-span-2">
+                  <span>首页副标题</span>
+                  <textarea v-model.trim="forms.miniapp.runtime_copy.home.hero_subtitle" rows="3" maxlength="120" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2"></textarea>
+                </label>
+                <label class="space-y-1 text-sm md:col-span-2">
+                  <span>邀请区说明</span>
+                  <textarea v-model.trim="forms.miniapp.runtime_copy.home.invite_note" rows="3" maxlength="120" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2"></textarea>
+                </label>
+                <label class="space-y-1 text-sm">
+                  <span>复制邀请码按钮</span>
+                  <input v-model.trim="forms.miniapp.runtime_copy.home.copy_invite_button_text" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" />
+                </label>
+                <label class="space-y-1 text-sm">
+                  <span>分享按钮</span>
+                  <input v-model.trim="forms.miniapp.runtime_copy.home.share_button_text" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" />
+                </label>
+                <label class="space-y-1 text-sm md:col-span-2">
+                  <span>分享标题</span>
+                  <input v-model.trim="forms.miniapp.runtime_copy.home.share_title" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" />
+                </label>
+              </div>
+
+              <div class="mt-5 text-sm font-semibold text-[#1f2c35]">我的页</div>
+              <div class="mt-3 grid gap-3 md:grid-cols-2">
+                <label class="space-y-1 text-sm">
+                  <span>游客顶部说明</span>
+                  <input v-model.trim="forms.miniapp.runtime_copy.profile.guest_subtitle" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" />
+                </label>
+                <label class="space-y-1 text-sm">
+                  <span>登录后顶部说明</span>
+                  <input v-model.trim="forms.miniapp.runtime_copy.profile.user_subtitle" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" />
+                </label>
+                <label class="space-y-1 text-sm">
+                  <span>游客区标题</span>
+                  <input v-model.trim="forms.miniapp.runtime_copy.profile.guest_section_title" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" />
+                </label>
+                <label class="space-y-1 text-sm">
+                  <span>游客登录按钮</span>
+                  <input v-model.trim="forms.miniapp.runtime_copy.profile.guest_login_button_text" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" />
+                </label>
+                <label class="space-y-1 text-sm md:col-span-2">
+                  <span>游客区说明</span>
+                  <textarea v-model.trim="forms.miniapp.runtime_copy.profile.guest_section_desc" rows="3" maxlength="120" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2"></textarea>
+                </label>
+                <label class="space-y-1 text-sm">
+                  <span>账户区标题</span>
+                  <input v-model.trim="forms.miniapp.runtime_copy.profile.account_section_title" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" />
+                </label>
+                <label class="space-y-1 text-sm">
+                  <span>推广区标题</span>
+                  <input v-model.trim="forms.miniapp.runtime_copy.profile.promo_section_title" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" />
+                </label>
+                <label class="space-y-1 text-sm md:col-span-2">
+                  <span>推广区说明</span>
+                  <textarea v-model.trim="forms.miniapp.runtime_copy.profile.promo_section_desc" rows="3" maxlength="120" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2"></textarea>
+                </label>
+                <label class="space-y-1 text-sm">
+                  <span>系统区标题</span>
+                  <input v-model.trim="forms.miniapp.runtime_copy.profile.system_section_title" class="w-full rounded-xl border border-[#ccd5dd] px-3 py-2" />
+                </label>
+              </div>
+            </section>
           </template>
 
           <template v-else-if="activeTab === 'promo_center'">

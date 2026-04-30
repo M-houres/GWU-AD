@@ -148,7 +148,7 @@ class ProcessingEngine:
             output_text = extract_text_from_file(output_path)
         else:
             output_text = self._transform_text(source_text, task_type, normalized_platform, report_summary)
-            output_path.write_text(output_text, encoding="utf-8")
+            self._write_text_output(output_path, output_text)
 
         result_json = self._build_transform_result(
             task_type=task_type,
@@ -202,6 +202,21 @@ class ProcessingEngine:
                     for cell in row.cells:
                         for para in cell.paragraphs:
                             yield para
+
+    def _write_text_output(self, output_path: Path, text: str) -> None:
+        if output_path.suffix.lower() != ".docx":
+            output_path.write_text(text, encoding="utf-8")
+            return
+
+        paragraphs = text.splitlines()
+        doc = Document()
+        if paragraphs:
+            doc.paragraphs[0].text = paragraphs[0]
+            for paragraph_text in paragraphs[1:]:
+                doc.add_paragraph(paragraph_text)
+        else:
+            doc.paragraphs[0].text = ""
+        doc.save(str(output_path))
 
     def _is_docx_reference_heading(self, text: str) -> bool:
         normalized = re.sub(r"\s+", "", str(text or ""))

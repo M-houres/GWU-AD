@@ -65,7 +65,7 @@
                         @dragleave.prevent="dragMain = false"
                         @drop.prevent="onMainDrop"
                       >
-                        <input class="hidden" type="file" accept=".docx" @change="onPaperInput" />
+                        <input class="hidden" type="file" accept=".doc,.docx" @change="onPaperInput" />
                         <div class="aigc-upload__inner">
                           <div class="aigc-upload__icon" aria-hidden="true">
                             <svg viewBox="0 0 24 24">
@@ -80,7 +80,7 @@
                             </svg>
                           </div>
                           <p class="aigc-upload__title">请上传待处理文件，或<span>点击上传</span></p>
-                          <p class="aigc-upload__subtitle">仅支持 .docx</p>
+                          <p class="aigc-upload__subtitle">仅支持 .doc / .docx</p>
                         </div>
                       </label>
                       <p class="aigc-upload__ext">单文件上限 20MB</p>
@@ -320,8 +320,8 @@ function setMainFile(file) {
   if (!file) return
 
   const ext = file.name.includes(".") ? file.name.slice(file.name.lastIndexOf(".")).toLowerCase() : ""
-  if (ext !== ".docx") {
-    fieldErrors.paper = "上传文件仅支持 .docx"
+  if (![".doc", ".docx"].includes(ext)) {
+    fieldErrors.paper = "上传文件仅支持 .doc / .docx"
     return
   }
   if (file.size > 20 * 1024 * 1024) {

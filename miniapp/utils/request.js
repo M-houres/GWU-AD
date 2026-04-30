@@ -1,15 +1,27 @@
 const env = require("../config/env")
-const { clearRefreshToken, getRefreshToken, getToken, setRefreshToken, setToken, clearToken, clearUser, setUser } = require("./storage")
+const {
+  clearRefreshToken,
+  getRefreshToken,
+  getToken,
+  setRefreshToken,
+  setToken,
+  clearToken,
+  clearUser,
+  setUser,
+} = require("./storage")
 const { openLogin, getCurrentRoute } = require("./authFlow")
 const { getBizMessage } = require("./status")
 let refreshPromise = null
 
-function buildHeaders(extra = {}) {
+function buildHeaders(extra = {}, options = {}) {
+  const { includeJsonContentType = true } = options
   const token = getToken()
   const headers = {
-    "content-type": "application/json",
     "X-Client-Source": "miniprogram",
     ...extra,
+  }
+  if (includeJsonContentType && !headers["content-type"] && !headers["Content-Type"]) {
+    headers["content-type"] = "application/json"
   }
   if (token) headers.Authorization = `Bearer ${token}`
   return headers
@@ -217,7 +229,7 @@ function uploadFile(options) {
       name,
       formData,
       timeout,
-      header: buildHeaders(header),
+      header: buildHeaders(header, { includeJsonContentType: false }),
       success(res) {
         const { body, rawText } = parseResponseBody(res.data)
 
@@ -280,7 +292,52 @@ function uploadFile(options) {
   })
 }
 
+function downloadFile(options) {
+  const { url, header = {}, timeout = 120000, _retried = false } = options
+
+  return new Promise((resolve, reject) => {
+    wx.downloadFile({
+      url: `${env.apiBaseUrl}${url}`,
+      timeout,
+      header: buildHeaders(header, { includeJsonContentType: false }),
+      success(res) {
+        if (res.statusCode === 401) {
+          ;(async () => {
+            if (!_retried) {
+              const refreshed = await refreshMiniSession()
+              if (refreshed) {
+                try {
+                  const retried = await downloadFile({ ...options, _retried: true })
+                  resolve(retried)
+                  return
+                } catch (retryError) {
+                  reject(retryError)
+                  return
+                }
+              }
+            }
+            handleUnauthorized()
+            reject(createError("登录状态已失效", { statusCode: res.statusCode }))
+          })()
+          return
+        }
+
+        if (res.statusCode < 200 || res.statusCode >= 300 || !res.tempFilePath) {
+          reject(createError(`下载失败（HTTP ${res.statusCode}）`, { statusCode: res.statusCode }))
+          return
+        }
+
+        resolve(res.tempFilePath)
+      },
+      fail(err) {
+        reject(getNetworkError(err, true))
+      },
+    })
+  })
+}
+
 module.exports = {
   request,
   uploadFile,
+  downloadFile,
 }

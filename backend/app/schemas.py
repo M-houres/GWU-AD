@@ -19,17 +19,29 @@ class LoginReq(BaseModel):
     phone: str = Field(min_length=11, max_length=20)
     code: str = Field(min_length=4, max_length=8)
     device_fingerprint: str | None = Field(default=None, max_length=128)
+    channel_code: str | None = Field(default=None, max_length=32)
+    channel_token: str | None = Field(default=None, max_length=128)
+    channel_scene: str | None = Field(default=None, max_length=64)
+    referrer_code: str | None = Field(default=None, max_length=32)
 
 
 class MiniProgramLoginReq(BaseModel):
     code: str = Field(min_length=2, max_length=256)
     device_fingerprint: str | None = Field(default=None, max_length=128)
+    channel_code: str | None = Field(default=None, max_length=32)
+    channel_token: str | None = Field(default=None, max_length=128)
+    channel_scene: str | None = Field(default=None, max_length=64)
+    referrer_code: str | None = Field(default=None, max_length=32)
 
 
 class MiniProgramPhoneLoginReq(BaseModel):
     login_code: str = Field(min_length=2, max_length=256)
     phone_code: str = Field(min_length=2, max_length=256)
     device_fingerprint: str | None = Field(default=None, max_length=128)
+    channel_code: str | None = Field(default=None, max_length=32)
+    channel_token: str | None = Field(default=None, max_length=128)
+    channel_scene: str | None = Field(default=None, max_length=64)
+    referrer_code: str | None = Field(default=None, max_length=32)
 
 
 class UserResp(BaseModel):
@@ -79,6 +91,7 @@ class CreateOrderReq(BaseModel):
     scene: str = Field(default="web")
     channel_code: str | None = Field(default=None, max_length=32)
     channel_token: str | None = Field(default=None, max_length=128)
+    channel_scene: str | None = Field(default=None, max_length=64)
 
 
 class PayCallbackReq(BaseModel):

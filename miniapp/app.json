@@ -3,7 +3,7 @@
     "pages/home/index",
     "pages/records/index",
     "pages/profile/index",
-    "pages/partner/index",
+    "pages/promo-center/index",
     "pages/login/index",
     "pages/legal/terms/index",
     "pages/legal/privacy/index"
@@ -11,14 +11,14 @@
   "window": {
     "navigationBarTextStyle": "black",
     "navigationBarTitleText": "格物学术",
-    "navigationBarBackgroundColor": "#f7f1ef",
-    "backgroundColor": "#f6f1ef",
+    "navigationBarBackgroundColor": "#f8fbff",
+    "backgroundColor": "#f4f8ff",
     "backgroundTextStyle": "light"
   },
   "tabBar": {
-    "color": "#6f6966",
-    "selectedColor": "#07c160",
-    "backgroundColor": "#fcfbfa",
+    "color": "#6a7f99",
+    "selectedColor": "#1e5bdf",
+    "backgroundColor": "#ffffff",
     "borderStyle": "black",
     "list": [
       {
@@ -36,5 +36,6 @@
     ]
   },
   "style": "v2",
-  "sitemapLocation": "sitemap.json"
+  "sitemapLocation": "sitemap.json",
+  "__usePrivacyCheck__": true
 }

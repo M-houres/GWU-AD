@@ -257,6 +257,7 @@ def test_wx_miniprogram_phone_login_accepts_mock_codes_in_non_prod(
         assert body["code"] == 0
         assert body["data"]["scene"] == "miniprogram"
         assert body["data"]["login_type"] == "phone_quick"
+        assert body["data"]["user"]["phone_bound"] is True
         assert body["data"]["token"]
         assert body["data"]["user"]["phone"] == "138****1234"
     finally:

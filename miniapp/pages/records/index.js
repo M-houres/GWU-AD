@@ -1,6 +1,4 @@
-const env = require("../../config/env")
-const { request } = require("../../utils/request")
-const { getToken } = require("../../utils/storage")
+const { request, downloadFile } = require("../../utils/request")
 const { ensureLogin } = require("../../utils/auth")
 const { requireAuth, getPendingAuth, clearPendingAuth } = require("../../utils/authFlow")
 const { getTaskStatusText, toFriendlyError } = require("../../utils/status")
@@ -176,6 +174,7 @@ Page({
     expandedId: 0,
     expandedDetail: null,
     detailLoadingId: 0,
+    downloadingId: 0,
   },
 
   onShow() {
@@ -216,6 +215,7 @@ Page({
       expandedId: 0,
       expandedDetail: null,
       detailLoadingId: 0,
+      downloadingId: 0,
       loading: false,
     })
   },
@@ -244,6 +244,8 @@ Page({
         silent: true,
       })
 
+      if (this.data.expandedId !== taskId) return
+
       this.setData({
         expandedDetail: {
           reportCards: buildReportCards(task),
@@ -255,7 +257,9 @@ Page({
     } catch (error) {
       wx.showToast({ title: toFriendlyError(error, "加载报告失败"), icon: "none" })
     } finally {
-      this.setData({ detailLoadingId: 0 })
+      if (this.data.detailLoadingId === taskId) {
+        this.setData({ detailLoadingId: 0 })
+      }
     }
   },
 
@@ -333,35 +337,30 @@ Page({
     await this.expandTaskDetail(taskId)
   },
 
-  onTapDownload(e) {
+  async onTapDownload(e) {
     const taskId = Number(e.currentTarget.dataset.id || 0)
     const status = String(e.currentTarget.dataset.status || "").toLowerCase()
     if (!taskId) return
+    if (this.data.downloadingId) return
     if (status !== "completed") {
       wx.showToast({ title: "任务未完成，暂不可下载", icon: "none" })
       return
     }
 
-    const token = getToken()
-    wx.downloadFile({
-      url: `${env.apiBaseUrl}/tasks/${taskId}/download`,
-      header: {
-        "X-Client-Source": "miniprogram",
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      },
-      success: (res) => {
-        if (res.statusCode !== 200 || !res.tempFilePath) {
-          wx.showToast({ title: "下载失败", icon: "none" })
-          return
-        }
-
-        wx.openDocument({
-          filePath: res.tempFilePath,
-          showMenu: true,
-          fail: () => wx.showToast({ title: "文件打开失败", icon: "none" }),
-        })
-      },
-      fail: () => wx.showToast({ title: "下载失败", icon: "none" }),
-    })
+    this.setData({ downloadingId: taskId })
+    try {
+      const tempFilePath = await downloadFile({
+        url: `/tasks/${taskId}/download`,
+      })
+      wx.openDocument({
+        filePath: tempFilePath,
+        showMenu: true,
+        fail: () => wx.showToast({ title: "文件打开失败", icon: "none" }),
+      })
+    } catch (error) {
+      wx.showToast({ title: toFriendlyError(error, "下载失败"), icon: "none" })
+    } finally {
+      this.setData({ downloadingId: 0 })
+    }
   },
 })

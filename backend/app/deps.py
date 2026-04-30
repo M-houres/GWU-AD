@@ -12,8 +12,6 @@ from app.config import get_settings
 from app.database import get_db
 from app.models import AdminUser, PartnerChannel, User
 from app.security import auth_session_key, decode_token
-from app.services.partner_rebate_service import authenticate_partner_portal
-
 settings = get_settings()
 logger = logging.getLogger("app.deps")
 redis_client = redis.Redis(
@@ -295,24 +293,13 @@ def current_partner(
 
 
 def optional_partner(
-    request: Request,
     cred: HTTPAuthorizationCredentials = Depends(auth_scheme),
     partner_access_cookie: str | None = Cookie(default=None, alias="gw_partner_access"),
     db: Session = Depends(db_dep),
     auth_store=Depends(get_redis),
 ) -> PartnerChannel | None:
     token = cred.credentials if cred is not None and cred.credentials else str(partner_access_cookie or "").strip()
-    channel = _resolve_partner_from_token(token, db=db, auth_store=auth_store, required=False)
-    if channel is not None:
-        return channel
-    channel_code = str(request.query_params.get("ch") or request.query_params.get("channel_code") or "").strip()
-    portal_token = str(request.query_params.get("pk") or request.query_params.get("portal_token") or "").strip()
-    if not channel_code or not portal_token:
-        return None
-    try:
-        return authenticate_partner_portal(db, channel_code=channel_code, portal_token=portal_token)
-    except Exception:
-        return None
+    return _resolve_partner_from_token(token, db=db, auth_store=auth_store, required=False)
 
 
 def current_super_admin(admin: AdminUser = Depends(current_admin)) -> AdminUser:

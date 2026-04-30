@@ -37,17 +37,21 @@
             </div>
           </div>
           <div class="partner-action-grid">
-            <button type="button" class="partner-action-card partner-action-card--primary" @click="copyCustomerShareText">
-              <strong>发给客户</strong>
-              <span>复制客户推广文案</span>
+            <button v-if="isLevelOne" type="button" class="partner-action-card partner-action-card--primary" @click="scrollToSection('channel-materials')">
+              <strong>生成二级物料</strong>
+              <span>直接到二级渠道操作区</span>
             </button>
-            <button v-if="isLevelOne" type="button" class="partner-action-card" @click="copyRecruitmentBundle">
-              <strong>发给二级</strong>
-              <span>复制招募信息</span>
+            <button v-else type="button" class="partner-action-card partner-action-card--primary" @click="openOwnCustomerLinkPanel">
+              <strong>生成获客链接</strong>
+              <span>生成二级渠道网页获客链接</span>
             </button>
             <button v-if="isLevelOne" type="button" class="partner-action-card" @click="scrollToSection('subchannel-form')">
               <strong>新建二级</strong>
               <span>直接跳到创建区</span>
+            </button>
+            <button v-else type="button" class="partner-action-card" @click="openOwnCustomerQrPanel">
+              <strong>生成小程序码</strong>
+              <span>生成二级渠道获客小程序码</span>
             </button>
             <button type="button" class="partner-action-card" @click="scrollToSection('withdraw-panel')">
               <strong>提现</strong>
@@ -101,13 +105,12 @@
         </article>
       </section>
 
-      <section v-if="hasPortalSession && overview && isLevelOne" class="partner-panel">
+      <section v-if="hasPortalSession && overview && isLevelOne" id="channel-materials" class="partner-panel">
         <div class="partner-section-head">
           <div>
             <div class="partner-kicker">二级管理</div>
             <h2>一级重点看二级表现</h2>
           </div>
-          <button type="button" class="partner-button partner-button--ghost" @click="copyRecruitmentBundle">复制当前招募信息</button>
         </div>
 
         <div class="partner-table-wrap">
@@ -117,7 +120,7 @@
                 <th>二级渠道</th>
                 <th>状态</th>
                 <th>客户 / 返佣</th>
-                <th>门户 / 推广</th>
+                <th>用途入口</th>
                 <th>操作</th>
               </tr>
             </thead>
@@ -145,17 +148,16 @@
                   </div>
                 </td>
                 <td>
-                  <div class="partner-stack">
-                    <span>{{ item.portal_link || item.portal_login_link || "-" }}</span>
-                    <span>{{ item.order_link || "-" }}</span>
+                  <div class="partner-generate-actions">
+                    <button type="button" class="partner-button partner-button--ghost" @click="openChildPortalLinkPanel(item)">生成二级渠道登录入口</button>
+                    <button type="button" class="partner-button partner-button--ghost" @click="openChildCustomerLinkPanel(item)">生成二级渠道网页获客链接</button>
+                    <button type="button" class="partner-button partner-button--ghost" @click="openChildMiniappQr(item)">生成二级渠道获客小程序码</button>
                   </div>
                 </td>
                 <td>
                   <div class="partner-row-actions">
                     <button type="button" class="partner-button partner-button--ghost" @click="startEditChild(item)">编辑</button>
                     <button type="button" class="partner-button partner-button--ghost" @click="openPolicyPanel(item)">返佣设置</button>
-                    <button type="button" class="partner-button partner-button--ghost" @click="copyChildBundle(item)">复制门户</button>
-                    <button type="button" class="partner-button partner-button--ghost" @click="copyActivationNudge(item)">催活文案</button>
                     <button type="button" class="partner-button partner-button--ghost" @click="toggleChildStatus(item)">
                       {{ item.status === "active" ? "停用" : "启用" }}
                     </button>
@@ -212,15 +214,53 @@
       <section v-if="hasPortalSession && overview && !isLevelOne" class="partner-panel">
         <div class="partner-section-head">
           <div>
-            <div class="partner-kicker">我的分发信息</div>
-            <h2>二级更重要的是持续做客户</h2>
+            <div class="partner-kicker">我的入口</div>
+            <h2>二级重点先持续做客户</h2>
           </div>
-          <button type="button" class="partner-button partner-button--ghost" @click="copyOwnBundle">复制整段信息</button>
         </div>
-        <div class="partner-share-box">
-          <span>推广链接：{{ overview.order_link || "-" }}</span>
-          <span>小程序路径：{{ overview.miniapp_order_path || "-" }}</span>
-          <span>门户链接：{{ overview.portal_link || overview.portal_login_link || "-" }}</span>
+        <div class="partner-generate-actions partner-generate-actions--own">
+          <button type="button" class="partner-button partner-button--ghost" @click="openOwnPortalLinkPanel">生成二级渠道登录入口</button>
+          <button type="button" class="partner-button partner-button--ghost" @click="openOwnCustomerLinkPanel">生成二级渠道网页获客链接</button>
+          <button type="button" class="partner-button partner-button--ghost" @click="openOwnCustomerQrPanel">生成二级渠道获客小程序码</button>
+        </div>
+      </section>
+
+      <section v-if="childMiniappQr.visible" class="partner-panel">
+        <div class="partner-section-head">
+          <div>
+            <div class="partner-kicker">渠道物料</div>
+            <h2>{{ childMiniappQr.title || "-" }}</h2>
+          </div>
+          <button type="button" class="partner-button partner-button--ghost" @click="closeChildMiniappQr">关闭</button>
+        </div>
+        <div v-if="childMiniappQr.loading" class="partner-empty">正在生成专用物料...</div>
+        <div v-else-if="childMiniappQr.kind === 'qrcode' && childMiniappQr.data" class="partner-qrcode-panel">
+          <div class="partner-qrcode-card">
+            <img :src="childMiniappQr.data.qrcode_data_url" alt="二级渠道小程序码" class="partner-qrcode-image" />
+          </div>
+          <div class="partner-stack">
+            <span>{{ childMiniappQr.channel?.name || "当前渠道" }} 的专用获客小程序码已生成</span>
+            <span>可直接发给客户扫码使用</span>
+            <p v-if="childMiniappQr.data.fallback_reason" class="partner-message">{{ childMiniappQr.data.fallback_reason }}</p>
+            <div class="partner-row-actions partner-row-actions--top">
+              <button type="button" class="partner-button partner-button--ghost" @click="copyText(childMiniappQr.data.miniapp_order_path, '小程序入口已复制')">复制小程序入口</button>
+              <button type="button" class="partner-button partner-button--ghost" @click="refreshChildMaterialPanel">重新生成</button>
+            </div>
+          </div>
+        </div>
+        <div v-else-if="childMiniappQr.kind === 'link'" class="partner-result-panel">
+          <div class="partner-result-box">
+            <strong>{{ childMiniappQr.resultTitle || "专用链接已生成" }}</strong>
+            <p>{{ childMiniappQr.link || "-" }}</p>
+          </div>
+          <div class="partner-row-actions partner-row-actions--top">
+            <button type="button" class="partner-button partner-button--ghost" @click="copyText(childMiniappQr.link || '', childMiniappQr.copyMessage || '链接已复制')">复制链接</button>
+            <button type="button" class="partner-button partner-button--ghost" @click="refreshChildMaterialPanel">重新生成</button>
+            <button type="button" class="partner-button partner-button--ghost" @click="closeChildMiniappQr">关闭</button>
+          </div>
+        </div>
+        <div v-else class="partner-empty">
+          当前暂无可展示的物料结果
         </div>
       </section>
 
@@ -524,6 +564,18 @@ const policyPanel = ref({
   visible: false,
   channel: null,
   items: [],
+})
+const childMiniappQr = ref({
+  visible: false,
+  loading: false,
+  kind: "",
+  title: "",
+  resultTitle: "",
+  copyMessage: "",
+  action: "",
+  channel: null,
+  data: null,
+  link: "",
 })
 const policyForm = ref({
   package_name: "",
@@ -1066,69 +1118,208 @@ async function copyText(value, message) {
 }
 
 function buildChannelBundle(item) {
-  const name = String(item?.name || item?.channel_name || "").trim()
-  const portalLink = String(item?.portal_link || item?.portal_login_link || "").trim()
-  const orderLink = String(item?.order_link || "").trim()
-  const miniappOrderPath = String(item?.miniapp_order_path || "").trim()
-  const miniappPortalPath = String(item?.miniapp_portal_path || "").trim()
-  return [name ? `渠道名称：${name}` : "", portalLink ? `门户链接：${portalLink}` : "", orderLink ? `推广链接：${orderLink}` : "", miniappOrderPath ? `小程序推广路径：${miniappOrderPath}` : "", miniappPortalPath ? `小程序后台路径：${miniappPortalPath}` : ""].filter(Boolean).join("\n")
+  const lines = [
+    `渠道名称：${String(item?.name || "").trim() || "-"}`,
+    `渠道编码：${String(item?.channel_code || "").trim() || "-"}`,
+    `登录账号：${String(item?.portal_account || item?.channel_code || "").trim() || "-"}`,
+    `登录密码：${String(item?.portal_password || "").trim() || "-"}`,
+    `Web 登录入口：${String(item?.portal_login_link || item?.portal_link || "").trim() || "-"}`,
+    `Web 下单链接：${String(item?.order_link || "").trim() || "-"}`,
+    `小程序下单路径：${String(item?.miniapp_order_path || "").trim() || "-"}`,
+  ]
+  return lines.join("\n")
 }
 
-function buildCustomerShareBundle(item) {
-  const name = String(item?.name || item?.channel_name || "").trim() || "当前渠道"
-  const orderLink = String(item?.order_link || "").trim()
-  const miniappOrderPath = String(item?.miniapp_order_path || "").trim()
-  return [`你好，我是 ${name}。`, "这是我的专属办理入口：", orderLink ? `推广链接：${orderLink}` : "", miniappOrderPath ? `小程序路径：${miniappOrderPath}` : ""].filter(Boolean).join("\n")
-}
-
-async function copyOwnBundle() {
-  const bundle = buildChannelBundle({ ...overview.value, name: overview.value?.channel_name || "" })
-  if (!bundle) {
-    errorText.value = "暂无可复制的分发信息"
-    successText.value = ""
-    return
+function openChildLinkPanel(item, options) {
+  childMiniappQr.value = {
+    visible: true,
+    loading: false,
+    kind: "link",
+    title: options.title,
+    resultTitle: options.resultTitle,
+    copyMessage: options.copyMessage,
+    action: options.action,
+    channel: item,
+    data: null,
+    link: options.link,
   }
-  await copyText(bundle, "整段分发信息已复制")
 }
 
-async function copyCustomerShareText() {
-  await copyText(buildCustomerShareBundle({ ...overview.value, name: overview.value?.channel_name || "" }), "客户分发文案已复制")
-}
-
-async function copyRecruitmentBundle() {
-  const name = String(overview.value?.channel_name || "").trim() || "当前渠道"
-  const bundle = buildChannelBundle({ ...overview.value, name })
-  if (!bundle) {
-    errorText.value = "暂无可复制的二级招募信息"
-    successText.value = ""
-    return
+async function openChildMiniappQr(item) {
+  if (!hasPortalSession.value) return
+  childMiniappQr.value = {
+    visible: true,
+    loading: true,
+    kind: "qrcode",
+    title: "生成二级渠道获客小程序码",
+    resultTitle: "专用获客小程序码已生成",
+    copyMessage: "小程序入口已复制",
+    action: "child_customer_qrcode",
+    channel: item,
+    data: null,
+    link: "",
   }
-  const text = [`你好，我是 ${name}。`, "这是给二级渠道的整段分发信息：", bundle, "打开后即可直接进入渠道后台。"].filter(Boolean).join("\n")
-  await copyText(text, "二级招募信息已复制")
+  errorText.value = ""
+  successText.value = ""
+  try {
+    const data = await partnerHttp.get(`/partners/portal/subchannels/${item.id}/miniapp-qrcode`, { timeout: 30000 })
+    childMiniappQr.value.data = data || null
+  } catch (error) {
+    errorText.value = String(error?.message || "加载二级渠道小程序码失败")
+  } finally {
+    childMiniappQr.value.loading = false
+  }
 }
 
-async function copyChildBundle(item) {
+function closeChildMiniappQr() {
+  childMiniappQr.value = {
+    visible: false,
+    loading: false,
+    kind: "",
+    title: "",
+    resultTitle: "",
+    copyMessage: "",
+    action: "",
+    channel: null,
+    data: null,
+    link: "",
+  }
+}
+
+async function openChildPortalLinkPanel(item) {
   if (!hasPortalSession.value) return
   errorText.value = ""
   successText.value = ""
   try {
     const data = await partnerHttp.post(`/partners/portal/subchannels/${item.id}/portal-link/refresh`, {}, { timeout: 30000 })
-    const bundle = buildChannelBundle({ ...item, ...data })
-    if (!bundle) {
-      errorText.value = "暂无可复制的二级门户信息"
+    const merged = { ...item, ...data }
+    const link = String(merged?.portal_login_link || merged?.portal_link || "").trim()
+    if (!link) {
+      errorText.value = "生成二级渠道登录入口失败"
       return
     }
-    await copyText([`你好，这是 ${String(item?.name || "该渠道")} 的二级门户信息：`, bundle].filter(Boolean).join("\n"), `已复制 ${item.name} 的门户信息`)
-    successText.value = `已刷新 ${item.name} 的门户链接并复制完整信息`
+    openChildLinkPanel(item, {
+      title: "生成二级渠道登录入口",
+      resultTitle: "专用登录入口已生成",
+      copyMessage: "二级渠道登录入口已复制",
+      action: "child_portal_link",
+      link,
+    })
+    successText.value = `${item.name || "该二级渠道"} 的登录入口已生成`
     await loadPortalData()
   } catch (error) {
-    errorText.value = String(error?.message || "复制二级门户信息失败")
+    errorText.value = String(error?.message || "生成二级渠道登录入口失败")
   }
 }
 
-async function copyActivationNudge(item) {
-  const text = [`你好，${String(item?.name || "当前二级渠道")} 这边可以先把专属推广链接发出去。`, "建议今天先完成一次客户分发，先把新增客户做起来。", String(item?.order_link || "").trim() ? `推广链接：${item.order_link}` : "", String(item?.portal_link || item?.portal_login_link || "").trim() ? `门户链接：${item.portal_link || item?.portal_login_link}` : ""].filter(Boolean).join("\n")
-  await copyText(text, `已复制 ${item?.name || "该渠道"} 的催活文案`)
+async function openChildCustomerLinkPanel(item) {
+  const link = String(item?.order_link || "").trim()
+  if (!link) {
+    errorText.value = "生成二级渠道网页获客链接失败"
+    successText.value = ""
+    return
+  }
+  openChildLinkPanel(item, {
+    title: "生成二级渠道网页获客链接",
+    resultTitle: "专用网页获客链接已生成",
+    copyMessage: "二级渠道网页获客链接已复制",
+    action: "child_customer_link",
+    link,
+  })
+  errorText.value = ""
+  successText.value = `${item.name || "该二级渠道"} 的网页获客链接已生成`
+}
+
+async function openOwnPortalLinkPanel() {
+  const link = String(overview.value?.portal_login_link || overview.value?.portal_link || "").trim()
+  if (!link) {
+    errorText.value = "生成二级渠道登录入口失败"
+    successText.value = ""
+    return
+  }
+  openChildLinkPanel(overview.value, {
+    title: "生成二级渠道登录入口",
+    resultTitle: "专用登录入口已生成",
+    copyMessage: "二级渠道登录入口已复制",
+    action: "own_portal_link",
+    link,
+  })
+  errorText.value = ""
+  successText.value = "二级渠道登录入口已生成"
+}
+
+async function openOwnCustomerLinkPanel() {
+  const link = String(overview.value?.order_link || "").trim()
+  if (!link) {
+    errorText.value = "生成二级渠道网页获客链接失败"
+    successText.value = ""
+    return
+  }
+  openChildLinkPanel(overview.value, {
+    title: "生成二级渠道网页获客链接",
+    resultTitle: "专用网页获客链接已生成",
+    copyMessage: "二级渠道网页获客链接已复制",
+    action: "own_customer_link",
+    link,
+  })
+  errorText.value = ""
+  successText.value = "二级渠道网页获客链接已生成"
+}
+
+async function openOwnCustomerQrPanel() {
+  if (!overview.value || !hasPortalSession.value) return
+  childMiniappQr.value = {
+    visible: true,
+    loading: true,
+    kind: "qrcode",
+    title: "生成二级渠道获客小程序码",
+    resultTitle: "专用获客小程序码已生成",
+    copyMessage: "小程序入口已复制",
+    action: "own_customer_qrcode",
+    channel: overview.value,
+    data: null,
+    link: "",
+  }
+  errorText.value = ""
+  successText.value = ""
+  try {
+    const data = await partnerHttp.get("/partners/portal/miniapp-qrcode", { timeout: 30000 })
+    childMiniappQr.value.data = data || null
+    successText.value = "二级渠道获客小程序码已生成"
+  } catch (error) {
+    errorText.value = String(error?.message || "生成二级渠道获客小程序码失败")
+    closeChildMiniappQr()
+  } finally {
+    childMiniappQr.value.loading = false
+  }
+}
+
+async function refreshChildMaterialPanel() {
+  const target = childMiniappQr.value.channel
+  if (!target) return
+  if (childMiniappQr.value.action === "child_portal_link") {
+    await openChildPortalLinkPanel(target)
+    return
+  }
+  if (childMiniappQr.value.action === "child_customer_link") {
+    await openChildCustomerLinkPanel(target)
+    return
+  }
+  if (childMiniappQr.value.action === "own_portal_link") {
+    await openOwnPortalLinkPanel()
+    return
+  }
+  if (childMiniappQr.value.action === "own_customer_link") {
+    await openOwnCustomerLinkPanel()
+    return
+  }
+  if (childMiniappQr.value.action === "child_customer_qrcode") {
+    await openChildMiniappQr(target)
+    return
+  }
+  if (childMiniappQr.value.action === "own_customer_qrcode") {
+    await openOwnCustomerQrPanel()
+  }
 }
 
 function formatFenToCny(value) {
@@ -1389,6 +1580,28 @@ function exportRows(type) {
   margin-top: 14px;
 }
 
+.partner-qrcode-panel {
+  margin-top: 14px;
+  display: grid;
+  gap: 18px;
+  grid-template-columns: 280px minmax(0, 1fr);
+  align-items: start;
+}
+
+.partner-qrcode-card {
+  border: 1px solid #dbe7fb;
+  border-radius: 18px;
+  background: #f8fbff;
+  padding: 16px;
+}
+
+.partner-qrcode-image {
+  display: block;
+  width: 100%;
+  border-radius: 14px;
+  background: #ffffff;
+}
+
 .partner-action-card {
   border: 1px solid #dbe7fb;
   border-radius: 16px;
@@ -1585,18 +1798,34 @@ function exportRows(type) {
   grid-column: 1 / -1;
 }
 
-.partner-share-box {
+.partner-material-list {
+  display: grid;
+  gap: 10px;
+}
+
+.partner-material-list--own {
+  margin-top: 14px;
+}
+
+.partner-material-card {
   display: grid;
   gap: 8px;
-  margin-top: 14px;
   padding: 14px 16px;
   border-radius: 16px;
+  border: 1px solid #dbe7fb;
   background: #f8fbff;
 }
 
-.partner-share-box span {
+.partner-material-card strong {
+  color: #17365f;
+  font-size: 13px;
+}
+
+.partner-material-card span {
   color: #5f7593;
   font-size: 13px;
+  line-height: 1.6;
+  word-break: break-all;
 }
 
 .partner-inline-section + .partner-inline-section {
@@ -1628,7 +1857,8 @@ function exportRows(type) {
 @media (max-width: 1100px) {
   .partner-stat-grid,
   .partner-workbench,
-  .partner-chart-grid {
+  .partner-chart-grid,
+  .partner-qrcode-panel {
     grid-template-columns: 1fr;
   }
 }
