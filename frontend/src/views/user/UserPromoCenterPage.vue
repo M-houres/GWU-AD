@@ -463,6 +463,7 @@ import { useRoute, useRouter } from "vue-router"
 import BuyCreditsPanel from "../../components/BuyCreditsPanel.vue"
 import UserShell from "../../components/UserShell.vue"
 import { useUserProfile } from "../../composables/useUserProfile"
+import { formatBeijingDateTime } from "../../lib/dateTime"
 import { normalizePromotionCenterConfig, DEFAULT_PROMO_CENTER_CONFIG } from "../../lib/adminConfig"
 import { userHttp } from "../../lib/http"
 import { getUserToken } from "../../lib/session"
@@ -827,16 +828,7 @@ function upsertSubmission(list, item) {
 }
 
 function formatDateTime(value) {
-  if (!value) return "--"
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return String(value)
-  return date.toLocaleString("zh-CN", {
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-  })
+  return formatBeijingDateTime(value, { placeholder: "--", withSeconds: false })
 }
 
 function formatSubmissionStatus(status) {

@@ -4,7 +4,7 @@ import base64
 import json
 from datetime import datetime, time, timedelta, timezone
 
-from fastapi import APIRouter, Body, Depends, Query, Request, Response
+from fastapi import APIRouter, Body, Cookie, Depends, Query, Request, Response
 import httpx
 from sqlalchemy import case, desc, func, text
 from sqlalchemy.orm import Session
@@ -47,6 +47,7 @@ from app.services.partner_rebate_service import (
     resolve_channel_by_scene,
     reset_partner_portal_password,
     review_partner_withdraw_request,
+    rotate_partner_portal_session,
     settle_monthly_statement,
     update_partner_channel,
     upsert_partner_policy,
@@ -202,11 +203,23 @@ def _team_summary_payload(db: Session, *, channel_ids: list[int], scope: str) ->
         }
     channel_count = db.query(func.count(PartnerChannel.id)).filter(PartnerChannel.id.in_(normalized_ids)).scalar() or 0
     user_count = db.query(func.count(PartnerUserBinding.id)).filter(PartnerUserBinding.channel_id.in_(normalized_ids)).scalar() or 0
-    order_count = db.query(func.count(PartnerOrderAttribution.id)).filter(PartnerOrderAttribution.channel_id.in_(normalized_ids)).scalar() or 0
+    order_count = (
+        db.query(func.count(PartnerOrderAttribution.id))
+        .join(Order, Order.id == PartnerOrderAttribution.order_id)
+        .filter(
+            PartnerOrderAttribution.channel_id.in_(normalized_ids),
+            Order.status == "paid",
+        )
+        .scalar()
+        or 0
+    )
     gross_amount_cny = (
         db.query(func.coalesce(func.sum(Order.amount_cny), 0))
         .join(PartnerOrderAttribution, PartnerOrderAttribution.order_id == Order.id)
-        .filter(PartnerOrderAttribution.channel_id.in_(normalized_ids))
+        .filter(
+            PartnerOrderAttribution.channel_id.in_(normalized_ids),
+            Order.status == "paid",
+        )
         .scalar()
         or 0
     )
@@ -547,7 +560,12 @@ def _portal_partner_analytics_payload(
 
     order_rows = (
         db.query(order_bucket.label("bucket_date"), func.count(PartnerOrderAttribution.id))
-        .filter(PartnerOrderAttribution.channel_id.in_(channel_ids or [0]), PartnerOrderAttribution.created_at >= start_dt)
+        .join(Order, Order.id == PartnerOrderAttribution.order_id)
+        .filter(
+            PartnerOrderAttribution.channel_id.in_(channel_ids or [0]),
+            PartnerOrderAttribution.created_at >= start_dt,
+            Order.status == "paid",
+        )
         .group_by(order_bucket)
         .all()
     )
@@ -561,7 +579,7 @@ def _portal_partner_analytics_payload(
         .filter(
             PartnerRebateLedger.channel_id.in_(channel_ids or [0]),
             PartnerRebateLedger.created_at >= start_dt,
-            PartnerRebateLedger.entry_type == PartnerLedgerEntryType.ACCRUAL,
+            PartnerRebateLedger.entry_type.in_([PartnerLedgerEntryType.ACCRUAL, PartnerLedgerEntryType.REVERSAL]),
         )
         .group_by(rebate_bucket)
         .all()
@@ -604,6 +622,7 @@ def _portal_partner_analytics_payload(
                 .filter(
                     PartnerRebateLedger.channel_id.in_(direct_ids or [0]),
                     PartnerRebateLedger.status.in_([PartnerLedgerStatus.PENDING, PartnerLedgerStatus.SETTLED]),
+                    PartnerRebateLedger.entry_type.in_([PartnerLedgerEntryType.ACCRUAL, PartnerLedgerEntryType.REVERSAL]),
                 )
                 .group_by(PartnerRebateLedger.channel_id)
                 .all()
@@ -1483,13 +1502,10 @@ def partner_portal_login(
         account=str(payload.get("account") or payload.get("channel_code") or ""),
         password=str(payload.get("password") or ""),
     )
-    access_token, refresh_token = _issue_partner_auth(auth_store, response, channel)
+    _issue_partner_auth(auth_store, response, channel)
     db.commit()
     db.refresh(channel)
-    data = _partner_auth_payload(channel)
-    data["token"] = access_token
-    data["refresh_token"] = refresh_token
-    return ok(data=data)
+    return ok(data=_partner_auth_payload(channel))
 
 
 @router.post("/portal/auth/exchange", response_model=APIResp)
@@ -1507,10 +1523,11 @@ def partner_portal_exchange(
 def partner_portal_refresh(
     response: Response,
     payload: dict = Body(default_factory=dict),
+    partner_refresh_cookie: str | None = Cookie(default=None, alias=PARTNER_REFRESH_COOKIE_NAME),
     db: Session = Depends(db_dep),
     auth_store=Depends(get_redis),
 ) -> APIResp:
-    refresh_token = str(payload.get("refresh_token") or "").strip()
+    refresh_token = str(payload.get("refresh_token") or partner_refresh_cookie or "").strip()
     if not refresh_token:
         raise BizError(code=4484, message="缺少刷新凭证", http_status=401)
     try:
@@ -1529,13 +1546,10 @@ def partner_portal_refresh(
     channel = db.query(PartnerChannel).filter(PartnerChannel.id == channel_id).first()
     if channel is None or str(channel.status or "").strip().lower() != "active":
         raise BizError(code=4487, message="渠道账号不存在或已停用", http_status=403)
-    access_token, next_refresh_token = _issue_partner_auth(auth_store, response, channel)
+    _issue_partner_auth(auth_store, response, channel)
     db.commit()
     db.refresh(channel)
-    data = _partner_auth_payload(channel)
-    data["token"] = access_token
-    data["refresh_token"] = next_refresh_token
-    return ok(data=data)
+    return ok(data=_partner_auth_payload(channel))
 
 
 @router.post("/portal/auth/logout", response_model=APIResp)
@@ -1552,9 +1566,11 @@ def partner_portal_logout(
 
 @router.post("/portal/auth/change-password", response_model=APIResp)
 def partner_portal_change_password(
+    response: Response,
     payload: dict = Body(default_factory=dict),
     current_channel: PartnerChannel = Depends(current_partner),
     db: Session = Depends(db_dep),
+    auth_store=Depends(get_redis),
 ) -> APIResp:
     channel = change_partner_portal_password(
         db,
@@ -1562,6 +1578,9 @@ def partner_portal_change_password(
         old_password=str(payload.get("old_password") or ""),
         new_password=str(payload.get("new_password") or ""),
     )
+    _clear_partner_session(auth_store, channel_id=int(channel.id))
+    channel = rotate_partner_portal_session(db, channel=channel)
+    _issue_partner_auth(auth_store, response, channel)
     db.commit()
     db.refresh(channel)
     return ok(data=_partner_auth_payload(channel), message="密码已更新")
@@ -1612,13 +1631,9 @@ def portal_orders(
     channel = _portal_channel(db, current_channel=current_channel)
     channel_ids = _scope_channel_ids(db, channel=channel, scope=scope)
     base_query = (
-        db.query(PartnerRebateLedger, Order)
-        .join(Order, Order.id == PartnerRebateLedger.order_id)
-        .filter(
-            PartnerRebateLedger.channel_id.in_(channel_ids),
-            PartnerRebateLedger.entry_type == PartnerLedgerEntryType.ACCRUAL,
-            PartnerRebateLedger.order_id.is_not(None),
-        )
+        db.query(Order, PartnerOrderAttribution)
+        .join(PartnerOrderAttribution, PartnerOrderAttribution.order_id == Order.id)
+        .filter(PartnerOrderAttribution.channel_id.in_(channel_ids))
     )
     created_from_dt = _parse_datetime_filter(created_from)
     if created_from_dt is not None:
@@ -1628,23 +1643,41 @@ def portal_orders(
         base_query = base_query.filter(Order.created_at <= created_to_dt)
     total = base_query.count()
     rows = (
-        base_query.order_by(desc(PartnerRebateLedger.id))
+        base_query.order_by(desc(Order.created_at), desc(Order.id))
         .offset((page - 1) * page_size)
         .limit(page_size)
         .all()
     )
-    order_ids = [int(_order.id) for _ledger, _order in rows if _order.id]
-    attribution_rows = (
-        db.query(PartnerOrderAttribution)
-        .filter(PartnerOrderAttribution.order_id.in_(order_ids or [0]))
+    order_ids = [int(order.id) for order, _attr in rows if int(order.id or 0) > 0]
+    channel_map = _channel_snapshot_map(db, channel_ids + [int(attr.channel_id or 0) for _order, attr in rows])
+    rebate_rows = (
+        db.query(
+            PartnerRebateLedger.order_id,
+            func.coalesce(func.sum(PartnerRebateLedger.rebate_amount_fen), 0),
+            func.count(case((PartnerRebateLedger.entry_type == PartnerLedgerEntryType.ACCRUAL, 1))),
+            func.min(case((PartnerRebateLedger.entry_type == PartnerLedgerEntryType.ACCRUAL, PartnerRebateLedger.rebate_rate_bp), else_=None)),
+            func.max(case((PartnerRebateLedger.entry_type == PartnerLedgerEntryType.ACCRUAL, PartnerRebateLedger.rebate_rate_bp), else_=None)),
+        )
+        .filter(
+            PartnerRebateLedger.order_id.in_(order_ids or [0]),
+            PartnerRebateLedger.channel_id.in_(channel_ids),
+            PartnerRebateLedger.order_id.is_not(None),
+        )
+        .group_by(PartnerRebateLedger.order_id)
         .all()
     )
-    channel_map = _channel_snapshot_map(db, channel_ids + [int(item.channel_id or 0) for item in attribution_rows])
-    attr_map = {int(item.order_id): item for item in attribution_rows}
+    rebate_map = {
+        int(order_id or 0): {
+            "net_rebate_fen": int(net_rebate_fen or 0),
+            "rebate_rate_bp": int(min_rate or 0) if int(accrual_count or 0) > 0 and min_rate == max_rate else None,
+        }
+        for order_id, net_rebate_fen, accrual_count, min_rate, max_rate in rebate_rows
+        if int(order_id or 0) > 0
+    }
     items = []
-    for ledger_row, order in rows:
-        attr = attr_map.get(int(order.id))
-        owner_channel = channel_map.get(int(ledger_row.channel_id or 0))
+    for order, attr in rows:
+        owner_channel = channel_map.get(int(attr.channel_id or 0))
+        rebate_summary = rebate_map.get(int(order.id), {})
         items.append(
             {
                 "order_no": order.order_no,
@@ -1653,14 +1686,18 @@ def portal_orders(
                 "order_status": order.status,
                 "amount_cny": cny_to_api(order.amount_cny),
                 "amount_fen": _cny_to_fen_int(order.amount_cny),
-                "rebate_rate_bp": int(ledger_row.rebate_rate_bp or 0),
-                "rebate_rate_pct": round(float(int(ledger_row.rebate_rate_bp or 0)) / 100.0, 2),
-                "net_rebate_fen": int(ledger_row.rebate_amount_fen or 0),
-                "net_rebate_cny": _fen_to_cny_api(ledger_row.rebate_amount_fen),
-                "channel_id": int(ledger_row.channel_id or 0),
+                "rebate_rate_bp": rebate_summary.get("rebate_rate_bp"),
+                "rebate_rate_pct": (
+                    round(float(int(rebate_summary["rebate_rate_bp"])) / 100.0, 2)
+                    if rebate_summary.get("rebate_rate_bp") is not None
+                    else None
+                ),
+                "net_rebate_fen": int(rebate_summary.get("net_rebate_fen") or 0),
+                "net_rebate_cny": _fen_to_cny_api(int(rebate_summary.get("net_rebate_fen") or 0)),
+                "channel_id": int(attr.channel_id or 0),
                 "channel_name": owner_channel.name if owner_channel is not None else "",
                 "channel_code": owner_channel.channel_code if owner_channel is not None else "",
-                "source_channel_code": ledger_row.source_channel_code_snapshot,
+                "source_channel_code": str(attr.channel_code_snapshot or ""),
                 "created_at": order.created_at,
             }
         )

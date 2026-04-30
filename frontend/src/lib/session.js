@@ -80,29 +80,19 @@ export function clearAdminSession() {
 }
 
 export function getPartnerToken() {
-  return normalizeToken(localStorage.getItem(PARTNER_TOKEN_KEY))
+  return ""
 }
 
 export function setPartnerToken(token) {
-  const normalized = normalizeToken(token)
-  if (!normalized) {
-    localStorage.removeItem(PARTNER_TOKEN_KEY)
-    return
-  }
-  localStorage.setItem(PARTNER_TOKEN_KEY, normalized)
+  localStorage.removeItem(PARTNER_TOKEN_KEY)
 }
 
 export function getPartnerRefreshToken() {
-  return normalizeToken(localStorage.getItem(PARTNER_REFRESH_TOKEN_KEY))
+  return ""
 }
 
 export function setPartnerRefreshToken(token) {
-  const normalized = normalizeToken(token)
-  if (!normalized) {
-    localStorage.removeItem(PARTNER_REFRESH_TOKEN_KEY)
-    return
-  }
-  localStorage.setItem(PARTNER_REFRESH_TOKEN_KEY, normalized)
+  localStorage.removeItem(PARTNER_REFRESH_TOKEN_KEY)
 }
 
 export function setPartnerInfo(partner) {

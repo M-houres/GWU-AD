@@ -39,6 +39,7 @@
         <text class="filter-count">{{ item.count }}</text>
       </view>
     </view>
+    <view class="helper-text panel-gap" wx:if="{{ historyTruncated }}">{{ historyTruncationMessage }}</view>
 
     <view class="surface surface--compact records-loading" wx:if="{{ loading && !records.length }}">
       <view class="loading-inline">
@@ -102,6 +103,7 @@
             disabled="{{ !!downloadingId }}"
             data-id="{{ item.id }}"
             data-status="{{ item.status }}"
+            data-task-type="{{ item.task_type }}"
             bindtap="onTapDownload"
           >
             {{ downloadingId === item.id ? "下载中..." : "下载结果" }}

@@ -50,6 +50,7 @@ from app.models import (
     User,
     UserShareTaskSubmission,
 )
+from app.services.task_download_response import build_download_media_type
 from app.pagination import paginate
 from app.responses import ok
 from app.schemas import (
@@ -3748,7 +3749,11 @@ def admin_task_download(
     if path is None or not path.exists():
         raise BizError(code=4109, message="输出文件不存在")
     download_name = build_task_result_filename(row.task_type, row.source_filename, path)
-    return FileResponse(path=str(path), filename=download_name)
+    return FileResponse(
+        path=str(path),
+        filename=download_name,
+        media_type=build_download_media_type(path),
+    )
 
 
 @router.get("/orders", response_model=APIResp)
@@ -4407,7 +4412,11 @@ def download_like_submission_screenshot(
     except Exception as exc:
         raise BizError(code=4111, message="截图文件路径不可信", http_status=403) from exc
     download_name = str(row.original_filename or "").strip() or f"promo_like_{row.id}"
-    return FileResponse(path=str(path), filename=download_name)
+    return FileResponse(
+        path=str(path),
+        filename=download_name,
+        media_type=build_download_media_type(path),
+    )
 
 
 @router.get("/configs/audit-logs", response_model=APIResp)

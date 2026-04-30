@@ -225,7 +225,6 @@ Page({
 
   onAgreePrivacyAuthorization(e) {
     const detail = (e && e.detail) || {}
-    console.info("[miniapp-login] agreePrivacyAuthorization", detail)
     if (!isPrivacyAuthorizationAccepted(detail)) {
       wx.showModal({
         title: "需要微信隐私授权",
@@ -297,8 +296,13 @@ Page({
       const miniProgramMockReady = !!(data && data.wx_mock_enabled) && !miniProgramInternalTestReady
       const phoneQuickLoginReady =
         miniProgramLoginReady && canUsePhoneNumber && !!(data && data.wechat_miniprogram_phone_quick_login_enabled)
-      const loginAvailable = phoneQuickLoginReady || miniProgramInternalTestReady || miniProgramMockReady
-      const showWeChatLoginButton = !!(miniProgramMockReady || miniProgramInternalTestReady || this.data.loginLoadFailed)
+      const loginAvailable = miniProgramLoginReady || miniProgramInternalTestReady || miniProgramMockReady
+      const showWeChatLoginButton = !!(
+        this.data.loginLoadFailed ||
+        miniProgramMockReady ||
+        miniProgramInternalTestReady ||
+        (miniProgramLoginReady && !phoneQuickLoginReady)
+      )
       let loginModeLabel = ""
       if (miniProgramMockReady) {
         loginModeLabel = pickText(data?.miniapp_runtime?.login?.mock_mode_label, DEFAULT_RUNTIME_COPY.login.mock_mode_label)

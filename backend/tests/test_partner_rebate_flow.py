@@ -1,3 +1,4 @@
+from datetime import datetime, timedelta
 from types import SimpleNamespace
 
 from app.deps import current_admin, current_user
@@ -16,7 +17,14 @@ from app.models import (
     User,
 )
 from app.security import hash_password
-from app.services.partner_rebate_service import build_channel_scene_value, create_partner_channel, update_partner_channel, upsert_partner_policy
+from app.services.partner_rebate_service import (
+    build_channel_scene_value,
+    compute_partner_withdrawable_fen,
+    create_partner_channel,
+    create_partner_withdraw_request,
+    update_partner_channel,
+    upsert_partner_policy,
+)
 from app.services.worker_task_support import refund_task
 from app.exceptions import BizError
 
@@ -55,7 +63,7 @@ def _issue_partner_portal_token(client, db_session, channel: PartnerChannel, *, 
     )
     assert login_resp.status_code == 200
     login_data = login_resp.json()["data"]
-    return str(login_data["token"]), str(login_data["refresh_token"])
+    return str(login_data.get("channel", {}).get("channel_code") or ""), portal_password
 
 
 def _submit_dedup_text_task(client) -> int:
@@ -70,6 +78,12 @@ def _submit_dedup_text_task(client) -> int:
     )
     assert resp.status_code == 200
     return int(resp.json()["data"]["id"])
+
+
+def _previous_statement_month() -> str:
+    today = datetime.utcnow().replace(day=1)
+    previous_month = today - timedelta(days=1)
+    return previous_month.strftime("%Y-%m")
 
 
 def test_partner_linked_order_creates_attribution_and_consume_rebate(client, db_session) -> None:
@@ -348,13 +362,18 @@ def test_partner_portal_and_statement_settlement(client, db_session) -> None:
     finally:
         app.dependency_overrides.pop(current_user, None)
 
-    portal_token, _ = _issue_partner_portal_token(client, db_session, channel, admin_id=2, admin_username="admin2")
-    portal_headers = {"Authorization": f"Bearer {portal_token}"}
+    _issue_partner_portal_token(client, db_session, channel, admin_id=2, admin_username="admin2")
+    portal_headers = {}
     app.dependency_overrides[current_admin] = lambda: SimpleNamespace(
         id=2, username="admin2", role="super_admin", is_active=True, permissions_json=["*"]
     )
     try:
-        month = client.get("/api/v1/partners/portal/overview", headers=portal_headers).json()["data"]["statement_month"]
+        month = _previous_statement_month()
+        db_session.query(PartnerRebateLedger).filter(
+            PartnerRebateLedger.channel_id == channel.id,
+            PartnerRebateLedger.status == PartnerLedgerStatus.PENDING,
+        ).update({PartnerRebateLedger.statement_month: month}, synchronize_session=False)
+        db_session.commit()
         gen_resp = client.post(
             "/api/v1/partners/admin/statements/generate",
             json={"channel_id": channel.id, "statement_month": month},
@@ -439,6 +458,344 @@ def test_partner_portal_and_statement_settlement(client, db_session) -> None:
     assert "miniapp_portal_path" not in overview_data
 
 
+def test_paid_order_rebate_uses_attribution_snapshot_rate(client, db_session) -> None:
+    user = User(phone="13800003105", nickname="partner-snapshot-user", credits=0)
+    channel = create_partner_channel(
+        db_session,
+        name="快照渠道",
+        contact_name="商务",
+        contact_phone="13800138005",
+        channel_code="CHSNAP01",
+        rebate_rate_bp=1000,
+    )
+    db_session.add(user)
+    db_session.commit()
+    db_session.refresh(user)
+    db_session.refresh(channel)
+
+    app.dependency_overrides[current_user] = lambda: user
+    try:
+        create_resp = client.post(
+            "/api/v1/billing/create-order?ch=CHSNAP01&ck=" + channel.order_token,
+            json={"package_name": "体验包", "provider": "mock"},
+        )
+        assert create_resp.status_code == 200
+        order_no = create_resp.json()["data"]["order_no"]
+    finally:
+        app.dependency_overrides.pop(current_user, None)
+
+    order = db_session.query(Order).filter(Order.order_no == order_no).first()
+    assert order is not None
+    attribution = db_session.query(PartnerOrderAttribution).filter(PartnerOrderAttribution.order_id == order.id).first()
+    assert attribution is not None
+    assert attribution.rebate_rate_bp == 1000
+
+    upsert_partner_policy(
+        db_session,
+        channel_id=channel.id,
+        package_name="体验包",
+        rebate_rate_bp=2500,
+        is_active=True,
+    )
+    db_session.commit()
+
+    app.dependency_overrides[current_user] = lambda: user
+    try:
+        pay_resp = client.post(f"/api/v1/billing/order-pay/{order_no}")
+        assert pay_resp.status_code == 200
+    finally:
+        app.dependency_overrides.pop(current_user, None)
+
+    ledger = (
+        db_session.query(PartnerRebateLedger)
+        .filter(
+            PartnerRebateLedger.order_no == order_no,
+            PartnerRebateLedger.entry_type == PartnerLedgerEntryType.ACCRUAL,
+            PartnerRebateLedger.channel_id == channel.id,
+        )
+        .first()
+    )
+    assert ledger is not None
+    assert int(ledger.rebate_rate_bp or 0) == 1000
+    assert int(ledger.rebate_amount_fen or 0) == int(ledger.base_amount_fen or 0) * 1000 // 10000
+
+
+def test_legacy_open_order_payment_backfills_partner_snapshot(client, db_session) -> None:
+    user = User(phone="13800003115", nickname="legacy-snapshot-user", credits=0)
+    channel = create_partner_channel(
+        db_session,
+        name="老订单渠道",
+        contact_name="商务",
+        contact_phone="13800138015",
+        channel_code="CHLEGACY1",
+        rebate_rate_bp=1000,
+    )
+    db_session.add(user)
+    db_session.commit()
+    db_session.refresh(user)
+    db_session.refresh(channel)
+
+    app.dependency_overrides[current_user] = lambda: user
+    try:
+        create_resp = client.post(
+            "/api/v1/billing/create-order?ch=CHLEGACY1&ck=" + channel.order_token,
+            json={"package_name": "体验包", "provider": "mock"},
+        )
+        assert create_resp.status_code == 200
+        order_no = create_resp.json()["data"]["order_no"]
+    finally:
+        app.dependency_overrides.pop(current_user, None)
+
+    order = db_session.query(Order).filter(Order.order_no == order_no).first()
+    assert order is not None
+    attribution = db_session.query(PartnerOrderAttribution).filter(PartnerOrderAttribution.order_id == order.id).first()
+    assert attribution is not None
+
+    package_snapshot = dict(order.package_snapshot or {})
+    package_snapshot.pop("partner_snapshot", None)
+    order.package_snapshot = package_snapshot
+    db_session.commit()
+
+    upsert_partner_policy(
+        db_session,
+        channel_id=channel.id,
+        package_name="体验包",
+        rebate_rate_bp=2500,
+        is_active=True,
+    )
+    db_session.commit()
+
+    app.dependency_overrides[current_user] = lambda: user
+    try:
+        pay_resp = client.post(f"/api/v1/billing/order-pay/{order_no}")
+        assert pay_resp.status_code == 200
+    finally:
+        app.dependency_overrides.pop(current_user, None)
+
+    db_session.refresh(order)
+    partner_snapshot = dict((order.package_snapshot or {}).get("partner_snapshot") or {})
+    assert int(partner_snapshot.get("rebate_rate_bp") or 0) == 1000
+    ledger = (
+        db_session.query(PartnerRebateLedger)
+        .filter(
+            PartnerRebateLedger.order_no == order_no,
+            PartnerRebateLedger.entry_type == PartnerLedgerEntryType.ACCRUAL,
+            PartnerRebateLedger.channel_id == channel.id,
+        )
+        .first()
+    )
+    assert ledger is not None
+    assert int(ledger.rebate_rate_bp or 0) == 1000
+
+
+def test_refund_rebate_backfills_missing_reversal_rows(db_session) -> None:
+    root = create_partner_channel(
+        db_session,
+        name="退款一级",
+        contact_name="商务",
+        contact_phone="13800138017",
+        channel_code="CHRFROOT",
+        rebate_rate_bp=3000,
+    )
+    child = create_partner_channel(
+        db_session,
+        name="退款二级",
+        contact_name="商务",
+        contact_phone="13800138018",
+        channel_code="CHRFCHD1",
+        rebate_rate_bp=1800,
+        parent_channel_id=root.id,
+    )
+    user = User(phone="13800003116", nickname="refund-order-user", credits=0)
+    order = Order(
+        order_no="OD-REFUND-BACKFILL",
+        user_id=1,
+        amount_cny=19.90,
+        credits=13000,
+        package_snapshot={"name": "体验包"},
+        source="web",
+        status="paid",
+        provider="mock",
+        is_first_pay=False,
+    )
+    db_session.add(user)
+    db_session.flush()
+    order.user_id = user.id
+    db_session.add(order)
+    db_session.flush()
+    db_session.add(
+        PartnerOrderAttribution(
+            order_id=order.id,
+            order_no=order.order_no,
+            user_id=user.id,
+            channel_id=child.id,
+            root_channel_id=root.id,
+            channel_code_snapshot=child.channel_code,
+            root_channel_code_snapshot=root.channel_code,
+            channel_level=2,
+            package_name="体验包",
+            rebate_rate_bp=1800,
+            attribution_source="link",
+        )
+    )
+    db_session.flush()
+    child_ledger = PartnerRebateLedger(
+        channel_id=child.id,
+        source_channel_id=child.id,
+        order_id=order.id,
+        order_no=order.order_no,
+        user_id=user.id,
+        entry_type=PartnerLedgerEntryType.ACCRUAL,
+        status=PartnerLedgerStatus.PENDING,
+        base_amount_fen=1990,
+        rebate_rate_bp=1800,
+        rebate_amount_fen=358,
+        source_channel_code_snapshot=child.channel_code,
+        statement_month=_previous_statement_month(),
+        note="child accrual",
+    )
+    root_ledger = PartnerRebateLedger(
+        channel_id=root.id,
+        source_channel_id=child.id,
+        order_id=order.id,
+        order_no=order.order_no,
+        user_id=user.id,
+        entry_type=PartnerLedgerEntryType.ACCRUAL,
+        status=PartnerLedgerStatus.PENDING,
+        base_amount_fen=1990,
+        rebate_rate_bp=1200,
+        rebate_amount_fen=239,
+        source_channel_code_snapshot=child.channel_code,
+        statement_month=_previous_statement_month(),
+        note="root accrual",
+    )
+    db_session.add_all([child_ledger, root_ledger])
+    db_session.flush()
+    db_session.add(
+        PartnerRebateLedger(
+            channel_id=child.id,
+            source_channel_id=child.id,
+            order_id=order.id,
+            order_no=order.order_no,
+            user_id=user.id,
+            entry_type=PartnerLedgerEntryType.REVERSAL,
+            status=PartnerLedgerStatus.PENDING,
+            base_amount_fen=1990,
+            rebate_rate_bp=1800,
+            rebate_amount_fen=-358,
+            source_channel_code_snapshot=child.channel_code,
+            statement_month=_previous_statement_month(),
+            related_ledger_id=child_ledger.id,
+            note="existing partial reversal",
+        )
+    )
+    db_session.commit()
+
+    from app.services.partner_rebate_service import record_refund_order_rebate
+
+    created = record_refund_order_rebate(db_session, order=order, operator="test")
+    db_session.commit()
+    assert created is not None
+    reversals = db_session.query(PartnerRebateLedger).filter(
+        PartnerRebateLedger.order_no == order.order_no,
+        PartnerRebateLedger.entry_type == PartnerLedgerEntryType.REVERSAL,
+    ).all()
+    assert len(reversals) == 2
+    assert any(int(row.channel_id) == root.id and int(row.rebate_amount_fen) == -239 for row in reversals)
+
+
+def test_statement_generation_rejects_empty_month(client, db_session) -> None:
+    channel = create_partner_channel(
+        db_session,
+        name="空月结渠道",
+        contact_name="商务",
+        contact_phone="13800138006",
+        channel_code="CHEMPTY1",
+        rebate_rate_bp=1000,
+    )
+    db_session.add(
+        AdminUser(
+            id=52,
+            username="admin-empty-statement",
+            password_hash=hash_password("Passw0rd!123"),
+            role="super_admin",
+            is_active=True,
+            permissions_json=[],
+        )
+    )
+    db_session.commit()
+
+    app.dependency_overrides[current_admin] = lambda: SimpleNamespace(
+        id=52, username="admin-empty-statement", role="super_admin", is_active=True, permissions_json=["*"]
+    )
+    try:
+        resp = client.post(
+            "/api/v1/partners/admin/statements/generate",
+            json={"channel_id": channel.id, "statement_month": _previous_statement_month()},
+        )
+    finally:
+        app.dependency_overrides.pop(current_admin, None)
+
+    assert resp.status_code == 400
+    body = resp.json()
+    assert body["code"] == 4469
+
+
+def test_partner_withdraw_request_blocks_duplicate_pending(db_session) -> None:
+    channel = create_partner_channel(
+        db_session,
+        name="提现渠道",
+        contact_name="商务",
+        contact_phone="13800138007",
+        channel_code="CHWDRW01",
+        rebate_rate_bp=1000,
+    )
+    user = User(phone="13800003107", nickname="withdraw-user", credits=0)
+    db_session.add(user)
+    db_session.flush()
+    db_session.add(
+        PartnerRebateLedger(
+            channel_id=channel.id,
+            order_id=None,
+            order_no="MANUAL:WD-1",
+            user_id=user.id,
+            entry_type=PartnerLedgerEntryType.ACCRUAL,
+            status=PartnerLedgerStatus.SETTLED,
+            base_amount_fen=100000,
+            rebate_rate_bp=1000,
+            rebate_amount_fen=20000,
+            statement_month="2026-04",
+            note="manual settled rebate",
+        )
+    )
+    db_session.commit()
+
+    first = create_partner_withdraw_request(
+        db_session,
+        channel=channel,
+        apply_amount_fen=10000,
+        note="first apply",
+    )
+    db_session.commit()
+    assert first.status.value == "pending"
+
+    summary = compute_partner_withdrawable_fen(db_session, channel_id=channel.id)
+    assert int(summary["withdrawable_fen"]) == 10000
+
+    try:
+        create_partner_withdraw_request(
+            db_session,
+            channel=channel,
+            apply_amount_fen=10000,
+            note="duplicate pending apply",
+        )
+    except BizError as exc:
+        assert exc.code == 4497
+        assert "未完成" in exc.message
+    else:
+        raise AssertionError("expected duplicate withdraw apply to be blocked")
+
+
 def test_partner_portal_login_and_password_only_access(client, db_session) -> None:
     channel = PartnerChannel(
         channel_code="CHLOGIN01",
@@ -481,33 +838,29 @@ def test_partner_portal_login_and_password_only_access(client, db_session) -> No
     )
     assert login_resp.status_code == 200
     login_data = login_resp.json()["data"]
-    token = str(login_data["token"])
-    refresh_token = str(login_data["refresh_token"])
-    assert token
-    assert refresh_token
+    assert login_data["channel"]["channel_code"] == channel.channel_code
 
-    overview_resp = client.get(
-        "/api/v1/partners/portal/overview",
-        headers={"Authorization": f"Bearer {token}"},
-    )
+    overview_resp = client.get("/api/v1/partners/portal/overview")
     assert overview_resp.status_code == 200
     assert overview_resp.json()["data"]["channel_code"] == channel.channel_code
 
-    refresh_resp = client.post(
-        "/api/v1/partners/portal/auth/refresh",
-        json={"refresh_token": refresh_token},
-    )
+    refresh_cookie_before_change = client.cookies.get("gw_partner_refresh")
+    assert refresh_cookie_before_change
+    refresh_resp = client.post("/api/v1/partners/portal/auth/refresh")
     assert refresh_resp.status_code == 200
-    refreshed_token = str(refresh_resp.json()["data"]["token"])
-    assert refreshed_token
+    assert refresh_resp.json()["data"]["channel"]["channel_code"] == channel.channel_code
 
     change_password_resp = client.post(
         "/api/v1/partners/portal/auth/change-password",
-        headers={"Authorization": f"Bearer {refreshed_token}"},
         json={"old_password": password, "new_password": "NewPassw0rd!456"},
     )
     assert change_password_resp.status_code == 200
     assert change_password_resp.json()["message"] == "密码已更新"
+
+    stale_refresh_client = client.__class__(app)
+    stale_refresh_client.cookies.set("gw_partner_refresh", refresh_cookie_before_change)
+    stale_refresh_resp = stale_refresh_client.post("/api/v1/partners/portal/auth/refresh")
+    assert stale_refresh_resp.status_code == 401
 
     old_login_resp = client.post(
         "/api/v1/partners/portal/auth/login",
@@ -520,8 +873,6 @@ def test_partner_portal_login_and_password_only_access(client, db_session) -> No
         json={"account": channel.channel_code, "password": "NewPassw0rd!456"},
     )
     assert relogin_resp.status_code == 200
-    relogin_token = str(relogin_resp.json()["data"]["token"])
-    assert relogin_token
 
     exchange_resp = client.post(
         "/api/v1/partners/portal/auth/exchange",
@@ -536,10 +887,13 @@ def test_partner_portal_login_and_password_only_access(client, db_session) -> No
     )
     assert legacy_overview_resp.status_code == 401
 
-    customers_resp = client.get(
-        "/api/v1/partners/portal/customers",
-        headers={"Authorization": f"Bearer {relogin_token}"},
+    relogin_resp = client.post(
+        "/api/v1/partners/portal/auth/login",
+        json={"account": channel.channel_code, "password": "NewPassw0rd!456"},
     )
+    assert relogin_resp.status_code == 200
+
+    customers_resp = client.get("/api/v1/partners/portal/customers")
     assert customers_resp.status_code == 200
 
 
@@ -748,8 +1102,8 @@ def test_partner_team_summary_and_customer_scope(client, db_session) -> None:
     finally:
         app.dependency_overrides.pop(current_user, None)
 
-    portal_token, _ = _issue_partner_portal_token(client, db_session, root, admin_id=31, admin_username="admin-team-summary")
-    portal_headers = {"Authorization": f"Bearer {portal_token}"}
+    _issue_partner_portal_token(client, db_session, root, admin_id=31, admin_username="admin-team-summary")
+    portal_headers = {}
 
     team_summary = client.get(
         "/api/v1/partners/portal/team-summary",
@@ -768,6 +1122,77 @@ def test_partner_team_summary_and_customer_scope(client, db_session) -> None:
     customer_items = customers_resp.json()["data"]["items"]
     assert len(customer_items) >= 1
     assert any(item["channel_code"] == child.channel_code for item in customer_items)
+
+
+def test_partner_portal_orders_deduplicate_subtree_and_refund_net_rebate(client, db_session) -> None:
+    from app.services.partner_rebate_service import record_refund_order_rebate
+
+    root = create_partner_channel(
+        db_session,
+        name="一级订单视图",
+        contact_name="张一",
+        contact_phone="13800138220",
+        channel_code="CHORDROOT",
+        rebate_rate_bp=3000,
+    )
+    child = create_partner_channel(
+        db_session,
+        name="二级订单视图",
+        contact_name="张二",
+        contact_phone="13800138221",
+        channel_code="CHORDCHD",
+        rebate_rate_bp=1800,
+        parent_channel_id=root.id,
+    )
+    user = User(phone="13800003889", nickname="portal-order-user", credits=0)
+    db_session.add(user)
+    db_session.commit()
+    db_session.refresh(root)
+    db_session.refresh(child)
+    db_session.refresh(user)
+
+    app.dependency_overrides[current_user] = lambda: user
+    try:
+        create_resp = client.post(
+            f"/api/v1/billing/create-order?ch={child.channel_code}&ck={child.order_token}",
+            json={"package_name": "体验包", "provider": "mock"},
+        )
+        assert create_resp.status_code == 200
+        order_no = create_resp.json()["data"]["order_no"]
+        pay_resp = client.post(f"/api/v1/billing/order-pay/{order_no}")
+        assert pay_resp.status_code == 200
+    finally:
+        app.dependency_overrides.pop(current_user, None)
+
+    _issue_partner_portal_token(client, db_session, root, admin_id=41, admin_username="admin-order-list")
+
+    subtree_orders_resp = client.get(
+        "/api/v1/partners/portal/orders",
+        params={"scope": "subtree"},
+    )
+    assert subtree_orders_resp.status_code == 200
+    items = subtree_orders_resp.json()["data"]["items"]
+    matched = [item for item in items if item["order_no"] == order_no]
+    assert len(matched) == 1
+    assert int(matched[0]["net_rebate_fen"] or 0) > 0
+    assert matched[0]["rebate_rate_bp"] is None
+
+    order = db_session.query(Order).filter(Order.order_no == order_no).first()
+    assert order is not None
+    order.status = "refunded"
+    record_refund_order_rebate(db_session, order=order, operator="test_refund")
+    db_session.commit()
+
+    refunded_orders_resp = client.get(
+        "/api/v1/partners/portal/orders",
+        params={"scope": "subtree"},
+    )
+    assert refunded_orders_resp.status_code == 200
+    refunded_items = refunded_orders_resp.json()["data"]["items"]
+    refunded_match = [item for item in refunded_items if item["order_no"] == order_no]
+    assert len(refunded_match) == 1
+    assert refunded_match[0]["order_status"] == "refunded"
+    assert int(refunded_match[0]["net_rebate_fen"] or 0) == 0
 
 
 def test_admin_create_root_channel_returns_initial_portal_password(client, db_session) -> None:
@@ -860,8 +1285,8 @@ def test_portal_create_subchannel_returns_initial_portal_password(client, db_ses
     db_session.commit()
     db_session.refresh(root)
 
-    portal_token, _ = _issue_partner_portal_token(client, db_session, root, admin_id=32, admin_username="admin-portal-child")
-    portal_headers = {"Authorization": f"Bearer {portal_token}"}
+    _issue_partner_portal_token(client, db_session, root, admin_id=32, admin_username="admin-portal-child")
+    portal_headers = {}
 
     resp = client.post(
         "/api/v1/partners/portal/subchannels",
@@ -1001,3 +1426,123 @@ def test_admin_partner_analytics_status_filter_uses_visible_child_scope(client, 
     healthy_data = healthy_resp.json()["data"]
     assert healthy_data["summary"]["root_channel_count"] == 1
     assert not any(item["type"] == "no-child" and item["channel_id"] == healthy_root.id for item in healthy_data["anomalies"])
+
+
+def test_team_summary_excludes_unpaid_orders_and_reversals(client, db_session) -> None:
+    channel = create_partner_channel(
+        db_session,
+        name="统计渠道",
+        contact_name="商务",
+        contact_phone="13800138455",
+        channel_code="CHSTAT01",
+        rebate_rate_bp=1000,
+    )
+    user = User(phone="13800003117", nickname="analytics-user", credits=0)
+    db_session.add(user)
+    db_session.flush()
+
+    paid_order = Order(
+        order_no="OD-STAT-PAID",
+        user_id=user.id,
+        amount_cny=19.90,
+        credits=13000,
+        package_snapshot={"name": "体验包"},
+        source="web",
+        status="paid",
+        provider="mock",
+        is_first_pay=False,
+    )
+    unpaid_order = Order(
+        order_no="OD-STAT-CREATED",
+        user_id=user.id,
+        amount_cny=29.90,
+        credits=26000,
+        package_snapshot={"name": "标准包"},
+        source="web",
+        status="created",
+        provider="mock",
+        is_first_pay=False,
+    )
+    db_session.add_all([paid_order, unpaid_order])
+    db_session.flush()
+    db_session.add_all(
+        [
+            PartnerOrderAttribution(
+                order_id=paid_order.id,
+                order_no=paid_order.order_no,
+                user_id=user.id,
+                channel_id=channel.id,
+                root_channel_id=channel.id,
+                channel_code_snapshot=channel.channel_code,
+                root_channel_code_snapshot=channel.channel_code,
+                channel_level=1,
+                package_name="体验包",
+                rebate_rate_bp=1000,
+                attribution_source="link",
+            ),
+            PartnerOrderAttribution(
+                order_id=unpaid_order.id,
+                order_no=unpaid_order.order_no,
+                user_id=user.id,
+                channel_id=channel.id,
+                root_channel_id=channel.id,
+                channel_code_snapshot=channel.channel_code,
+                root_channel_code_snapshot=channel.channel_code,
+                channel_level=1,
+                package_name="标准包",
+                rebate_rate_bp=1000,
+                attribution_source="link",
+            ),
+        ]
+    )
+    db_session.add_all(
+        [
+            PartnerRebateLedger(
+                channel_id=channel.id,
+                source_channel_id=channel.id,
+                order_id=paid_order.id,
+                order_no=paid_order.order_no,
+                user_id=user.id,
+                entry_type=PartnerLedgerEntryType.ACCRUAL,
+                status=PartnerLedgerStatus.SETTLED,
+                base_amount_fen=1990,
+                rebate_rate_bp=1000,
+                rebate_amount_fen=199,
+                source_channel_code_snapshot=channel.channel_code,
+                statement_month=_previous_statement_month(),
+                note="paid accrual",
+            ),
+            PartnerRebateLedger(
+                channel_id=channel.id,
+                source_channel_id=channel.id,
+                order_id=paid_order.id,
+                order_no=paid_order.order_no,
+                user_id=user.id,
+                entry_type=PartnerLedgerEntryType.REVERSAL,
+                status=PartnerLedgerStatus.SETTLED,
+                base_amount_fen=1990,
+                rebate_rate_bp=1000,
+                rebate_amount_fen=-99,
+                source_channel_code_snapshot=channel.channel_code,
+                statement_month=_previous_statement_month(),
+                note="paid reversal",
+            ),
+        ]
+    )
+    db_session.commit()
+
+    _issue_partner_portal_token(client, db_session, channel, admin_id=61, admin_username="admin-stat")
+    portal_headers = {}
+
+    summary_resp = client.get("/api/v1/partners/portal/team-summary", headers=portal_headers, params={"scope": "self"})
+    overview_resp = client.get("/api/v1/partners/portal/overview", headers=portal_headers)
+
+    assert summary_resp.status_code == 200
+    summary = summary_resp.json()["data"]
+    assert int(summary["order_count"]) == 1
+    assert float(summary["gross_amount_cny"]) == 19.9
+    assert int(summary["settled_rebate_fen"]) == 100
+
+    assert overview_resp.status_code == 200
+    overview = overview_resp.json()["data"]
+    assert int(overview["settled_rebate_fen"]) == 100

@@ -45,6 +45,7 @@ from app.services.task_response_builder import (
     build_submit_payload,
 )
 from app.services.task_filename import build_task_result_filename
+from app.services.task_download_response import build_download_media_type
 from app.services.task_submission_guards import (
     acquire_submit_backlog,
     build_idempotency_key,
@@ -680,7 +681,11 @@ def task_download(task_id: int, user: User = Depends(current_user), db: Session 
         if row is not None
         else path.name
     )
-    return FileResponse(path=str(path), filename=download_name)
+    return FileResponse(
+        path=str(path),
+        filename=download_name,
+        media_type=build_download_media_type(path),
+    )
 
 
 @router.delete("/{task_id}", response_model=APIResp)

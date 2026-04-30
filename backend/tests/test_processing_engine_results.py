@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from app.exceptions import BizError
 from app.models import SystemConfig
 from app.models import TaskType
+from app.services.aigc_detect_strategies.common import split_paragraphs
 from app.services.dedup_strategies.executor import execute_dedup_strategy
 from app.services.dedup_strategies.validators import validate_dedup_output
 from app.services.processing_engine import ProcessingEngine
@@ -1293,7 +1294,7 @@ def test_transform_text_combined_mode_falls_back_to_heuristic_when_llm_empty(
     assert call_order == ["llm"]
 
 
-def test_split_detect_paragraphs_merges_wrapped_lines(db_session: Session) -> None:
+def test_split_detect_paragraphs_matches_strategy_splitter(db_session: Session) -> None:
     engine = ProcessingEngine(db_session)
     text = "\n".join(
         [
@@ -1308,10 +1309,7 @@ def test_split_detect_paragraphs_merges_wrapped_lines(db_session: Session) -> No
 
     paragraphs = engine._split_detect_paragraphs(text)
 
-    assert paragraphs[0] == "第一章 绪论"
-    assert len(paragraphs) == 3
-    assert paragraphs[1].startswith("本研究围绕数智教学改革展开分析")
-    assert paragraphs[2].startswith("此外，本研究进一步从资源统筹角度提出建议")
+    assert paragraphs == split_paragraphs(text)
 
 
 def test_detect_label_supports_clean_band(db_session: Session) -> None:

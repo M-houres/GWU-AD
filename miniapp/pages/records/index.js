@@ -9,10 +9,18 @@ const {
   formatDateTime,
 } = require("../../utils/display")
 
+const ACTIVE_TASK_STATUSES = ["pending", "preprocessing", "queued", "running"]
+const TASK_HISTORY_PAGE_SIZE = 50
+const TASK_HISTORY_MAX_PAGES = 6
+
+function isActiveTaskStatus(status) {
+  return ACTIVE_TASK_STATUSES.includes(String(status).toLowerCase())
+}
+
 function buildFilterOptions(records = []) {
   const summary = {
     all: records.length,
-    active: records.filter((item) => ["pending", "running"].includes(String(item.status).toLowerCase())).length,
+    active: records.filter((item) => isActiveTaskStatus(item.status)).length,
     completed: records.filter((item) => String(item.status).toLowerCase() === "completed").length,
     failed: records.filter((item) => ["failed", "closed"].includes(String(item.status).toLowerCase())).length,
   }
@@ -27,7 +35,7 @@ function buildFilterOptions(records = []) {
 
 function filterRecords(records = [], currentFilter = "all") {
   if (currentFilter === "active") {
-    return records.filter((item) => ["pending", "running"].includes(String(item.status).toLowerCase()))
+    return records.filter((item) => isActiveTaskStatus(item.status))
   }
   if (currentFilter === "completed") {
     return records.filter((item) => String(item.status).toLowerCase() === "completed")
@@ -128,10 +136,11 @@ function stringifyResult(resultJson) {
 }
 
 async function fetchAllTasks() {
-  const pageSize = 50
-  const maxPages = 6
+  const pageSize = TASK_HISTORY_PAGE_SIZE
+  const maxPages = TASK_HISTORY_MAX_PAGES
   let page = 1
   let totalPages = 1
+  let truncated = false
   const items = []
 
   while (page <= totalPages && page <= maxPages) {
@@ -151,10 +160,16 @@ async function fetchAllTasks() {
     } else {
       totalPages = page + 1
     }
+    if (totalPages > maxPages) {
+      truncated = true
+    }
     page += 1
   }
 
-  return items
+  return {
+    items,
+    truncated,
+  }
 }
 
 Page({
@@ -171,6 +186,8 @@ Page({
       active: 0,
       failed: 0,
     },
+    historyTruncated: false,
+    historyTruncationMessage: "",
     expandedId: 0,
     expandedDetail: null,
     detailLoadingId: 0,
@@ -212,6 +229,8 @@ Page({
         active: 0,
         failed: 0,
       },
+      historyTruncated: false,
+      historyTruncationMessage: "",
       expandedId: 0,
       expandedDetail: null,
       detailLoadingId: 0,
@@ -272,7 +291,7 @@ Page({
 
     this.setData({ loading: true })
     try {
-      const rawRecords = await fetchAllTasks()
+      const { items: rawRecords, truncated } = await fetchAllTasks()
       const records = rawRecords
         .map((item) => {
           const resultJson = item && item.result_json && typeof item.result_json === "object" ? item.result_json : {}
@@ -293,10 +312,7 @@ Page({
         .sort((left, right) => Number(right.id || 0) - Number(left.id || 0))
 
       const completed = records.filter((item) => String(item.status).toLowerCase() === "completed").length
-      const active = records.filter((item) => {
-        const status = String(item.status).toLowerCase()
-        return status === "pending" || status === "running"
-      }).length
+      const active = records.filter((item) => isActiveTaskStatus(item.status)).length
       const failed = records.filter((item) => {
         const status = String(item.status).toLowerCase()
         return status === "failed" || status === "closed"
@@ -310,6 +326,10 @@ Page({
           active,
           failed,
         },
+        historyTruncated: truncated,
+        historyTruncationMessage: truncated
+          ? `当前仅展示最近 ${TASK_HISTORY_PAGE_SIZE * TASK_HISTORY_MAX_PAGES} 条任务记录，请前往后台查看更早数据。`
+          : "",
       })
       this.applyFilter(this.data.currentFilter, records)
 
@@ -340,6 +360,7 @@ Page({
   async onTapDownload(e) {
     const taskId = Number(e.currentTarget.dataset.id || 0)
     const status = String(e.currentTarget.dataset.status || "").toLowerCase()
+    const taskType = String(e.currentTarget.dataset.taskType || "").toLowerCase()
     if (!taskId) return
     if (this.data.downloadingId) return
     if (status !== "completed") {
@@ -354,6 +375,7 @@ Page({
       })
       wx.openDocument({
         filePath: tempFilePath,
+        fileType: taskType === "aigc_detect" ? "pdf" : undefined,
         showMenu: true,
         fail: () => wx.showToast({ title: "文件打开失败", icon: "none" }),
       })

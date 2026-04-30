@@ -52,7 +52,41 @@ def test_user_can_download_completed_task_result(client, db_session: Session, tm
         resp = client.get(f"/api/v1/tasks/{task.id}/download")
         assert resp.status_code == 200
         assert resp.content == b"user download result"
-        assert "paper_降重复率结果.txt" in unquote(resp.headers.get("content-disposition", ""))
+        assert "改写+paper.txt" in unquote(resp.headers.get("content-disposition", ""))
+    finally:
+        app.dependency_overrides.pop(current_user, None)
+
+
+def test_user_can_download_aigc_pdf_with_pdf_content_type(client, db_session: Session, tmp_path: Path) -> None:
+    output_path = tmp_path / "user_aigc_report.pdf"
+    output_path.write_bytes(b"%PDF-1.4\n%mock pdf\n")
+
+    user = User(phone="13800006662", nickname="download-aigc-user", credits=1000)
+    db_session.add(user)
+    db_session.flush()
+
+    task = Task(
+        user_id=user.id,
+        task_type=TaskType.AIGC_DETECT,
+        platform="cnki",
+        status=TaskStatus.COMPLETED,
+        source_filename="paper.docx",
+        source_path=str(tmp_path / "paper.docx"),
+        output_path=str(output_path),
+        char_count=320,
+        cost_credits=200,
+        result_json={"paper_title": "AIGC下载测试"},
+    )
+    db_session.add(task)
+    db_session.commit()
+
+    app.dependency_overrides[current_user] = lambda: user
+    try:
+        resp = client.get(f"/api/v1/tasks/{task.id}/download")
+        assert resp.status_code == 200
+        assert resp.content == b"%PDF-1.4\n%mock pdf\n"
+        assert resp.headers["content-type"].startswith("application/pdf")
+        assert "paper_AIGC检测报告.pdf" in unquote(resp.headers.get("content-disposition", ""))
     finally:
         app.dependency_overrides.pop(current_user, None)
 

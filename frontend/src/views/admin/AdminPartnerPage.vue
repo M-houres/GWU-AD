@@ -540,6 +540,7 @@ import { CanvasRenderer } from "echarts/renderers"
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from "vue"
 
 import AdminShell from "../../components/AdminShell.vue"
+import { formatBeijingDateTime } from "../../lib/dateTime"
 import { triggerBlobDownload } from "../../lib/download"
 import { adminHttp } from "../../lib/http"
 import { adminHasPermission } from "../../lib/session"
@@ -1358,7 +1359,7 @@ function formatFenToCny(value) {
 }
 
 function formatTime(value) {
-  return value ? String(value).slice(0, 19).replace("T", " ") : "-"
+  return formatBeijingDateTime(value)
 }
 </script>
 

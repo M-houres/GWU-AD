@@ -6,14 +6,11 @@ import {
   clearUserSession,
   getAdminRefreshToken,
   getAdminToken,
-  getPartnerRefreshToken,
-  getPartnerToken,
+  getPartnerInfo,
   getUserRefreshToken,
   getUserToken,
   setAdminRefreshToken,
   setPartnerInfo,
-  setPartnerRefreshToken,
-  setPartnerToken,
   setAdminToken,
   setUserRefreshToken,
   setUserToken,
@@ -29,7 +26,7 @@ function resolveBaseURL() {
   if (typeof window !== "undefined") {
     const { hostname } = window.location
     if (hostname === "127.0.0.1" || hostname === "localhost") {
-      return "http://127.0.0.1:8001/api/v1"
+      return "http://127.0.0.1:8000/api/v1"
     }
   }
   return "/api/v1"
@@ -236,21 +233,11 @@ async function refreshAdminSession() {
 }
 
 async function refreshPartnerSession() {
-  const refreshToken = getPartnerRefreshToken()
-  if (!looksLikeJwt(refreshToken)) {
-    const err = new Error("refresh token missing")
-    err.code = "NO_REFRESH_TOKEN"
-    return Promise.reject(err)
-  }
   if (!partnerRefreshPromise) {
     partnerRefreshPromise = refreshClient
-      .post("/partners/portal/auth/refresh", {
-        refresh_token: refreshToken,
-      })
+      .post("/partners/portal/auth/refresh", {})
       .then((resp) => unwrapResponse(resp))
       .then((data) => {
-        if (data?.token) setPartnerToken(data.token)
-        if (data?.refresh_token) setPartnerRefreshToken(data.refresh_token)
         if (data?.channel) setPartnerInfo(data.channel)
         return data
       })
@@ -342,10 +329,6 @@ adminHttp.interceptors.response.use(
 export const partnerHttp = axios.create({ baseURL, timeout: 20000, withCredentials: true })
 partnerHttp.interceptors.request.use((config) => {
   config.headers["X-Client-Source"] = "web"
-  const token = getPartnerToken()
-  if (looksLikeJwt(token)) {
-    config.headers.Authorization = `Bearer ${token}`
-  }
   return config
 })
 partnerHttp.interceptors.response.use(
@@ -360,18 +343,18 @@ partnerHttp.interceptors.response.use(
         await refreshPartnerSession()
         return partnerHttp(originalRequest)
       } catch (refreshError) {
-        const hadToken = Boolean(getPartnerToken())
+        const hadSession = Boolean(getPartnerInfo())
         clearPartnerSession()
-        if (hadToken) {
+        if (hadSession) {
           redirectPartnerToLogin()
         }
         return normalizeError(refreshError)
       }
     }
     if (error?.response?.status === 401 && !isLoginEndpoint) {
-      const hadToken = Boolean(getPartnerToken())
+      const hadSession = Boolean(getPartnerInfo())
       clearPartnerSession()
-      if (hadToken) {
+      if (hadSession) {
         redirectPartnerToLogin()
       }
     }

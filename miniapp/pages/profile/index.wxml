@@ -50,7 +50,7 @@
           <view class="section-kicker">积分充值</view>
           <view class="section-title">积分充值</view>
         </view>
-        <view class="billing-tag">{{ paymentTestMode ? "联调模式" : "微信支付" }}</view>
+        <view class="billing-tag">{{ providers.length ? (paymentTestMode ? "联调模式" : "微信支付") : "暂不可用" }}</view>
       </view>
 
       <view class="segment-row billing-provider-row" wx:if="{{ providers.length > 1 }}">
@@ -65,6 +65,7 @@
           {{ item.label }}
         </view>
       </view>
+      <view class="helper-text" wx:if="{{ paymentMessage && providers.length }}">{{ paymentMessage }}</view>
 
       <view class="floating-panel package-loading" wx:if="{{ loadingPackages && !packages.length }}">
         <view class="loading-inline">
@@ -92,13 +93,19 @@
         </view>
       </view>
 
-      <view class="empty-state panel-gap" wx:if="{{ !packages.length && !loadingPackages }}">
+      <view class="empty-state panel-gap" wx:if="{{ !loadingPackages && !providers.length }}">
+        <view class="empty-mark">付</view>
+        <view class="empty-title">当前支付通道不可用</view>
+        <view class="empty-desc">{{ paymentMessage || "请稍后刷新，或检查后台支付渠道配置是否已开启。" }}</view>
+      </view>
+
+      <view class="empty-state panel-gap" wx:elif="{{ !packages.length && !loadingPackages }}">
         <view class="empty-mark">充</view>
         <view class="empty-title">当前暂无可用套餐</view>
         <view class="empty-desc">请稍后刷新，或检查后台套餐配置是否已开启。</view>
       </view>
 
-      <view class="package-board" wx:if="{{ packages.length }}">
+      <view class="package-board" wx:if="{{ packages.length && providers.length }}">
         <view class="package-grid">
           <view class="package-card" wx:for="{{ packages }}" wx:key="name">
             <view class="package-card-top">

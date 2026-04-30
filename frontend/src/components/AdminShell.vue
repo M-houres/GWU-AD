@@ -541,6 +541,8 @@ function isRouteMatch(currentPath, targetPath) {
     top: 0;
     z-index: 70;
     padding: calc(18px + env(safe-area-inset-top, 0px)) 6px 18px;
+    background: linear-gradient(180deg, rgba(244, 248, 255, 0.96), rgba(244, 248, 255, 0.88));
+    backdrop-filter: blur(12px);
   }
 
   .scholar-main {

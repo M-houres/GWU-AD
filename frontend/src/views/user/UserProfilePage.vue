@@ -281,6 +281,7 @@ import { useRoute, useRouter } from "vue-router"
 import BuyCreditsPanel from "../../components/BuyCreditsPanel.vue"
 import UserShell from "../../components/UserShell.vue"
 import { useUserProfile } from "../../composables/useUserProfile"
+import { formatBeijingDateTime } from "../../lib/dateTime"
 import { downloadAxiosBlobResponse } from "../../lib/download"
 import { userHttp } from "../../lib/http"
 import { ensureUserLogin } from "../../lib/requireLogin"
@@ -458,7 +459,7 @@ function resultOutputPreview(task) {
 }
 
 function formatTime(value) {
-  return value ? String(value).slice(0, 19).replace("T", " ") : "-"
+  return formatBeijingDateTime(value)
 }
 
 function formatCredits(value) {

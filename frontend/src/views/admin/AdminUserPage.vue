@@ -183,6 +183,7 @@ import { computed, onMounted, ref } from "vue"
 import { useRouter } from "vue-router"
 
 import AdminShell from "../../components/AdminShell.vue"
+import { formatBeijingDateTime } from "../../lib/dateTime"
 import { adminHttp } from "../../lib/http"
 import { adminHasPermission } from "../../lib/session"
 
@@ -276,7 +277,7 @@ async function toggleBan(row) {
 }
 
 function formatTime(value) {
-  return value ? String(value).slice(0, 19).replace("T", " ") : "-"
+  return formatBeijingDateTime(value)
 }
 
 function userBalanceFen(row) {

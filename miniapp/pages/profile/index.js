@@ -285,7 +285,8 @@ Page({
     this.setData({ loadingPackages: true })
     try {
       const data = await request({ url: "/billing/packages", method: "GET", silent: true })
-      const supported = Array.isArray(data.supported_providers) ? data.supported_providers : []
+      const hasSupportedProviders = Array.isArray(data.supported_providers)
+      const supported = hasSupportedProviders ? data.supported_providers : []
       const paymentTestMode = !!data.payment_test_mode
       const allProviders = paymentTestMode
         ? [
@@ -294,25 +295,26 @@ Page({
           ]
         : [{ value: "wechat", label: "微信支付" }]
 
-      let providers = supported.length
+      const providers = hasSupportedProviders
         ? allProviders.filter((item) => supported.includes(item.value))
         : allProviders
-
-      if (!providers.length) {
-        providers = allProviders
-      }
-
-      const selectedProvider = providers.some((item) => item.value === this.data.selectedProvider)
+      const providerReady = providers.length > 0
+      const paymentMessage = providerReady
+        ? String(data.message || "").trim()
+        : String(data.message || "").trim() || "当前支付通道暂不可用，请稍后刷新或联系管理员检查支付配置。"
+      const selectedProvider = providerReady && providers.some((item) => item.value === this.data.selectedProvider)
         ? this.data.selectedProvider
-        : pickDefaultProvider(providers)
+        : providerReady
+          ? pickDefaultProvider(providers)
+          : ""
 
       this.setData({
         packages: normalizePackages(data.items || []),
         paymentTestMode,
-        paymentMessage: String(data.message || "").trim(),
+        paymentMessage,
         providers,
         selectedProvider,
-        selectedProviderLabel: getProviderLabel(selectedProvider, providers),
+        selectedProviderLabel: providerReady ? getProviderLabel(selectedProvider, providers) : "暂不可用",
         partnerTrackingLabel: this.formatPartnerTrackingLabel(),
       })
     } catch (_) {
@@ -367,6 +369,13 @@ Page({
 
   async createOrderByName(packageName) {
     if (!packageName || this.data.creating) return
+    if (!this.data.selectedProvider || !this.data.providers.some((item) => item.value === this.data.selectedProvider)) {
+      wx.showToast({
+        title: this.data.paymentMessage || "当前支付通道暂不可用",
+        icon: "none",
+      })
+      return
+    }
 
     this.setData({ creating: true, creatingPackageName: packageName })
     try {

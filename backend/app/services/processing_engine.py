@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from app.config import get_settings
 from app.models import LLMErrorLog, SwitchLog, SystemSwitch, TaskType
 from app.models import Task
+from app.services.aigc_detect_strategies.common import split_paragraphs as split_detect_strategy_paragraphs
 from app.services.aigc_detect_strategies.executor import execute_aigc_detect_strategy
 from app.services.dedup_strategies.executor import (
     STRATEGY_LLM as DEDUP_STRATEGY_LLM,
@@ -1840,36 +1841,11 @@ class ProcessingEngine:
         return False
 
     def _split_detect_paragraphs(self, text: str) -> list[str]:
-        content = str(text or "").replace("\r\n", "\n").replace("\r", "\n")
-        if not content.strip():
-            return []
-
-        paragraphs: list[str] = []
-        blocks = re.split(r"\n\s*\n+", content)
-        for block in blocks:
-            lines = [self._normalize_detect_text_line(part) for part in block.splitlines() if part.strip()]
-            if not lines:
-                continue
-            if not self._looks_like_wrapped_detect_block(lines):
-                paragraphs.extend(line for line in lines if line)
-                continue
-
-            buffer = ""
-            for line in lines:
-                if not buffer:
-                    buffer = line
-                    continue
-                if self._should_break_wrapped_detect_paragraph(buffer, line):
-                    paragraphs.append(buffer.strip())
-                    buffer = line
-                    continue
-                buffer = self._join_detect_wrapped_lines(buffer, line)
-            if buffer:
-                paragraphs.append(buffer.strip())
-
-        if not paragraphs and content.strip():
-            paragraphs = [self._normalize_detect_text_line(content)]
-        return paragraphs
+        paragraphs = split_detect_strategy_paragraphs(str(text or ""))
+        if paragraphs:
+            return paragraphs
+        normalized = self._normalize_detect_text_line(text)
+        return [normalized] if normalized else []
 
     def _build_detect_llm_excerpt(self, text: str, platform: str) -> str:
         clean = str(text or "").strip()

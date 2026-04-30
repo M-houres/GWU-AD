@@ -226,6 +226,7 @@ import { computed, onMounted, reactive, ref, watch } from "vue"
 import { useRoute, useRouter } from "vue-router"
 
 import AdminShell from "../../components/AdminShell.vue"
+import { formatBeijingDateTime } from "../../lib/dateTime"
 import { downloadAxiosBlobResponse } from "../../lib/download"
 import { adminHttp } from "../../lib/http"
 import { TASK_PLATFORM_OPTIONS, mapTaskPlatform } from "../../lib/taskPlatform"
@@ -412,7 +413,7 @@ function chipClass(current, value) {
 }
 
 function formatTime(value) {
-  return value ? String(value).slice(0, 19).replace("T", " ") : "-"
+  return formatBeijingDateTime(value)
 }
 
 function rowCostFen(row) {

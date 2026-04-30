@@ -524,6 +524,7 @@ import { CanvasRenderer } from "echarts/renderers"
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue"
 import { useRouter } from "vue-router"
 
+import { formatBeijingDateTime } from "../../lib/dateTime"
 import { triggerBlobDownload } from "../../lib/download"
 import { partnerHttp } from "../../lib/http"
 import { clearPartnerSession, getPartnerInfo } from "../../lib/session"
@@ -1328,16 +1329,13 @@ function formatFenToCny(value) {
 }
 
 function formatRate(value) {
-  const bp = Number(value || 0)
+  if (value === null || value === undefined || value === "") return "-"
+  const bp = Number(value)
   return Number.isFinite(bp) ? `${(bp / 100).toFixed(2)}%` : "-"
 }
 
 function formatDateTime(value) {
-  const text = String(value || "").trim()
-  if (!text) return "-"
-  const date = new Date(text)
-  if (Number.isNaN(date.getTime())) return text
-  return date.toLocaleString("zh-CN", { hour12: false })
+  return formatBeijingDateTime(value)
 }
 
 function formatEntryType(value) {

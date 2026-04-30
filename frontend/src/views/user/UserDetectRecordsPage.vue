@@ -179,6 +179,7 @@ import { useRoute, useRouter } from "vue-router"
 import BuyCreditsPanel from "../../components/BuyCreditsPanel.vue"
 import UserShell from "../../components/UserShell.vue"
 import { useUserProfile } from "../../composables/useUserProfile"
+import { formatBeijingDateTime, formatBeijingDateTimeAfterDays } from "../../lib/dateTime"
 import { downloadAxiosBlobResponse } from "../../lib/download"
 import { userHttp } from "../../lib/http"
 import { fetchUserTasksFast, shouldPollTaskRecords } from "../../lib/userRecords"
@@ -369,7 +370,7 @@ function safeText(value) {
 }
 
 function formatTime(value) {
-  return value ? String(value).slice(0, 19).replace("T", " ") : "-"
+  return formatBeijingDateTime(value)
 }
 
 function taskCostFen(item) {
@@ -384,16 +385,7 @@ function formatCredits(value) {
 }
 
 function reportDeadline(value) {
-  if (!value) {
-    return "-"
-  }
-  const time = new Date(value)
-  if (Number.isNaN(time.getTime())) {
-    return "-"
-  }
-  time.setDate(time.getDate() + 30)
-  const iso = time.toISOString()
-  return iso.slice(0, 19).replace("T", " ")
+  return formatBeijingDateTimeAfterDays(value, 30)
 }
 
 function aigcScore(item) {

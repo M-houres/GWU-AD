@@ -1315,17 +1315,8 @@ textarea + .aigc-counter {
 }
 
 /* Top banner divider */
-#app :where(
-  .header-wrap,
-  .scholar-topbar
-) {
-  background: transparent !important;
+#app .header-wrap {
   border-bottom: 0 !important;
-  box-shadow: none !important;
-}
-
-#app .scholar-topbar::after {
-  background: none !important;
 }
 
 #app .scholar-sidebar {

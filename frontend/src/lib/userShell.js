@@ -1,4 +1,5 @@
 import { FilePenLine, FileSearch2, Megaphone, ScanSearch } from "lucide-vue-next"
+import { formatBeijingDateTime } from "./dateTime"
 
 export const DEFAULT_HEADER_NOTICE_TEXT = "平台系统持续优化中，任务提交后请在账户中心查看处理进度。"
 export const NOTICE_SEEN_STORAGE_KEY = "wuhong_user_notice_seen_key"
@@ -54,11 +55,5 @@ export function normalizeUserShellNotice(raw) {
 }
 
 export function formatUserShellNoticeTime(value) {
-  if (!value) return ""
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) {
-    return ""
-  }
-  const pad = (num) => String(num).padStart(2, "0")
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`
+  return formatBeijingDateTime(value, { placeholder: "", withSeconds: false })
 }

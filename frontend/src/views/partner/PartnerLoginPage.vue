@@ -75,7 +75,7 @@ import { useRoute, useRouter } from "vue-router"
 
 import { partnerHttp } from "../../lib/http"
 import { resolvePartnerRedirect } from "../../lib/redirect"
-import { setPartnerInfo, setPartnerRefreshToken, setPartnerToken } from "../../lib/session"
+import { setPartnerInfo } from "../../lib/session"
 
 const route = useRoute()
 const router = useRouter()
@@ -112,8 +112,6 @@ async function submitLogin() {
       account: normalizedAccount,
       password: plainPassword,
     })
-    setPartnerToken(data.token)
-    setPartnerRefreshToken(data.refresh_token)
     setPartnerInfo(data.channel || null)
     await router.replace(resolvePartnerRedirect(route.query.redirect, "/app/partner"))
   } catch (error) {

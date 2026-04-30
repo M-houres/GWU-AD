@@ -2,7 +2,7 @@ import { createRouter, createWebHistory } from 'vue-router'
 
 import { resolveAdminRedirect, resolvePartnerRedirect, resolveUserRedirect } from '../lib/redirect'
 import { capturePartnerTrackingFromQuery } from '../lib/partnerTracking'
-import { adminHasPermission, getAdminInfo, getAdminToken, getPartnerToken, getUserToken } from '../lib/session'
+import { adminHasPermission, getAdminInfo, getAdminToken, getPartnerInfo, getUserToken } from '../lib/session'
 
 const AdminLoginPage = () => import('../views/admin/AdminLoginPage.vue')
 const AdminOrderPage = () => import('../views/admin/AdminOrderPage.vue')
@@ -117,7 +117,7 @@ router.beforeEach((to) => {
     const fallback = firstAccessibleAdminRoute()
     return resolveAdminRedirect(to.query.redirect, fallback)
   }
-  if (to.path === '/app/partner/login' && getPartnerToken()) {
+  if (to.path === '/app/partner/login' && getPartnerInfo()) {
     return resolvePartnerRedirect(to.query.redirect, '/app/partner')
   }
   if (to.meta.auth === 'admin' && !getAdminToken()) {
@@ -135,7 +135,7 @@ router.beforeEach((to) => {
       return fallback === '/admin/login' ? '/admin/login' : fallback
     }
   }
-  if (to.meta.auth === 'partner' && !getPartnerToken()) {
+  if (to.meta.auth === 'partner' && !getPartnerInfo()) {
     const redirect = encodeURIComponent(to.fullPath || '/app/partner')
     return `/app/partner/login?redirect=${redirect}`
   }

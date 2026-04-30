@@ -28,6 +28,7 @@ from app.services.payment_service import (
 )
 from app.services.partner_rebate_service import (
     attach_order_attribution_from_request,
+    resolve_partner_channel_for_order,
     record_paid_order_rebate,
 )
 from app.utils import make_order_no
@@ -194,6 +195,12 @@ def _order_amount_fen(order: Order) -> int:
 
 def _order_amount_cny_api(order: Order) -> float:
     return cny_to_api(order.amount_cny)
+
+
+def _order_partner_snapshot(order: Order) -> dict:
+    snapshot = order.package_snapshot if isinstance(order.package_snapshot, dict) else {}
+    partner_snapshot = snapshot.get("partner_snapshot")
+    return partner_snapshot if isinstance(partner_snapshot, dict) else {}
 
 
 def _resolve_recharge_amount(req: CreateOrderReq, db: Session) -> tuple[Decimal, str, int]:
@@ -415,6 +422,8 @@ def _find_reusable_open_order(
     provider: str,
     amount_cny: Decimal,
     recharge_fen: int,
+    package_name: str | None = None,
+    channel_id: int | None = None,
 ) -> Order | None:
     rows = (
         db.query(Order)
@@ -431,6 +440,16 @@ def _find_reusable_open_order(
     )
     for row in rows:
         if _calc_remain_seconds(row) > 0:
+            snapshot = row.package_snapshot if isinstance(row.package_snapshot, dict) else {}
+            snapshot_name = str(snapshot.get("name") or "").strip()
+            if str(package_name or "").strip() and snapshot_name and snapshot_name != str(package_name or "").strip():
+                continue
+            partner_snapshot = _order_partner_snapshot(row)
+            snapshot_channel_id = int(partner_snapshot.get("channel_id") or 0)
+            if int(channel_id or 0) > 0 and snapshot_channel_id > 0 and snapshot_channel_id != int(channel_id):
+                continue
+            if int(channel_id or 0) == 0 and snapshot_channel_id > 0:
+                continue
             return row
     return None
 
@@ -594,12 +613,22 @@ def create_order(
         fallback_price=amount_cny,
         fallback_credits=recharge_fen,
     )
+    attribution_channel, _ = resolve_partner_channel_for_order(
+        db,
+        request=request,
+        user_id=user.id,
+        explicit_channel_code=req.channel_code,
+        explicit_channel_token=req.channel_token,
+        explicit_channel_scene=req.channel_scene,
+    )
     order = _find_reusable_open_order(
         db,
         user_id=user.id,
         provider=provider,
         amount_cny=amount_cny,
         recharge_fen=recharge_fen,
+        package_name=package_name,
+        channel_id=int(attribution_channel.id) if attribution_channel is not None else None,
     )
     if order is None:
         order_no = make_order_no()

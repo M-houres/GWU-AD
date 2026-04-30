@@ -243,6 +243,7 @@
 import { computed, onMounted, ref } from "vue"
 
 import AdminShell from "../../components/AdminShell.vue"
+import { formatBeijingDateTime } from "../../lib/dateTime"
 import { downloadAxiosBlobResponse } from "../../lib/download"
 import { adminHttp } from "../../lib/http"
 import { adminHasPermission } from "../../lib/session"
@@ -520,7 +521,7 @@ function statusBadgeClass(value) {
 }
 
 function formatTime(value) {
-  return value ? String(value).slice(0, 19).replace("T", " ") : "-"
+  return formatBeijingDateTime(value)
 }
 </script>
 

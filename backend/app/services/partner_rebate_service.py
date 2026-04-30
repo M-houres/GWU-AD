@@ -8,7 +8,7 @@ import secrets
 from urllib.parse import urlparse
 
 from fastapi import Request
-from sqlalchemy import desc, func
+from sqlalchemy import desc, func, or_
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
@@ -210,6 +210,178 @@ def _compute_chain_rate_plan(db: Session, *, direct_channel: PartnerChannel, pac
             plan.append((channel, parent_delta))
         child_rate = max(child_rate, parent_rate)
     return plan
+
+
+def _serialize_rebate_plan(plan: list[tuple[PartnerChannel, int]]) -> list[dict]:
+    serialized: list[dict] = []
+    for channel, rate_bp in plan:
+        channel_id = int(channel.id or 0)
+        if channel_id <= 0:
+            continue
+        serialized.append(
+            {
+                "channel_id": channel_id,
+                "level": int(channel.level or 1),
+                "rate_bp": _normalize_rebate_rate_bp(rate_bp),
+                "channel_code": str(channel.channel_code or ""),
+            }
+        )
+    return serialized
+
+
+def _deserialize_rebate_plan(db: Session, *, payload) -> list[tuple[PartnerChannel, int]]:
+    if not isinstance(payload, list):
+        return []
+    plan: list[tuple[PartnerChannel, int]] = []
+    for item in payload:
+        if not isinstance(item, dict):
+            continue
+        channel_id = int(item.get("channel_id") or 0)
+        if channel_id <= 0:
+            continue
+        channel = db.query(PartnerChannel).filter(PartnerChannel.id == channel_id).first()
+        if channel is None or channel.status != "active":
+            continue
+        plan.append((channel, _normalize_rebate_rate_bp(item.get("rate_bp"))))
+    return plan
+
+
+def _set_attribution_snapshot(
+    db: Session,
+    *,
+    attribution: PartnerOrderAttribution,
+    channel: PartnerChannel,
+    package_name: str | None,
+) -> None:
+    rate_bp = _resolve_rate_by_policy(db, channel=channel, package_name=package_name)
+    rebate_plan = _compute_chain_rate_plan(db, direct_channel=channel, package_name=package_name)
+    attribution.rebate_rate_bp = rate_bp
+    attribution.package_name = str(package_name or "").strip()[:64]
+    root_channel = db.query(PartnerChannel).filter(PartnerChannel.id == int(channel.root_channel_id or channel.id)).first()
+    attribution.root_channel_code_snapshot = str(root_channel.channel_code if root_channel else channel.channel_code)
+
+
+def _order_partner_snapshot(order: Order) -> dict:
+    snapshot = order.package_snapshot if isinstance(order.package_snapshot, dict) else {}
+    partner_snapshot = snapshot.get("partner_snapshot")
+    return partner_snapshot if isinstance(partner_snapshot, dict) else {}
+
+
+def _write_order_partner_snapshot(
+    order: Order,
+    *,
+    attribution: PartnerOrderAttribution,
+    rebate_plan: list[tuple[PartnerChannel, int]],
+) -> None:
+    snapshot = dict(order.package_snapshot or {}) if isinstance(order.package_snapshot, dict) else {}
+    snapshot["partner_snapshot"] = {
+        "channel_id": int(attribution.channel_id or 0),
+        "channel_code": str(attribution.channel_code_snapshot or ""),
+        "root_channel_id": int(attribution.root_channel_id or 0),
+        "root_channel_code": str(attribution.root_channel_code_snapshot or ""),
+        "package_name": str(attribution.package_name or ""),
+        "rebate_rate_bp": int(attribution.rebate_rate_bp or 0),
+        "rebate_plan": _serialize_rebate_plan(rebate_plan),
+    }
+    order.package_snapshot = snapshot
+
+
+def _rebuild_legacy_rebate_plan(
+    db: Session,
+    *,
+    attribution: PartnerOrderAttribution,
+    direct_channel: PartnerChannel,
+) -> list[tuple[PartnerChannel, int]]:
+    direct_rate = _normalize_rebate_rate_bp(attribution.rebate_rate_bp)
+    if direct_rate <= 0:
+        return []
+    plan: list[tuple[PartnerChannel, int]] = [(direct_channel, direct_rate)]
+    parent_id = int(direct_channel.parent_channel_id or 0)
+    if parent_id <= 0:
+        return plan
+    parent_channel = db.query(PartnerChannel).filter(PartnerChannel.id == parent_id).first()
+    if parent_channel is None or parent_channel.status != "active":
+        return plan
+    package_name = str(attribution.package_name or "").strip() or None
+    parent_rate = _resolve_rate_by_policy(db, channel=parent_channel, package_name=package_name)
+    parent_delta = max(_normalize_rebate_rate_bp(parent_rate) - direct_rate, 0)
+    if parent_delta > 0:
+        plan.append((parent_channel, parent_delta))
+    return plan
+
+
+def _ensure_order_partner_snapshot(
+    db: Session,
+    *,
+    order: Order,
+    attribution: PartnerOrderAttribution,
+    direct_channel: PartnerChannel,
+) -> list[tuple[PartnerChannel, int]]:
+    snapshot_plan = _resolve_rebate_plan_for_order_snapshot(db, order=order)
+    if snapshot_plan:
+        return snapshot_plan
+    rebate_plan = _rebuild_legacy_rebate_plan(
+        db,
+        attribution=attribution,
+        direct_channel=direct_channel,
+    )
+    if rebate_plan:
+        _write_order_partner_snapshot(order, attribution=attribution, rebate_plan=rebate_plan)
+        db.flush()
+    return rebate_plan
+
+
+def _resolve_rebate_plan_for_order_snapshot(db: Session, *, order: Order) -> list[tuple[PartnerChannel, int]]:
+    partner_snapshot = _order_partner_snapshot(order)
+    snapshot_plan = _deserialize_rebate_plan(db, payload=partner_snapshot.get("rebate_plan"))
+    if snapshot_plan:
+        return snapshot_plan
+    return []
+
+
+def _create_missing_reversal_rows(
+    db: Session,
+    *,
+    accrual_rows: list[PartnerRebateLedger],
+    statement_month: str,
+    note_prefix: str,
+) -> PartnerRebateLedger | None:
+    existing_related_ids = {
+        int(row[0])
+        for row in db.query(PartnerRebateLedger.related_ledger_id)
+        .filter(
+            PartnerRebateLedger.related_ledger_id.is_not(None),
+            PartnerRebateLedger.related_ledger_id.in_([int(item.id) for item in accrual_rows if int(item.id or 0) > 0]),
+            PartnerRebateLedger.entry_type == PartnerLedgerEntryType.REVERSAL,
+        )
+        .all()
+        if int(row[0] or 0) > 0
+    }
+    created: PartnerRebateLedger | None = None
+    for accrual_row in accrual_rows:
+        if int(accrual_row.id or 0) in existing_related_ids:
+            continue
+        reversal = PartnerRebateLedger(
+            channel_id=accrual_row.channel_id,
+            source_channel_id=accrual_row.source_channel_id,
+            order_id=accrual_row.order_id,
+            order_no=accrual_row.order_no,
+            user_id=accrual_row.user_id,
+            entry_type=PartnerLedgerEntryType.REVERSAL,
+            status=PartnerLedgerStatus.PENDING,
+            base_amount_fen=accrual_row.base_amount_fen,
+            rebate_rate_bp=int(accrual_row.rebate_rate_bp or 0),
+            rebate_amount_fen=-abs(int(accrual_row.rebate_amount_fen or 0)),
+            source_channel_code_snapshot=accrual_row.source_channel_code_snapshot,
+            statement_month=statement_month,
+            related_ledger_id=accrual_row.id,
+            note=note_prefix,
+        )
+        db.add(reversal)
+        db.flush()
+        if created is None:
+            created = reversal
+    return created
 
 
 def _direct_child_channels(db: Session, *, channel_id: int) -> list[PartnerChannel]:
@@ -732,7 +904,6 @@ def attach_order_attribution_from_request(
     )
     if channel is None:
         return None
-    rate_bp = _resolve_rate_by_policy(db, channel=channel, package_name=package_name)
     row = PartnerOrderAttribution(
         order_id=order.id,
         order_no=order.order_no,
@@ -742,14 +913,19 @@ def attach_order_attribution_from_request(
         channel_code_snapshot=channel.channel_code,
         root_channel_code_snapshot="",
         channel_level=int(channel.level or 1),
-        package_name=str(package_name or "").strip()[:64],
-        rebate_rate_bp=rate_bp,
+        package_name="",
+        rebate_rate_bp=0,
         attribution_source=source or "binding",
     )
-    if row.root_channel_id:
-        root_channel = db.query(PartnerChannel).filter(PartnerChannel.id == row.root_channel_id).first()
-        row.root_channel_code_snapshot = str(root_channel.channel_code if root_channel else channel.channel_code)
+    _set_attribution_snapshot(
+        db,
+        attribution=row,
+        channel=channel,
+        package_name=package_name,
+    )
     db.add(row)
+    db.flush()
+    _write_order_partner_snapshot(order, attribution=row, rebate_plan=_compute_chain_rate_plan(db, direct_channel=channel, package_name=package_name))
     db.flush()
     return row
 
@@ -761,7 +937,6 @@ def _ensure_order_attribution_by_binding(db: Session, *, order: Order) -> Partne
     channel = _resolve_bound_channel(db, user_id=order.user_id)
     if channel is None:
         return None
-    rate_bp = _resolve_rate_by_policy(db, channel=channel, package_name=None)
     row = PartnerOrderAttribution(
         order_id=order.id,
         order_no=order.order_no,
@@ -772,13 +947,18 @@ def _ensure_order_attribution_by_binding(db: Session, *, order: Order) -> Partne
         root_channel_code_snapshot="",
         channel_level=int(channel.level or 1),
         package_name="",
-        rebate_rate_bp=rate_bp,
+        rebate_rate_bp=0,
         attribution_source="binding",
     )
-    if row.root_channel_id:
-        root_channel = db.query(PartnerChannel).filter(PartnerChannel.id == row.root_channel_id).first()
-        row.root_channel_code_snapshot = str(root_channel.channel_code if root_channel else channel.channel_code)
+    _set_attribution_snapshot(
+        db,
+        attribution=row,
+        channel=channel,
+        package_name=None,
+    )
     db.add(row)
+    db.flush()
+    _write_order_partner_snapshot(order, attribution=row, rebate_plan=_compute_chain_rate_plan(db, direct_channel=channel, package_name=None))
     db.flush()
     return row
 
@@ -854,16 +1034,6 @@ def record_task_refund_rebate(db: Session, *, task_id: int, operator: str = "") 
     )
     if accrual is None:
         return None
-    existing = (
-        db.query(PartnerRebateLedger)
-        .filter(
-            PartnerRebateLedger.order_no == order_no,
-            PartnerRebateLedger.entry_type == PartnerLedgerEntryType.REVERSAL,
-        )
-        .first()
-    )
-    if existing is not None:
-        return existing
     accrual_rows = (
         db.query(PartnerRebateLedger)
         .filter(
@@ -873,29 +1043,12 @@ def record_task_refund_rebate(db: Session, *, task_id: int, operator: str = "") 
         .order_by(desc(PartnerRebateLedger.id))
         .all()
     )
-    created: PartnerRebateLedger | None = None
-    for accrual_row in accrual_rows:
-        reversal = PartnerRebateLedger(
-            channel_id=accrual_row.channel_id,
-            source_channel_id=accrual_row.source_channel_id,
-            order_id=accrual_row.order_id,
-            order_no=accrual_row.order_no,
-            user_id=accrual_row.user_id,
-            entry_type=PartnerLedgerEntryType.REVERSAL,
-            status=PartnerLedgerStatus.PENDING,
-            base_amount_fen=accrual_row.base_amount_fen,
-            rebate_rate_bp=int(accrual_row.rebate_rate_bp or 0),
-            rebate_amount_fen=-abs(int(accrual_row.rebate_amount_fen or 0)),
-            source_channel_code_snapshot=accrual_row.source_channel_code_snapshot,
-            statement_month=_statement_month_now(),
-            related_ledger_id=accrual_row.id,
-            note=f"任务退款冲正:{task_id}" + (f" [{operator}]" if operator else ""),
-        )
-        db.add(reversal)
-        db.flush()
-        if created is None:
-            created = reversal
-    return created
+    return _create_missing_reversal_rows(
+        db,
+        accrual_rows=accrual_rows,
+        statement_month=_statement_month_now(),
+        note_prefix=f"任务退款冲正:{task_id}" + (f" [{operator}]" if operator else ""),
+    )
 
 
 def record_paid_order_rebate(db: Session, *, order: Order) -> PartnerRebateLedger | None:
@@ -913,7 +1066,7 @@ def record_paid_order_rebate(db: Session, *, order: Order) -> PartnerRebateLedge
     if existing is not None:
         return existing
 
-    attribution = _ensure_order_attribution_by_binding(db, order=order)
+    attribution = db.query(PartnerOrderAttribution).filter(PartnerOrderAttribution.order_id == order.id).first()
     if attribution is None:
         return None
 
@@ -921,7 +1074,12 @@ def record_paid_order_rebate(db: Session, *, order: Order) -> PartnerRebateLedge
     direct_channel = db.query(PartnerChannel).filter(PartnerChannel.id == attribution.channel_id).first()
     if direct_channel is None or direct_channel.status != "active":
         return None
-    plan = _compute_chain_rate_plan(db, direct_channel=direct_channel, package_name=attribution.package_name)
+    plan = _ensure_order_partner_snapshot(
+        db,
+        order=order,
+        attribution=attribution,
+        direct_channel=direct_channel,
+    )
     created: PartnerRebateLedger | None = None
     for target_channel, rate_bp in plan:
         rebate_amount_fen = max((base_amount_fen * _normalize_rebate_rate_bp(rate_bp) + 5000) // 10000, 0)
@@ -961,16 +1119,6 @@ def record_refund_order_rebate(db: Session, *, order: Order, operator: str = "")
     )
     if accrual is None:
         return None
-    existing = (
-        db.query(PartnerRebateLedger)
-        .filter(
-            PartnerRebateLedger.order_no == order.order_no,
-            PartnerRebateLedger.entry_type == PartnerLedgerEntryType.REVERSAL,
-        )
-        .first()
-    )
-    if existing is not None:
-        return existing
     accrual_rows = (
         db.query(PartnerRebateLedger)
         .filter(
@@ -980,29 +1128,12 @@ def record_refund_order_rebate(db: Session, *, order: Order, operator: str = "")
         .order_by(desc(PartnerRebateLedger.id))
         .all()
     )
-    created: PartnerRebateLedger | None = None
-    for accrual_row in accrual_rows:
-        reversal = PartnerRebateLedger(
-            channel_id=accrual_row.channel_id,
-            source_channel_id=accrual_row.source_channel_id,
-            order_id=accrual_row.order_id,
-            order_no=accrual_row.order_no,
-            user_id=accrual_row.user_id,
-            entry_type=PartnerLedgerEntryType.REVERSAL,
-            status=PartnerLedgerStatus.PENDING,
-            base_amount_fen=accrual_row.base_amount_fen,
-            rebate_rate_bp=int(accrual_row.rebate_rate_bp or 0),
-            rebate_amount_fen=-abs(int(accrual_row.rebate_amount_fen or 0)),
-            source_channel_code_snapshot=accrual_row.source_channel_code_snapshot,
-            statement_month=_statement_month_now(),
-            related_ledger_id=accrual_row.id,
-            note=f"订单退款冲正:{order.order_no}" + (f" [{operator}]" if operator else ""),
-        )
-        db.add(reversal)
-        db.flush()
-        if created is None:
-            created = reversal
-    return created
+    return _create_missing_reversal_rows(
+        db,
+        accrual_rows=accrual_rows,
+        statement_month=_statement_month_now(),
+        note_prefix=f"订单退款冲正:{order.order_no}" + (f" [{operator}]" if operator else ""),
+    )
 
 
 def _sum_withdraw_amount_fen(db: Session, *, channel_id: int, statuses: tuple[PartnerWithdrawStatus, ...]) -> int:
@@ -1054,13 +1185,27 @@ def create_partner_withdraw_request(
     normalized_amount = int(apply_amount_fen or 0)
     if normalized_amount < 10000:
         raise BizError(code=4471, message="提现金额需至少 100 元")
-    summary = compute_partner_withdrawable_fen(db, channel_id=channel.id)
+    locked_channel = db.query(PartnerChannel).filter(PartnerChannel.id == int(channel.id)).with_for_update().first()
+    if locked_channel is None:
+        raise BizError(code=4476, message="渠道不存在")
+    pending_request = (
+        db.query(PartnerWithdrawRequest)
+        .filter(
+            PartnerWithdrawRequest.channel_id == int(locked_channel.id),
+            PartnerWithdrawRequest.status.in_([PartnerWithdrawStatus.PENDING, PartnerWithdrawStatus.APPROVED]),
+        )
+        .with_for_update()
+        .first()
+    )
+    if pending_request is not None:
+        raise BizError(code=4497, message="当前存在未完成的提现申请，请先处理后再提交")
+    summary = compute_partner_withdrawable_fen(db, channel_id=int(locked_channel.id))
     if normalized_amount > int(summary["withdrawable_fen"]):
         raise BizError(code=4472, message="可提现余额不足")
     request_no = f"WD{datetime.utcnow().strftime('%Y%m%d%H%M%S')}{secrets.token_hex(3).upper()}"
     row = PartnerWithdrawRequest(
         request_no=request_no,
-        channel_id=channel.id,
+        channel_id=int(locked_channel.id),
         apply_amount_fen=normalized_amount,
         status=PartnerWithdrawStatus.PENDING,
         note=str(note or "").strip()[:255],
@@ -1127,6 +1272,8 @@ def generate_monthly_statement(
     statement_month: str,
 ) -> tuple[PartnerMonthlyStatement, bool]:
     month_key = _normalize_statement_month(statement_month)
+    if month_key >= _statement_month_now():
+        raise BizError(code=4470, message="仅允许为已结束的历史月份生成结算单")
     row = (
         db.query(PartnerMonthlyStatement)
         .filter(
@@ -1136,9 +1283,6 @@ def generate_monthly_statement(
         .with_for_update()
         .first()
     )
-    if row is not None:
-        return row, False
-
     pending_rows = (
         db.query(PartnerRebateLedger)
         .filter(
@@ -1146,10 +1290,28 @@ def generate_monthly_statement(
             PartnerRebateLedger.statement_month == month_key,
             PartnerRebateLedger.status == PartnerLedgerStatus.PENDING,
             PartnerRebateLedger.entry_type.in_([PartnerLedgerEntryType.ACCRUAL, PartnerLedgerEntryType.REVERSAL]),
+            or_(PartnerRebateLedger.statement_id.is_(None), PartnerRebateLedger.statement_id == (row.id if row is not None else None)),
         )
         .all()
     )
+    if not pending_rows:
+        if row is not None:
+            return row, False
+        raise BizError(code=4469, message="当前月份暂无待结算返佣流水")
     accrual_rows = [item for item in pending_rows if item.entry_type == PartnerLedgerEntryType.ACCRUAL]
+    if row is not None:
+        if row.status == PartnerStatementStatus.SETTLED:
+            unassigned_rows = [item for item in pending_rows if item.statement_id is None]
+            if unassigned_rows:
+                raise BizError(code=4471, message="该结算月已结清，存在新的未归档流水，请人工复核")
+            return row, False
+        for item in pending_rows:
+            item.statement_id = row.id
+        row.total_orders = len({str(item.order_no or "") for item in accrual_rows if item.order_no})
+        row.gross_amount_fen = sum(int(item.base_amount_fen or 0) for item in accrual_rows)
+        row.rebate_amount_fen = sum(int(item.rebate_amount_fen or 0) for item in pending_rows)
+        db.flush()
+        return row, False
     row = PartnerMonthlyStatement(
         channel_id=channel_id,
         statement_month=month_key,
@@ -1258,6 +1420,15 @@ def change_partner_portal_password(
     channel.portal_password_updated_at = datetime.utcnow()
     db.flush()
     return channel
+
+
+def rotate_partner_portal_session(db: Session, *, channel: PartnerChannel) -> PartnerChannel:
+    locked_channel = db.query(PartnerChannel).filter(PartnerChannel.id == int(channel.id)).with_for_update().first()
+    if locked_channel is None:
+        raise BizError(code=4476, message="渠道不存在")
+    locked_channel.updated_at = datetime.utcnow()
+    db.flush()
+    return locked_channel
 
 
 def get_partner_portal_overview(db: Session, *, channel: PartnerChannel, statement_month: str | None = None) -> dict:
