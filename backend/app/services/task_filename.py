@@ -22,12 +22,12 @@ def _normalize_source_stem(source_filename: str | None) -> str:
 
 
 def _resolve_output_ext(task_type: str, source_filename: str | None, output_path: str | Path | None) -> str:
+    if task_type == TaskType.AIGC_DETECT.value:
+        return ".pdf"
     if output_path:
         ext = Path(str(output_path)).suffix.lower()
         if ext:
             return ext
-    if task_type == TaskType.AIGC_DETECT.value:
-        return ".pdf"
     source_ext = Path(str(source_filename or "")).suffix.lower()
     if task_type in {TaskType.REWRITE.value, TaskType.DEDUP.value} and source_ext == ".doc":
         return ".docx"

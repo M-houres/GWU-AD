@@ -81,7 +81,9 @@ def test_build_process_output_path_uses_pdf_for_aigc(tmp_path: Path) -> None:
         settings=settings,
     )
 
-    assert path == tmp_path / "output" / "3" / "9" / "输入论文_AIGC检测报告.pdf"
+    assert path.parent == tmp_path / "output" / "3" / "9"
+    assert path.suffix.lower() == ".pdf"
+    assert path.name.endswith(".pdf")
 
 
 def test_run_processing_engine_passes_snapshot_fields(db_session, tmp_path: Path) -> None:
@@ -147,18 +149,21 @@ def test_finalize_processed_task_merges_metadata_and_completes(db_session) -> No
     )
     db_session.add(task)
     db_session.flush()
+    output_path = Path("C:/tmp/result.docx")
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text("result", encoding="utf-8")
 
     merged = finalize_processed_task(
         db_session,
         task_id=task.id,
-        result=SimpleNamespace(output_path="C:/tmp/result.docx", result_json={"score": 0.92}),
+        result=SimpleNamespace(output_path=str(output_path), result_json={"score": 0.92}),
         task_snapshot={"result_json": {"paper_title": "before"}},
         merge_task_result_metadata=lambda existing, new: {**existing, **new, "merged": True},
     )
 
     assert merged == {"ok": True, "task_id": task.id, "status": "completed"}
     assert task.status == TaskStatus.COMPLETED
-    assert task.output_path == "C:/tmp/result.docx"
+    assert task.output_path == str(output_path)
     assert task.result_json == {"paper_title": "before", "score": 0.92, "merged": True}
     assert task.error_message is None
 

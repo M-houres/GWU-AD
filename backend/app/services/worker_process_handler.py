@@ -61,7 +61,6 @@ def build_process_output_path(task_snapshot: dict, *, settings) -> Path:
         build_task_result_filename(
             task_snapshot["task_type"],
             task_snapshot.get("source_filename"),
-            source_path,
         )
     )
     output_dir = settings.output_dir / str(task_snapshot["user_id"]) / str(task_snapshot["id"])
