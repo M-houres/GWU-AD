@@ -466,8 +466,8 @@ Page({
         request({ url: "/auth/options", method: "GET", silent: true }),
         request({ url: "/users/me", method: "GET", silent: true }),
         request({ url: "/users/me/invite", method: "GET", silent: true }),
-        request({ url: "/users/me/promo/like-submissions", method: "GET", silent: true }),
-        request({ url: "/users/me/promo/create-submissions", method: "GET", silent: true }),
+        request({ url: "/users/me/promo/like-submissions", method: "GET", silent: true }).catch(() => ({ items: [] })),
+        request({ url: "/users/me/promo/create-submissions", method: "GET", silent: true }).catch(() => ({ items: [] })),
       ])
 
       const promoConfig = normalizePromoConfig(options && options.promo_center ? options.promo_center : {})
@@ -501,6 +501,39 @@ Page({
     } finally {
       this.setData({ loading: false })
     }
+  },
+
+  async refreshInviteState(forceReload = false) {
+    const currentCode = String(this.data.inviteState && this.data.inviteState.inviteCode ? this.data.inviteState.inviteCode : "").trim()
+    if (currentCode && !forceReload) return this.data.inviteState
+    if (!ensureLogin()) return this.data.inviteState
+
+    const inviteInfo = await request({ url: "/users/me/invite", method: "GET", silent: true })
+    const nextInviteState = buildInviteState(inviteInfo || {}, this.data.promoConfig)
+    const nextCards = buildEnabledCards(this.data.promoConfig, nextInviteState)
+    this.setData({
+      inviteState: nextInviteState,
+      enabledCards: nextCards,
+      heroCard: buildHeroCard(this.data.activeTab, this.data.promoConfig, nextInviteState),
+    })
+    return nextInviteState
+  },
+
+  copyText(value, emptyMessage, successMessage) {
+    const text = String(value || "").trim()
+    if (!text) {
+      wx.showToast({ title: emptyMessage || "暂无可复制内容", icon: "none" })
+      return
+    }
+    wx.setClipboardData({
+      data: text,
+      success: () => {
+        wx.showToast({ title: successMessage || "已复制", icon: "success" })
+      },
+      fail: () => {
+        wx.showToast({ title: "复制失败", icon: "none" })
+      },
+    })
   },
 
   onSelectTab(e) {
@@ -662,15 +695,7 @@ Page({
 
   onCopyCurrentTemplate() {
     const value = String(this.data.currentTemplate || "").trim()
-    if (!value) {
-      wx.showToast({ title: "暂无创作文案", icon: "none" })
-      return
-    }
-    wx.setClipboardData({
-      data: value,
-      success: () => wx.showToast({ title: "创作文案已复制", icon: "success" }),
-      fail: () => wx.showToast({ title: "复制失败", icon: "none" }),
-    })
+    this.copyText(value, "暂无创作文案", "创作文案已复制")
   },
 
   async onSubmitCreateSubmission() {
@@ -749,57 +774,33 @@ Page({
     }
   },
 
-  onCopyInviteCode() {
-    const inviteCode = String(this.data.inviteState.inviteCode || "").trim()
-    if (!inviteCode) {
-      wx.showToast({ title: "邀请码暂未生成", icon: "none" })
-      return
+  async onCopyInviteCode() {
+    try {
+      const inviteState = await this.refreshInviteState(false)
+      this.copyText(inviteState && inviteState.inviteCode, "邀请码暂未生成", "邀请码已复制")
+    } catch (_) {
+      wx.showToast({ title: "邀请码加载失败", icon: "none" })
     }
-    wx.setClipboardData({
-      data: inviteCode,
-      success: () => wx.showToast({ title: "邀请码已复制", icon: "success" }),
-      fail: () => wx.showToast({ title: "复制失败", icon: "none" }),
-    })
   },
 
-  onCopyInviteLink() {
-    const inviteLink = String(this.data.inviteState.inviteLink || "").trim()
-    if (!inviteLink) {
-      wx.showToast({ title: "邀请链接暂未生成", icon: "none" })
-      return
+  async onCopyInviteLink() {
+    try {
+      const inviteState = await this.refreshInviteState(false)
+      this.copyText(inviteState && inviteState.inviteLink, "邀请链接暂未生成", "邀请链接已复制")
+    } catch (_) {
+      wx.showToast({ title: "邀请链接加载失败", icon: "none" })
     }
-    wx.setClipboardData({
-      data: inviteLink,
-      success: () => wx.showToast({ title: "邀请链接已复制", icon: "success" }),
-      fail: () => wx.showToast({ title: "复制失败", icon: "none" }),
-    })
   },
 
   onCopyShareText() {
     const pageConfig = this.data.promoConfig.pages.invite || {}
     const shareText = String(pageConfig.share_copy_text || "").trim()
-    if (!shareText) {
-      wx.showToast({ title: "分享文案暂未配置", icon: "none" })
-      return
-    }
-    wx.setClipboardData({
-      data: shareText,
-      success: () => wx.showToast({ title: "分享文案已复制", icon: "success" }),
-      fail: () => wx.showToast({ title: "复制失败", icon: "none" }),
-    })
+    this.copyText(shareText, "分享文案暂未配置", "分享文案已复制")
   },
 
   onCopyWechatId(e) {
     const wechatId = String((e.currentTarget.dataset.value || "")).trim()
-    if (!wechatId) {
-      wx.showToast({ title: "微信号暂未配置", icon: "none" })
-      return
-    }
-    wx.setClipboardData({
-      data: wechatId,
-      success: () => wx.showToast({ title: "微信号已复制", icon: "success" }),
-      fail: () => wx.showToast({ title: "复制失败", icon: "none" }),
-    })
+    this.copyText(wechatId, "微信号暂未配置", "微信号已复制")
   },
 
   onReload() {

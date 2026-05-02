@@ -186,6 +186,7 @@ def _guard_stale_tasks_for_user(db: Session, *, user_id: int) -> int:
                     refund_count += 1
                 except Exception:
                     logger.exception("task_chain_guard_refund_failed", extra={"task_id": row.id, "user_id": user_id})
+                    raise
         logger.warning(
             "task_chain_guard_mark_stale",
             extra={
@@ -375,6 +376,8 @@ def submit_task(
 
     t = _parse_task_type(task_type)
     normalized_platform = normalize_platform(platform)
+    if t != TaskType.AIGC_DETECT and int(user.credits or 0) <= 0:
+        raise BizError(code=4006, message="通用点数不足，请先充值")
     internal_processing_mode, strategy = resolve_task_processing_mode(db, task_type=t, platform=normalized_platform)
     paper_upload = paper if paper and paper.filename else None
     normalized_pasted_text = _clean_form_multiline_text(pasted_text, max_len=300000)

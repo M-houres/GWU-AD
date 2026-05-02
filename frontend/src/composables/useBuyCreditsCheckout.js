@@ -121,7 +121,6 @@ export function useBuyCreditsCheckout({ userHttp, resolvePaymentError, onPaid })
       if (remainSeconds.value <= 0) {
         remainSeconds.value = 0
         stopTimers()
-        orderStatus.value = "closed"
       }
     }, 1000)
     pollTimer = window.setInterval(checkOrderStatus, 3000)

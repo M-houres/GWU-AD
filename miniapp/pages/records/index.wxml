@@ -148,6 +148,11 @@
         </view>
       </view>
     </view>
+    <view class="load-more-row panel-gap" wx:if="{{ hasMore }}">
+      <button class="secondary-btn" hover-class="is-press-btn" loading="{{ loadingMore }}" bindtap="loadMoreRecords">
+        {{ loadingMore ? "加载中..." : "加载更多记录" }}
+      </button>
+    </view>
     </block>
   </view>
 </view>

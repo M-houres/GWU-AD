@@ -10,6 +10,14 @@ services:
     container_name: wuhongai-mysql
     restart: unless-stopped
     logging: *default-logging
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: "2"
+        reservations:
+          memory: 512M
+          cpus: "1"
     env_file:
       - ./.env.prod
     command: --default-authentication-plugin=mysql_native_password --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
@@ -27,6 +35,14 @@ services:
     container_name: wuhongai-redis
     restart: unless-stopped
     logging: *default-logging
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: "1"
+        reservations:
+          memory: 64M
+          cpus: "0.5"
     command: redis-server --appendonly yes
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
@@ -44,6 +60,14 @@ services:
     container_name: wuhongai-backend
     restart: unless-stopped
     logging: *default-logging
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: "4"
+        reservations:
+          memory: 256M
+          cpus: "1"
     env_file:
       - ./.env.prod
     command: sh -c "python scripts/wait_for_services.py && python -m app.bootstrap && uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers ${WEB_CONCURRENCY:-6}"
@@ -73,6 +97,14 @@ services:
     container_name: wuhongai-worker-submission
     restart: unless-stopped
     logging: *default-logging
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: "4"
+        reservations:
+          memory: 128M
+          cpus: "1"
     env_file:
       - ./.env.prod
     command: sh -c "python scripts/wait_for_services.py && celery -A app.worker_tasks.celery_app worker -l info -Q submission -c ${CELERY_SUBMISSION_CONCURRENCY:-8} --max-tasks-per-child=200"
@@ -102,6 +134,14 @@ services:
     container_name: wuhongai-worker-processing
     restart: unless-stopped
     logging: *default-logging
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: "4"
+        reservations:
+          memory: 128M
+          cpus: "1"
     env_file:
       - ./.env.prod
     command: sh -c "python scripts/wait_for_services.py && celery -A app.worker_tasks.celery_app worker -l info -Q processing -c ${CELERY_PROCESSING_CONCURRENCY:-4} --max-tasks-per-child=20"
@@ -131,6 +171,14 @@ services:
     container_name: wuhongai-worker-maintenance
     restart: unless-stopped
     logging: *default-logging
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "1"
+        reservations:
+          memory: 64M
+          cpus: "0.5"
     env_file:
       - ./.env.prod
     command: sh -c "python scripts/wait_for_services.py && celery -A app.worker_tasks.celery_app worker -l info -Q maintenance,default -c ${CELERY_MAINTENANCE_CONCURRENCY:-2} --max-tasks-per-child=500"

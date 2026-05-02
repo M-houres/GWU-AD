@@ -9,7 +9,7 @@ import httpx
 from sqlalchemy import case, desc, func, text
 from sqlalchemy.orm import Session
 
-from app.api.auth import _get_login_config, _get_wechat_miniprogram_access_token
+from app.api.auth import _enforce_ip_limit, _get_ip, _get_login_config, _get_wechat_miniprogram_access_token
 from app.config import get_settings
 from app.deps import current_partner, db_dep, get_redis, optional_partner, require_admin_permission
 from app.exceptions import BizError
@@ -853,9 +853,9 @@ def _channel_miniapp_qrcode_payload(
             "channel_code": str(channel.channel_code or ""),
             "scene": scene,
             "page": page,
-            "miniapp_order_path": miniapp_path,
+            "miniapp_order_path": miniapp_scene_path,
             "miniapp_scene_path": miniapp_scene_path,
-            "qrcode_data_url": build_qrcode_data_url(miniapp_path),
+            "qrcode_data_url": build_qrcode_data_url(miniapp_scene_path),
             "is_official_qrcode": False,
             "fallback_reason": "小程序正式配置未启用，当前返回预览二维码",
         }
@@ -905,8 +905,19 @@ def _channel_miniapp_qrcode_payload(
 @router.get("/miniapp/resolve-scene", response_model=APIResp)
 def resolve_miniapp_partner_scene(
     scene: str = Query(default=""),
+    request: Request = None,
     db: Session = Depends(db_dep),
+    redis_client=Depends(get_redis),
 ) -> APIResp:
+    _enforce_ip_limit(
+        redis_client,
+        ip=_get_ip(request),
+        action="partner_scene_resolve",
+        limit=30,
+        window_seconds=60,
+        error_code=4491,
+        error_message="请求过于频繁，请稍后再试",
+    )
     channel = resolve_channel_by_scene(db, scene)
     if channel is None:
         raise BizError(code=4490, message="渠道场景码无效或已失效")

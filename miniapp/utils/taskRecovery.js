@@ -96,27 +96,31 @@ function getTaskSubmitFallbackMessage(error, taskType) {
 
 async function fetchRecentTasks(taskType) {
   const pageSize = 50
-  const maxPages = 6
+  const maxPages = 3
   let page = 1
   let totalPages = 1
   const items = []
 
   while (page <= totalPages && page <= maxPages) {
-    const data = await request({
-      url: `/tasks/my?page=${page}&page_size=${pageSize}&task_type=${encodeURIComponent(taskType)}`,
-      method: "GET",
-      silent: true,
-    })
-    const pageItems = Array.isArray(data && data.items) ? data.items : []
-    items.push(...pageItems)
+    try {
+      const data = await request({
+        url: `/tasks/my?page=${page}&page_size=${pageSize}&task_type=${encodeURIComponent(taskType)}`,
+        method: "GET",
+        silent: true,
+      })
+      const pageItems = Array.isArray(data && data.items) ? data.items : []
+      items.push(...pageItems)
 
-    const nextTotal = Number(data && data.pagination ? data.pagination.total_pages : 0)
-    if (Number.isFinite(nextTotal) && nextTotal > 0) {
-      totalPages = nextTotal
-    } else if (pageItems.length < pageSize) {
-      totalPages = page
-    } else {
-      totalPages = page + 1
+      const nextTotal = Number(data && data.pagination ? data.pagination.total_pages : 0)
+      if (Number.isFinite(nextTotal) && nextTotal > 0) {
+        totalPages = nextTotal
+      } else if (pageItems.length < pageSize) {
+        totalPages = page
+      } else {
+        totalPages = page + 1
+      }
+    } catch (_) {
+      throw new Error("recovery_fetch_failed")
     }
     page += 1
   }

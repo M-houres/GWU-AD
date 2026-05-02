@@ -1,6 +1,6 @@
 const env = require("../config/env")
 const { request } = require("./request")
-const { setRefreshToken, setToken, setUser, getToken, clearAuthState, getPartnerTracking } = require("./storage")
+const { setRefreshToken, setToken, setUser, getToken, getRefreshToken, clearAuthState, getPartnerTracking } = require("./storage")
 
 function buildLoginPayload({ referrerCode = "", deviceFingerprint = "" } = {}) {
   const tracking = getPartnerTracking() || {}
@@ -117,8 +117,37 @@ function ensureLogin() {
   return !!getToken()
 }
 
-function logout() {
-  request({ url: "/auth/logout", method: "POST", silent: true }).catch(() => null)
+async function ensureLoginWithRefresh() {
+  if (getToken()) return true
+  if (!getRefreshToken()) {
+    clearAuthState()
+    return false
+  }
+  try {
+    const data = await request({
+      url: "/auth/refresh",
+      method: "POST",
+      data: { refresh_token: getRefreshToken() },
+      silent: true,
+    })
+    if (data && data.token) {
+      setToken(data.token)
+      setRefreshToken(data.refresh_token)
+      setUser(data.user)
+      return true
+    }
+  } catch (_) {
+    clearAuthState()
+  }
+  return false
+}
+
+async function logout() {
+  try {
+    await request({ url: "/auth/logout", method: "POST" })
+  } catch (_) {
+    // proceed with local cleanup regardless
+  }
   clearAuthState()
 }
 
@@ -127,5 +156,6 @@ module.exports = {
   loginWithMiniProgramInternalTest,
   loginWithMiniProgramPhone,
   ensureLogin,
+  ensureLoginWithRefresh,
   logout,
 }

@@ -17,14 +17,44 @@ function getCurrentRoute() {
 }
 
 function openLogin(pending = {}) {
+  if (getCurrentRoute() === "pages/login/index" || loginOpening) {
+    return false
+  }
+
   setPendingAuth({
     ...pending,
     createdAt: Date.now(),
   })
 
-  if (getCurrentRoute() === "pages/login/index" || loginOpening) {
-    return false
+  loginOpening = true
+  wx.navigateTo({
+    url: "/pages/login/index",
+    complete: () => {
+      loginOpening = false
+    },
+  })
+  return true
+}
+
+const VALID_SOURCE_ROUTES = [
+  "pages/home/index",
+  "pages/records/index",
+  "pages/profile/index",
+  "pages/promo-center/index",
+]
+
+function finishLoginNavigation() {
+  const pending = getPendingAuth() || {}
+  const targetTab = ["records", "profile"].includes(pending.targetTab) ? pending.targetTab : "home"
+  const sourceRoute = String(pending.sourceRoute || "").trim()
+  if (sourceRoute && VALID_SOURCE_ROUTES.includes(sourceRoute)) {
+    clearPendingAuth()
+    wx.reLaunch({ url: `/${sourceRoute}` })
+    return
   }
+  clearPendingAuth()
+  wx.switchTab({ url: `/pages/${targetTab}/index` })
+}
 
   loginOpening = true
   wx.navigateTo({

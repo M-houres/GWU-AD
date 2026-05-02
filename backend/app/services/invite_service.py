@@ -147,6 +147,10 @@ def grant_invite_rewards(
     inviter = db.get(User, int(relation.inviter_id))
     if inviter is None:
         raise BizError(code=4406, message="邀请人不存在，无法发放奖励")
+    locked_inviter = db.query(User).filter(User.id == inviter.id).with_for_update().first()
+    locked_invitee = db.query(User).filter(User.id == invitee.id).with_for_update().first()
+    if locked_inviter is None or locked_invitee is None:
+        raise BizError(code=4406, message="用户不存在，无法发放奖励")
 
     reward_rules = _read_promo_center_reward_rules(db)
     invitee_points = max(0, int(reward_rules.get("invitee_bind_reward_points") or 0))
@@ -155,7 +159,7 @@ def grant_invite_rewards(
 
     _grant_invite_credit_reward(
         db,
-        user=invitee,
+        user=locked_invitee,
         scene=scene,
         benefit_code=_invite_benefit_code("relation", relation.id, "invitee-bind"),
         reward_points=invitee_points,
@@ -163,12 +167,12 @@ def grant_invite_rewards(
         meta={
             "relation_id": int(relation.id),
             "role": "invitee",
-            "inviter_user_id": int(inviter.id),
+            "inviter_user_id": int(locked_inviter.id),
         },
     )
     _grant_invite_credit_reward(
         db,
-        user=inviter,
+        user=locked_inviter,
         scene=scene,
         benefit_code=_invite_benefit_code("relation", relation.id, "inviter-valid"),
         reward_points=inviter_points,
@@ -176,18 +180,18 @@ def grant_invite_rewards(
         meta={
             "relation_id": int(relation.id),
             "role": "inviter",
-            "invitee_user_id": int(invitee.id),
+            "invitee_user_id": int(locked_invitee.id),
         },
     )
 
     relation.register_reward_sent = True
-    _inherit_inviter_channel(db, inviter_id=int(inviter.id), invitee_id=int(invitee.id))
+    _inherit_inviter_channel(db, inviter_id=int(locked_inviter.id), invitee_id=int(locked_invitee.id))
     db.flush()
 
     valid_invite_count = (
         db.query(func.count(ReferralRelation.id))
         .filter(
-            ReferralRelation.inviter_id == inviter.id,
+            ReferralRelation.inviter_id == locked_inviter.id,
             ReferralRelation.register_reward_sent.is_(True),
         )
         .scalar()
@@ -202,9 +206,9 @@ def grant_invite_rewards(
         label = str(item.get("label") or "").strip()[:48] or f"邀请满 {threshold} 人"
         _grant_invite_credit_reward(
             db,
-            user=inviter,
+            user=locked_inviter,
             scene=scene,
-            benefit_code=_invite_benefit_code("milestone", inviter.id, threshold),
+            benefit_code=_invite_benefit_code("milestone", locked_inviter.id, threshold),
             reward_points=reward_points,
             title=label,
             meta={

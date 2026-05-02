@@ -3,6 +3,7 @@ const {
   clearRefreshToken,
   getRefreshToken,
   getToken,
+  getTokenAge,
   setRefreshToken,
   setToken,
   clearToken,
@@ -12,6 +13,14 @@ const {
 const { openLogin, getCurrentRoute } = require("./authFlow")
 const { getBizMessage } = require("./status")
 let refreshPromise = null
+const PROACTIVE_REFRESH_AGE_MS = 90 * 60 * 1000
+
+async function ensureFreshToken() {
+  if (!getToken()) return
+  if (getTokenAge() >= PROACTIVE_REFRESH_AGE_MS) {
+    await refreshMiniSession()
+  }
+}
 
 function buildHeaders(extra = {}, options = {}) {
   const { includeJsonContentType = true } = options
@@ -137,7 +146,9 @@ function getNetworkError(err, upload = false) {
 function request(options) {
   const { url, method = "GET", data = {}, header = {}, silent = false, timeout = 20000, _retried = false } = options
   return new Promise((resolve, reject) => {
-    wx.request({
+    ;(async () => {
+      await ensureFreshToken()
+      wx.request({
       url: `${env.apiBaseUrl}${url}`,
       method,
       data,
@@ -207,6 +218,7 @@ function request(options) {
         reject(error)
       },
     })
+    })()
   })
 }
 
@@ -220,10 +232,11 @@ function uploadFile(options) {
     silent = false,
     timeout = 120000,
     _retried = false,
+    onProgress = null,
   } = options
 
   return new Promise((resolve, reject) => {
-    wx.uploadFile({
+    const uploadOptions = {
       url: `${env.apiBaseUrl}${url}`,
       filePath,
       name,
@@ -288,7 +301,13 @@ function uploadFile(options) {
         if (!silent) wx.showToast({ title: error.message, icon: "none" })
         reject(error)
       },
-    })
+    }
+    if (typeof onProgress === "function") {
+      uploadOptions.onProgressUpdate = (res) => {
+        onProgress(res.progress || 0, res.totalBytesSent || 0, res.totalBytesExpectedToSend || 0)
+      }
+    }
+    wx.uploadFile(uploadOptions)
   })
 }
 

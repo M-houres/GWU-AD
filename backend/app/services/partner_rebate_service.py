@@ -105,7 +105,7 @@ def _frontend_base_url(request: Request | None = None) -> str:
     raw = str(settings.frontend_base_url or "").strip()
     if raw:
         return raw.split("/api/", 1)[0].rstrip("/")
-    preferred_base = "https://www.restin.top"
+    preferred_base = "https://restin.top"
     if request is not None:
         origin = str(request.headers.get("origin") or "").strip()
         referer = str(request.headers.get("referer") or "").strip()

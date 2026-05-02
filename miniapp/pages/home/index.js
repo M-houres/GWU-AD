@@ -241,6 +241,7 @@ Page({
     paperTitle: "",
     authors: "",
     submitting: false,
+    uploadProgress: 0,
     creditChipText: "登录后查看积分",
     quotaChipText: `AIGC 每日免费 ${DEFAULT_AIGC_DAILY_FREE_LIMIT} 篇`,
     quotaPanelTitle: `今日可免费检测 ${DEFAULT_AIGC_DAILY_FREE_LIMIT} 篇`,
@@ -593,7 +594,7 @@ Page({
       return
     }
 
-    this.setData({ submitting: true })
+    this.setData({ submitting: true, uploadProgress: 0 })
     const submittedAt = Date.now()
 
     try {
@@ -607,6 +608,9 @@ Page({
           paper_title: this.data.paperTitle.trim(),
           authors: this.data.authors.trim(),
           source_filename: this.data.paperName || getFilename(this.data.paperPath),
+        },
+        onProgress: (pct) => {
+          this.setData({ uploadProgress: Math.min(pct, 100) })
         },
       })
 

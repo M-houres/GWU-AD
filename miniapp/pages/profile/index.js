@@ -112,6 +112,7 @@ Page({
     creating: false,
     creatingPackageName: "",
     paying: false,
+    confirming: false,
     packages: [],
     paymentTestMode: false,
     paymentMessage: "",
@@ -142,6 +143,9 @@ Page({
       this.loadPromoSummary()
       this.consumePendingAction()
       this.loadPackages()
+      if (this.data.orderNo && this.data.orderStatus === "created" && !this.countdownTimer) {
+        this.startTimers()
+      }
     } else {
       this.syncGuestProfile()
     }
@@ -448,8 +452,9 @@ Page({
   },
 
   async onConfirmPaid() {
-    if (!this.data.orderNo) return
+    if (!this.data.orderNo || this.data.confirming) return
 
+    this.setData({ confirming: true })
     try {
       const data = await request({
         url: `/billing/order-pay/${this.data.orderNo}`,
@@ -462,11 +467,15 @@ Page({
         orderStatusClass: getOrderStatusTone(status),
         remainSeconds: 0,
       })
-      this.stopTimers()
+      if (status === "paid" || status === "closed") {
+        this.stopTimers()
+      }
       await this.loadProfile()
       wx.showToast({ title: "支付成功", icon: "success" })
     } catch (error) {
       wx.showToast({ title: toFriendlyError(error, "支付确认失败"), icon: "none" })
+    } finally {
+      this.setData({ confirming: false })
     }
   },
 
@@ -568,9 +577,9 @@ Page({
     wx.showModal({
       title: "退出登录",
       content: "退出后将清除当前登录状态，需要重新登录后才能继续下单和查看记录。是否继续？",
-      success: (res) => {
+      success: async (res) => {
         if (!res.confirm) return
-        logout()
+        await logout()
         this.syncGuestProfile()
         wx.switchTab({ url: "/pages/home/index" })
       },

@@ -815,3 +815,27 @@ def test_save_miniapp_config_persists_payment_and_domain_fields(
     assert readiness["status"] == "ready"
     assert "登录已启用" in readiness["message"]
     assert "支付已启用" in readiness["message"]
+
+
+def test_miniapp_readiness_requires_upload_and_download_domains(
+    client: TestClient,
+    admin_override,
+) -> None:
+    resp = client.post(
+        "/api/v1/admin/configs/miniapp",
+        json={
+            "enabled": True,
+            "app_id": "wx-mini-prod-001",
+            "app_secret": "mini-prod-secret-001",
+            "wechat_miniprogram_login_enabled": True,
+            "wechat_miniprogram_app_id": "wx-mini-login-001",
+            "wechat_miniprogram_app_secret": "mini-login-secret-001",
+            "api_base_url": "https://api.example.com/api/v1",
+            "request_domain": "https://api.example.com",
+        },
+    )
+    assert resp.status_code == 200
+
+    readiness = _readiness_item(client, "miniapp")
+    assert readiness["status"] == "error"
+    assert readiness["message"] == "小程序 uploadFile 域名未配置或不是 HTTPS"

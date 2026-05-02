@@ -3,15 +3,12 @@ const LOCAL_API_BASE_URL = "http://127.0.0.1:8000/api/v1"
 
 const envMap = {
   develop: {
-    // Local dev should hit the local backend first so miniapp config changes can be verified safely.
     apiBaseUrl: LOCAL_API_BASE_URL,
   },
   trial: {
-    // Must be a filed HTTPS domain allowed in WeChat.
     apiBaseUrl: PROD_API_BASE_URL,
   },
   release: {
-    // Must be a filed HTTPS domain allowed in WeChat.
     apiBaseUrl: PROD_API_BASE_URL,
   },
 }

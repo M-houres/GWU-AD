@@ -126,9 +126,15 @@
         </view>
 
         <view class="promo-actions promo-actions-inline">
-          <button class="promo-btn promo-btn--compact" open-type="share" hover-class="is-press-btn">立即邀请</button>
-          <button class="promo-btn promo-btn--compact" hover-class="is-press-btn" bindtap="onCopyInviteCode">复制邀请码</button>
-          <button class="promo-btn promo-btn--compact" hover-class="is-press-btn" bindtap="onCopyShareText">复制邀请文案</button>
+          <view class="promo-action-item">
+            <button class="promo-btn promo-btn--compact" open-type="share" hover-class="is-press-btn">立即邀请</button>
+          </view>
+          <view class="promo-action-item">
+            <button class="promo-btn promo-btn--compact" hover-class="is-press-btn" bindtap="onCopyInviteCode">复制邀请码</button>
+          </view>
+          <view class="promo-action-item">
+            <button class="promo-btn promo-btn--compact" hover-class="is-press-btn" bindtap="onCopyShareText">复制邀请文案</button>
+          </view>
         </view>
       </view>
 
@@ -167,16 +173,20 @@
             <view class="promo-file-name">{{ likeScreenshotName || "未选择截图" }}</view>
           </view>
           <view class="promo-actions promo-actions-inline promo-actions-inline--tight">
-            <button class="promo-btn promo-btn--compact" hover-class="is-press-btn" disabled="{{ likeSubmitting }}" bindtap="onChooseLikeScreenshot">{{ likeScreenshotName ? '更换截图' : '上传截图' }}</button>
-            <button
-              class="promo-btn promo-btn--compact"
-              hover-class="is-press-btn"
-              loading="{{ likeSubmitting }}"
-              disabled="{{ likeSubmitting || !likeScreenshotPath }}"
-              bindtap="onSubmitLikeSubmission"
-            >
-              {{ likeSubmitting ? '提交中' : '提交审核' }}
-            </button>
+            <view class="promo-action-item">
+              <button class="promo-btn promo-btn--compact" hover-class="is-press-btn" disabled="{{ likeSubmitting }}" bindtap="onChooseLikeScreenshot">{{ likeScreenshotName ? '更换截图' : '上传截图' }}</button>
+            </view>
+            <view class="promo-action-item">
+              <button
+                class="promo-btn promo-btn--compact"
+                hover-class="is-press-btn"
+                loading="{{ likeSubmitting }}"
+                disabled="{{ likeSubmitting || !likeScreenshotPath }}"
+                bindtap="onSubmitLikeSubmission"
+              >
+                {{ likeSubmitting ? '提交中' : '提交审核' }}
+              </button>
+            </view>
           </view>
         </view>
 
@@ -269,8 +279,12 @@
           <view class="promo-subtitle">{{ promoConfig.pages.create.template_title || "推荐文案模板" }}</view>
           <view class="promo-template-box">{{ currentTemplate }}</view>
           <view class="promo-actions promo-actions-inline promo-actions-inline--tight">
-            <button class="promo-btn promo-btn--compact" hover-class="is-press-btn" disabled="{{ createSubmitting }}" bindtap="onRotateTemplate">换一条</button>
-            <button class="promo-btn promo-btn--compact" hover-class="is-press-btn" disabled="{{ createSubmitting }}" bindtap="onCopyCurrentTemplate">复制创作文案</button>
+            <view class="promo-action-item">
+              <button class="promo-btn promo-btn--compact" hover-class="is-press-btn" disabled="{{ createSubmitting }}" bindtap="onRotateTemplate">换一条</button>
+            </view>
+            <view class="promo-action-item">
+              <button class="promo-btn promo-btn--compact" hover-class="is-press-btn" disabled="{{ createSubmitting }}" bindtap="onCopyCurrentTemplate">复制创作文案</button>
+            </view>
           </view>
         </view>
 

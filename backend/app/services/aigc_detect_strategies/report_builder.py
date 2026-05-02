@@ -28,17 +28,29 @@ def _distribution(paragraphs: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
-def _fragment_distribution(paragraphs: list[dict[str, Any]], total_chars: int) -> dict[str, Any]:
-    high_chars = sum(int(item.get("char_count") or 0) for item in paragraphs if item.get("label") == "high")
-    medium_chars = sum(int(item.get("char_count") or 0) for item in paragraphs if item.get("label") == "medium")
-    low_chars = sum(int(item.get("char_count") or 0) for item in paragraphs if item.get("label") == "low")
+def _fragment_distribution(
+    paragraphs: list[dict[str, Any]],
+    total_chars: int,
+    *,
+    sentence_spans: list[dict[str, Any]] | None = None,
+    distribution_20pct: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    spans = list(sentence_spans or [])
+    if spans:
+        high_chars = sum(int(item.get("char_count") or 0) for item in spans if item.get("label") == "high")
+        medium_chars = sum(int(item.get("char_count") or 0) for item in spans if item.get("label") == "medium")
+        low_chars = sum(int(item.get("char_count") or 0) for item in spans if item.get("label") == "low")
+    else:
+        high_chars = sum(int(item.get("char_count") or 0) for item in paragraphs if item.get("label") == "high")
+        medium_chars = sum(int(item.get("char_count") or 0) for item in paragraphs if item.get("label") == "medium")
+        low_chars = sum(int(item.get("char_count") or 0) for item in paragraphs if item.get("label") == "low")
     risky_chars = high_chars + medium_chars + low_chars
     weighted = (
         sum(float(item.get("score") or 0.0) * int(item.get("char_count") or 0) for item in paragraphs) / total_chars
         if total_chars
         else 0.0
     )
-    return {
+    payload = {
         "fragment_count": sum(1 for item in paragraphs if item.get("label") != "clean"),
         "high_fragment_count": sum(1 for item in paragraphs if item.get("label") == "high"),
         "middle_fragment_count": sum(1 for item in paragraphs if item.get("label") == "medium"),
@@ -51,6 +63,35 @@ def _fragment_distribution(paragraphs: list[dict[str, Any]], total_chars: int) -
         "total_suspected_text_ratio": round(risky_chars / total_chars * 100.0, 2) if total_chars else 0.0,
         "weighted_score_pct": round(weighted, 2),
     }
+    if distribution_20pct:
+        payload["distribution_20pct"] = distribution_20pct
+    return payload
+
+
+def _section_distribution(section_details: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [
+        {
+            "row_no": int(item.get("row_no") or 0),
+            "section_name": str(item.get("section_name") or ""),
+            "score_pct": round(float(item.get("score_pct") or 0.0), 2),
+            "ai_chars": int(item.get("ai_chars") or 0),
+            "section_chars": int(item.get("section_chars") or 0),
+        }
+        for item in section_details
+        if item.get("section_name")
+    ]
+
+
+def _document_outline(section_details: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [
+        {
+            "index": int(item.get("row_no") or 0),
+            "title": str(item.get("section_name") or ""),
+            "char_count": int(item.get("section_chars") or 0),
+        }
+        for item in section_details
+        if item.get("section_name")
+    ]
 
 
 def _document_metrics(paragraphs: list[dict[str, Any]], total_chars: int) -> dict[str, Any]:
@@ -120,13 +161,23 @@ def build_report_payload(
 ) -> dict[str, Any]:
     profile = detect_output["profile"]
     paragraphs = detect_output["paragraphs"]
+    sentence_spans = list(detect_output.get("sentence_spans") or [])
+    distribution_20pct = dict(detect_output.get("distribution_20pct") or {})
+    section_details = list(detect_output.get("section_details") or [])
     stats = text_stats(text)
     total_chars = int(stats.get("char_count") or 0)
     distribution = _distribution(paragraphs)
-    fragment_distribution = _fragment_distribution(paragraphs, total_chars)
+    fragment_distribution = _fragment_distribution(
+        paragraphs,
+        total_chars,
+        sentence_spans=sentence_spans,
+        distribution_20pct=distribution_20pct,
+    )
     document_metrics = _document_metrics(paragraphs, total_chars)
     decision_basis = _decision_basis(paragraphs, detect_output.get("strategy_trace") or {})
     segments = _collect_segments(paragraphs)
+    section_distribution = _section_distribution(section_details)
+    document_outline = _document_outline(section_details)
     score = clamp(float(detect_output.get("overall_score") or 0.0))
     score_pct = round(score * 100.0, 2)
     if score >= float(profile.get("high", 0.65)):
@@ -177,8 +228,8 @@ def build_report_payload(
         "fragment_distribution": fragment_distribution,
         "document_metrics": document_metrics,
         "decision_basis": decision_basis,
-        "document_outline": [],
-        "section_distribution": [],
+        "document_outline": document_outline,
+        "section_distribution": section_distribution,
         "detail_expanded": detail_expanded,
         "risk_paragraphs": risk_paragraphs if detail_expanded else [],
         "paragraph_details": paragraphs,

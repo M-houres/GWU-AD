@@ -5,25 +5,30 @@
 .promo-stack {
   display: flex;
   flex-direction: column;
-  gap: 18rpx;
 }
 
 .promo-actions {
   display: flex;
-  gap: 16rpx;
-  margin-top: 22rpx;
+  flex-wrap: wrap;
+  margin: 16rpx -6rpx 0;
 }
 
 .promo-actions-inline {
-  flex-wrap: nowrap;
-  gap: 12rpx;
+  margin-top: 16rpx;
 }
 
 .promo-actions-inline--tight {
   margin-top: 14rpx;
 }
 
+.promo-action-item {
+  flex: 1 1 220rpx;
+  min-width: 0;
+  margin: 6rpx;
+}
+
 .promo-btn {
+  width: 100%;
   flex: 1;
   min-height: 72rpx;
   padding: 0 22rpx;
@@ -72,15 +77,12 @@
   padding: 0 12rpx;
   border-radius: 14rpx;
   font-size: 16rpx;
-  flex: 1 1 0;
+  flex: none;
   min-width: 0;
 }
 
-.promo-actions-inline--tight .promo-btn--compact {
-  flex: 1 1 calc(50% - 6rpx);
-}
-
 .promo-hero {
+  margin-top: 18rpx;
   padding: 30rpx 24rpx 24rpx;
   border-radius: 24rpx;
   background: linear-gradient(180deg, #4f8eff 0%, #2a6be8 42%, #153f9c 100%);
@@ -108,13 +110,13 @@
 .promo-hero-facts {
   display: flex;
   flex-wrap: wrap;
-  gap: 12rpx;
-  margin-top: 18rpx;
+  margin: 12rpx -6rpx 0;
 }
 
 .promo-hero-fact {
+  margin: 6rpx;
   min-width: 0;
-  flex: 1;
+  flex: 1 1 200rpx;
   padding: 16rpx 18rpx;
   border-radius: 18rpx;
   background: rgba(255, 255, 255, 0.16);
@@ -158,11 +160,13 @@
 .promo-tabs {
   display: flex;
   flex-wrap: wrap;
-  gap: 12rpx;
+  margin: -6rpx;
 }
 
 .promo-tab {
-  width: calc(50% - 6rpx);
+  flex: 1 1 320rpx;
+  width: auto;
+  margin: 6rpx;
   min-width: 0;
   min-height: 216rpx;
   padding: 18rpx;
@@ -234,13 +238,14 @@
 
 .promo-stat-grid {
   display: flex;
-  gap: 12rpx;
-  margin-top: 18rpx;
+  flex-wrap: wrap;
+  margin: 12rpx -6rpx 0;
 }
 
 .promo-stat-card {
-  flex: 1;
+  flex: 1 1 200rpx;
   min-width: 0;
+  margin: 6rpx;
   padding: 18rpx 16rpx;
   border-radius: 18rpx;
   background: linear-gradient(180deg, #f6f9ff 0%, #ffffff 100%);
@@ -275,11 +280,11 @@
 .promo-chip-row {
   display: flex;
   flex-wrap: wrap;
-  gap: 10rpx;
-  margin-top: 16rpx;
+  margin: 10rpx -5rpx 0;
 }
 
 .promo-chip {
+  margin: 5rpx;
   min-height: 42rpx;
   padding: 0 14rpx;
   border-radius: 999rpx;
@@ -348,7 +353,8 @@
 
 .promo-bind-row {
   display: flex;
-  gap: 16rpx;
+  flex-wrap: wrap;
+  margin: 8rpx -8rpx 0;
   margin-top: 14rpx;
   align-items: stretch;
 }
@@ -363,6 +369,7 @@
 .promo-input {
   flex: 1;
   min-width: 0;
+  margin: 8rpx;
   min-height: 68rpx;
   padding: 0 18rpx;
   border-radius: 16rpx;
@@ -374,6 +381,7 @@
 
 .promo-bind-btn {
   flex: none;
+  margin: 8rpx;
   min-width: 220rpx;
 }
 
@@ -426,14 +434,15 @@
 
 .promo-file-row {
   display: flex;
-  gap: 16rpx;
+  flex-wrap: wrap;
+  margin: 8rpx -8rpx 0;
   align-items: stretch;
-  margin-top: 14rpx;
 }
 
 .promo-file-name {
   flex: 1;
   min-width: 0;
+  margin: 8rpx;
   padding: 18rpx;
   border-radius: 16rpx;
   background: #f6f9ff;
@@ -499,15 +508,19 @@
 .promo-history-list {
   display: flex;
   flex-direction: column;
-  gap: 12rpx;
   margin-top: 14rpx;
 }
 
 .promo-history-card {
+  margin-top: 12rpx;
   padding: 18rpx;
   border-radius: 16rpx;
   background: #ffffff;
   border: 1rpx solid rgba(30, 91, 223, 0.12);
+}
+
+.promo-history-card:first-child {
+  margin-top: 0;
 }
 
 .promo-history-head {
@@ -612,21 +625,31 @@
   margin-top: 18rpx;
   display: flex;
   flex-direction: column;
-  gap: 12rpx;
 }
 
 .promo-contact-card {
+  margin-top: 12rpx;
   padding: 18rpx;
   border-radius: 18rpx;
   background: #ffffff;
   border: 1rpx solid rgba(30, 91, 223, 0.14);
 }
 
+.promo-contact-card:first-child {
+  margin-top: 0;
+}
+
 .promo-contact-top {
   display: flex;
-  gap: 12rpx;
+  flex-wrap: wrap;
+  margin: -6rpx;
   align-items: flex-start;
   justify-content: space-between;
+}
+
+.promo-contact-top > view,
+.promo-contact-top > button {
+  margin: 6rpx;
 }
 
 .promo-inline-btn {
@@ -642,31 +665,8 @@
   background: #f6f9ff;
 }
 
-@media (max-width: 560px) {
-  .promo-bind-row,
-  .promo-file-row {
-    flex-direction: column;
-  }
-
-  .promo-bind-btn,
-  .promo-head-btn {
-    width: 100%;
-    min-width: 0;
-  }
-
-  .promo-actions-grid .promo-btn,
-  .promo-action-wide {
-    flex-basis: calc(50% - 5rpx);
-  }
-
-  .promo-actions-inline {
-    flex-wrap: nowrap;
-    gap: 10rpx;
-  }
-
-  .promo-actions-inline .promo-btn--compact {
-    min-height: 56rpx;
-    font-size: 15rpx;
-    padding: 0 10rpx;
-  }
+.promo-bind-btn,
+.promo-head-btn {
+  width: 100%;
+  min-width: 0;
 }

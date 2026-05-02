@@ -342,7 +342,7 @@ def _pay_pending_order(db: Session, order: Order) -> tuple[Order, bool]:
     if order.status == "paid":
         return order, True
     if order.status == "refunded":
-        raise BizError(code=4209, message="璁㈠崟宸查€€娆撅紝涓嶅彲閲嶅鏀粯")
+        raise BizError(code=4209, message="订单已退款，不可重复支付")
     if order.status == "closed":
         raise BizError(code=4210, message="订单已关闭，请重新下单")
 
@@ -438,11 +438,12 @@ def _find_reusable_open_order(
         .with_for_update()
         .all()
     )
+    normalized_package = str(package_name or "").strip()
     for row in rows:
         if _calc_remain_seconds(row) > 0:
             snapshot = row.package_snapshot if isinstance(row.package_snapshot, dict) else {}
             snapshot_name = str(snapshot.get("name") or "").strip()
-            if str(package_name or "").strip() and snapshot_name and snapshot_name != str(package_name or "").strip():
+            if normalized_package and snapshot_name and snapshot_name != normalized_package:
                 continue
             partner_snapshot = _order_partner_snapshot(row)
             snapshot_channel_id = int(partner_snapshot.get("channel_id") or 0)
@@ -477,7 +478,7 @@ def _assert_paid_amount_matches(order: Order, amount_cny: Decimal | float | str 
     actual = to_cny_decimal(amount_cny)
     expected = to_cny_decimal(order.amount_cny)
     if actual != expected:
-        raise BizError(code=4207, message="鏀粯閲戦涓庤鍗曢噾棰濅笉鍖归厤")
+        raise BizError(code=4207, message="支付金额与订单金额不匹配")
 
 
 def _settle_existing_order(
@@ -1030,10 +1031,11 @@ def pay_callback(
     )
     payload = req.model_dump(exclude={"sign"})
     if not verify_payload_signature(payload, req.sign, db=db):
-        raise BizError(code=4204, message="鏀粯鍥炶皟楠岀澶辫触")
+        raise BizError(code=4204, message="支付回调验签失败")
 
     now_ts = int(datetime.now(timezone.utc).timestamp())
-    if abs(now_ts - req.paid_at) > settings.payment_callback_ttl_seconds:
+    callback_ttl = max(int(settings.payment_callback_ttl_seconds or 900), 60)
+    if abs(now_ts - req.paid_at) > callback_ttl:
         raise BizError(code=4205, message="支付回调已过期")
     if req.status != "paid":
         raise BizError(code=4206, message="仅支持 paid 状态回调")
@@ -1114,13 +1116,13 @@ async def wechatpay_notify(request: Request, db: Session = Depends(db_dep), redi
                 "billing_wechatpay_notify_checkpoint_closed",
                 extra={"order_no": result.get("order_no")},
             )
-        return _wechat_ack(True, "鎴愬姛")
+        return _wechat_ack(True, "成功")
     except BizError as exc:
         logger.warning("billing_wechatpay_notify_failed", extra={"detail": exc.message})
         return _wechat_ack(False, exc.message)
     except Exception as exc:
         logger.exception("billing_wechatpay_notify_exception")
-        return _wechat_ack(False, str(exc)[:120] or "鍥炶皟澶勭悊澶辫触")
+        return _wechat_ack(False, str(exc)[:120] or "回调处理失败")
 
 
 @router.post("/notify/alipay")
@@ -1160,6 +1162,9 @@ async def alipay_notify(request: Request, db: Session = Depends(db_dep), redis_c
                 extra={"order_no": result.get("order_no")},
             )
         return PlainTextResponse("success")
+    except BizError as exc:
+        logger.warning("billing_alipay_notify_biz_error", extra={"detail": exc.message, "code": exc.code})
+        return PlainTextResponse("failure", status_code=200)
     except Exception as exc:
         logger.warning("billing_alipay_notify_failed", extra={"detail": str(exc)[:160]})
         return PlainTextResponse("failure", status_code=400)

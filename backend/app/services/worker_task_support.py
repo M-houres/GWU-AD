@@ -44,12 +44,12 @@ def decrement_submission_counters(task: Task, *, settings, logger) -> None:
         redis_conn = redis.Redis.from_url(settings.celery_broker_url, decode_responses=True)
         backlog_key = "task:submit:backlog"
         user_key = f"task:submit:inflight:user:{task.user_id}"
-        backlog = int(redis_conn.get(backlog_key) or 0)
-        user_inflight = int(redis_conn.get(user_key) or 0)
-        if backlog > 0:
-            redis_conn.decr(backlog_key)
-        if user_inflight > 0:
-            redis_conn.decr(user_key)
+        new_backlog = redis_conn.decr(backlog_key)
+        if new_backlog < 0:
+            redis_conn.set(backlog_key, 0)
+        new_user = redis_conn.decr(user_key)
+        if new_user < 0:
+            redis_conn.set(user_key, 0)
     except Exception:
         logger.warning("task_submit_counter_decrement_failed", exc_info=True, extra={"task_id": task.id})
 
@@ -91,11 +91,11 @@ def release_processing_slot(task: Task, *, settings, logger) -> None:
     try:
         redis_conn = redis.Redis.from_url(settings.celery_broker_url, decode_responses=True)
         global_key, user_key = processing_guard_keys(task)
-        global_count = int(redis_conn.get(global_key) or 0)
-        user_count = int(redis_conn.get(user_key) or 0)
-        if global_count > 0:
-            redis_conn.decr(global_key)
-        if user_count > 0:
-            redis_conn.decr(user_key)
+        new_global = redis_conn.decr(global_key)
+        if new_global < 0:
+            redis_conn.set(global_key, 0)
+        new_user = redis_conn.decr(user_key)
+        if new_user < 0:
+            redis_conn.set(user_key, 0)
     except RedisError:
         logger.warning("task_processing_guard_release_failed", exc_info=True, extra={"task_id": task.id})

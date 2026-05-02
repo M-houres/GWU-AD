@@ -2,9 +2,16 @@
   "desc": "格物学术小程序站点地图",
   "rules": [
     {
+      "action": "disallow",
+      "page": "pages/login/index"
+    },
+    {
+      "action": "disallow",
+      "page": "pages/legal/*"
+    },
+    {
       "action": "allow",
       "page": "*"
     }
   ]
 }
-

@@ -1,5 +1,6 @@
 const env = require("./config/env")
-const { clearPartnerPortalAuth, getToken, getUser } = require("./utils/storage")
+const { clearPartnerPortalAuth, getToken, getUser, setReferrerCode } = require("./utils/storage")
+const { capturePartnerTracking } = require("./utils/partnerTracking")
 
 App({
   globalData: {
@@ -13,6 +14,13 @@ App({
     clearPartnerPortalAuth()
     this.globalData.token = getToken() || ""
     this.globalData.user = getUser() || null
+    const options = wx.getLaunchOptionsSync()
+    const query = options ? options.query || {} : {}
+    const sharedRef = String(query.ref || query.invite_code || "").trim().toUpperCase()
+    if (sharedRef) {
+      setReferrerCode(sharedRef)
+    }
+    capturePartnerTracking(query)
   },
 
   ensurePrivacyAuthorization(handler) {

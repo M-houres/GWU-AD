@@ -13,8 +13,16 @@ const ACTIVE_TASK_STATUSES = ["pending", "preprocessing", "queued", "running"]
 const TASK_HISTORY_PAGE_SIZE = 50
 const TASK_HISTORY_MAX_PAGES = 6
 
-function isActiveTaskStatus(status) {
-  return ACTIVE_TASK_STATUSES.includes(String(status).toLowerCase())
+async function fetchTasksPage(page = 1) {
+  const data = await request({
+    url: `/tasks/my?page=${page}&page_size=${TASK_HISTORY_PAGE_SIZE}`,
+    method: "GET",
+    silent: true,
+  })
+  const items = Array.isArray(data && data.items) ? data.items : []
+  const totalPages = Number(data && data.pagination ? data.pagination.total_pages : 0)
+  const hasMore = Number.isFinite(totalPages) && totalPages > 0 ? page < totalPages && page < TASK_HISTORY_MAX_PAGES : items.length === TASK_HISTORY_PAGE_SIZE && page < TASK_HISTORY_MAX_PAGES
+  return { items, hasMore }
 }
 
 function buildFilterOptions(records = []) {
@@ -178,6 +186,9 @@ Page({
     allRecords: [],
     records: [],
     loading: false,
+    loadingMore: false,
+    currentPage: 0,
+    hasMore: false,
     currentFilter: "all",
     filterOptions: buildFilterOptions([]),
     summary: {
@@ -222,6 +233,8 @@ Page({
       allRecords: [],
       records: [],
       currentFilter: "all",
+      currentPage: 0,
+      hasMore: false,
       filterOptions: buildFilterOptions([]),
       summary: {
         total: 0,
@@ -236,6 +249,7 @@ Page({
       detailLoadingId: 0,
       downloadingId: 0,
       loading: false,
+      loadingMore: false,
     })
   },
 
@@ -291,25 +305,8 @@ Page({
 
     this.setData({ loading: true })
     try {
-      const { items: rawRecords, truncated } = await fetchAllTasks()
-      const records = rawRecords
-        .map((item) => {
-          const resultJson = item && item.result_json && typeof item.result_json === "object" ? item.result_json : {}
-          return {
-            ...item,
-            taskTypeText: getTaskTypeLabel(item.task_type),
-            platformText: getPlatformLabel(item.platform),
-            statusText: getTaskStatusText(item.status),
-            statusClass: getTaskStatusTone(item.status),
-            createdAtText: formatDateTime(item.created_at),
-            charCount: Number(item.char_count || 0),
-            costCredits: Number(item.cost_credits || 0),
-            sourceFilenameText: item.source_filename || "未命名文件",
-            paperTitle: String(resultJson.paper_title || "").trim() || item.source_filename || "未命名篇名",
-            authorsText: String(resultJson.authors || "").trim() || "作者未填写",
-          }
-        })
-        .sort((left, right) => Number(right.id || 0) - Number(left.id || 0))
+      const { items: rawRecords, hasMore } = await fetchTasksPage(1)
+      const records = this.transformRecords(rawRecords)
 
       const completed = records.filter((item) => String(item.status).toLowerCase() === "completed").length
       const active = records.filter((item) => isActiveTaskStatus(item.status)).length
@@ -320,24 +317,69 @@ Page({
 
       this.setData({
         allRecords: records,
-        summary: {
-          total: records.length,
-          completed,
-          active,
-          failed,
-        },
-        historyTruncated: truncated,
-        historyTruncationMessage: truncated
-          ? `当前仅展示最近 ${TASK_HISTORY_PAGE_SIZE * TASK_HISTORY_MAX_PAGES} 条任务记录，请前往后台查看更早数据。`
-          : "",
+        currentPage: 1,
+        hasMore,
+        summary: { total: records.length, completed, active, failed },
+        historyTruncated: false,
+        historyTruncationMessage: "",
       })
       this.applyFilter(this.data.currentFilter, records)
-
     } catch (error) {
       wx.showToast({ title: toFriendlyError(error, "加载记录失败"), icon: "none" })
     } finally {
       this.setData({ loading: false })
     }
+  },
+
+  async loadMoreRecords() {
+    if (this.data.loadingMore || !this.data.hasMore) return
+    const nextPage = this.data.currentPage + 1
+    if (nextPage > TASK_HISTORY_MAX_PAGES) return
+
+    this.setData({ loadingMore: true })
+    try {
+      const { items: rawRecords, hasMore } = await fetchTasksPage(nextPage)
+      const records = this.transformRecords(rawRecords)
+      const allRecords = [...this.data.allRecords, ...records]
+
+      this.setData({
+        allRecords,
+        currentPage: nextPage,
+        hasMore,
+        summary: {
+          total: allRecords.length,
+          completed: allRecords.filter((item) => String(item.status).toLowerCase() === "completed").length,
+          active: allRecords.filter((item) => isActiveTaskStatus(item.status)).length,
+          failed: allRecords.filter((item) => ["failed", "closed"].includes(String(item.status).toLowerCase())).length,
+        },
+      })
+      this.applyFilter(this.data.currentFilter, allRecords)
+    } catch (error) {
+      wx.showToast({ title: toFriendlyError(error, "加载更多失败"), icon: "none" })
+    } finally {
+      this.setData({ loadingMore: false })
+    }
+  },
+
+  transformRecords(rawRecords) {
+    return rawRecords
+      .map((item) => {
+        const resultJson = item && item.result_json && typeof item.result_json === "object" ? item.result_json : {}
+        return {
+          ...item,
+          taskTypeText: getTaskTypeLabel(item.task_type),
+          platformText: getPlatformLabel(item.platform),
+          statusText: getTaskStatusText(item.status),
+          statusClass: getTaskStatusTone(item.status),
+          createdAtText: formatDateTime(item.created_at),
+          charCount: Number(item.char_count || 0),
+          costCredits: Number(item.cost_credits || 0),
+          sourceFilenameText: item.source_filename || "未命名文件",
+          paperTitle: String(resultJson.paper_title || "").trim() || item.source_filename || "未命名篇名",
+          authorsText: String(resultJson.authors || "").trim() || "作者未填写",
+        }
+      })
+      .sort((left, right) => Number(right.id || 0) - Number(left.id || 0))
   },
 
   onChangeFilter(e) {

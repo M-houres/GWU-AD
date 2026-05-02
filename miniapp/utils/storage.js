@@ -6,7 +6,6 @@ const HOME_DRAFT_KEY = "gw_home_draft"
 const REFERRER_CODE_KEY = "gw_referrer_code"
 const PARTNER_TRACKING_KEY = "gw_partner_tracking"
 
-const ACCESS_TOKEN_TTL_MS = 2 * 60 * 60 * 1000
 const REFRESH_TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000
 
 function setToken(token) {
@@ -16,19 +15,21 @@ function setToken(token) {
   }
   wx.setStorageSync(TOKEN_KEY, {
     value: token,
-    expiresAt: Date.now() + ACCESS_TOKEN_TTL_MS,
+    receivedAt: Date.now(),
   })
 }
 
 function getToken() {
   const raw = wx.getStorageSync(TOKEN_KEY)
   if (!raw || typeof raw !== "object") return ""
-  if (!raw.value || !raw.expiresAt) return ""
-  if (Date.now() >= Number(raw.expiresAt)) {
-    wx.removeStorageSync(TOKEN_KEY)
-    return ""
-  }
+  if (!raw.value || !raw.receivedAt) return ""
   return raw.value
+}
+
+function getTokenAge() {
+  const raw = wx.getStorageSync(TOKEN_KEY)
+  if (!raw || typeof raw !== "object" || !raw.receivedAt) return Infinity
+  return Date.now() - Number(raw.receivedAt)
 }
 
 function clearToken() {
@@ -42,7 +43,7 @@ function setRefreshToken(token) {
   }
   wx.setStorageSync(REFRESH_TOKEN_KEY, {
     value: token,
-    expiresAt: Date.now() + REFRESH_TOKEN_TTL_MS,
+    receivedAt: Date.now(),
   })
 }
 
@@ -50,11 +51,12 @@ function getRefreshToken() {
   const raw = wx.getStorageSync(REFRESH_TOKEN_KEY)
   if (!raw) return ""
   if (typeof raw === "string") return raw
-  if (typeof raw !== "object" || !raw.value || !raw.expiresAt) {
+  if (typeof raw !== "object" || !raw.value || !raw.receivedAt) {
     wx.removeStorageSync(REFRESH_TOKEN_KEY)
     return ""
   }
-  if (Date.now() >= Number(raw.expiresAt)) {
+  const age = Date.now() - Number(raw.receivedAt)
+  if (age >= REFRESH_TOKEN_TTL_MS) {
     wx.removeStorageSync(REFRESH_TOKEN_KEY)
     return ""
   }
@@ -189,6 +191,7 @@ function clearPartnerPortalAuth() {
 module.exports = {
   setToken,
   getToken,
+  getTokenAge,
   clearToken,
   setRefreshToken,
   getRefreshToken,

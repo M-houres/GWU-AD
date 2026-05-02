@@ -2444,11 +2444,17 @@ def _category_readiness(category: str, value: dict) -> dict:
             return {"category": category, "status": "error", "message": "小程序登录已启用但 AppID/AppSecret 未填写完整"}
         api_base_url = str(miniapp.get("api_base_url") or "")
         request_domain = str(miniapp.get("request_domain") or "")
+        upload_domain = str(miniapp.get("upload_domain") or "")
+        download_domain = str(miniapp.get("download_domain") or "")
         payment_notify_url = str(miniapp.get("payment_notify_url") or "")
         if (not api_base_url) or (not _is_http_url(api_base_url)):
             return {"category": category, "status": "error", "message": "小程序 API 地址未配置或格式错误"}
         if (not request_domain) or (not _is_https_url(request_domain)):
             return {"category": category, "status": "error", "message": "小程序 request 域名未配置或不是 HTTPS"}
+        if (not upload_domain) or (not _is_https_url(upload_domain)):
+            return {"category": category, "status": "error", "message": "小程序 uploadFile 域名未配置或不是 HTTPS"}
+        if (not download_domain) or (not _is_https_url(download_domain)):
+            return {"category": category, "status": "error", "message": "小程序 downloadFile 域名未配置或不是 HTTPS"}
         if payment_enabled and (not payment_notify_url):
             return {"category": category, "status": "error", "message": "小程序支付已启用但未填写 payment_notify_url"}
         if payment_enabled and (not _is_public_https_url(payment_notify_url)):
